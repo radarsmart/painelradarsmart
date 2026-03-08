@@ -1,0 +1,90 @@
+"use client";
+
+import { useState } from "react";
+import { Search } from "lucide-react";
+import { formatBRL } from "@/lib/formatters";
+
+export type ProdutoML = {
+  id: string;
+  title: string;
+  price: number;
+  original_price?: number;
+  discount_pct?: number;
+  image_url?: string;
+  product_url: string;
+  affiliate_url: string;
+  sold?: number;
+  condition?: string;
+};
+
+type BuscaMercadoLivreProps = {
+  onSelect: (item: ProdutoML) => void;
+};
+
+export default function BuscaMercadoLivre({ onSelect }: BuscaMercadoLivreProps) {
+  const [q, setQ] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [results, setResults] = useState<ProdutoML[]>([]);
+  const [error, setError] = useState<string | null>(null);
+
+  const search = async () => {
+    if (!q.trim()) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/admin/ml/search?q=${encodeURIComponent(q)}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error ?? "Falha ao consultar ML");
+      setResults(data.products ?? []);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="rounded-xl border border-rs-border bg-white p-4">
+      <p className="text-sm font-semibold text-navy">Buscar no Mercado Livre</p>
+      <div className="mt-3 flex gap-2">
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Ex: camiseta ralph lauren"
+          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-orange"
+        />
+        <button
+          type="button"
+          onClick={search}
+          disabled={loading}
+          className="inline-flex items-center gap-2 rounded-lg bg-navy px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+        >
+          <Search className="h-4 w-4" />
+          Buscar
+        </button>
+      </div>
+      {error ? <p className="mt-2 text-xs text-rs-red">{error}</p> : null}
+
+      <div className="mt-4 space-y-3">
+        {results.map((item) => (
+          <div
+            key={item.id}
+            className="flex items-center justify-between rounded-lg border border-slate-200 p-3"
+          >
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium">{item.title}</p>
+              <p className="text-xs text-rs-muted">{formatBRL(item.price)}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => onSelect(item)}
+              className="rounded-lg bg-orange px-3 py-1.5 text-xs font-semibold text-white"
+            >
+              Selecionar
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}

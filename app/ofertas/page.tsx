@@ -1,14 +1,15 @@
 import Header from "@/components/layout/Header";
 import Footer from "@/components/layout/Footer";
 import GridOfertas from "@/components/vitrine/GridOfertas";
+import type { OfertaCard } from "@/components/vitrine/CardOferta";
 import { getOfertas } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
 
 export default async function OfertasPage() {
-  let offers: any[] = [];
+  let offers: OfertaCard[] = [];
   try {
-    offers = await getOfertas(48);
+    offers = (await getOfertas(48)) as OfertaCard[];
   } catch {
     offers = [];
   }

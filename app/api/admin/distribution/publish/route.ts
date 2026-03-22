@@ -1,0 +1,257 @@
+import { NextRequest, NextResponse } from "next/server";
+import {
+  dispatchLegacyOffer,
+  type DistributionChannel,
+} from "@/lib/distribution/legacy-dispatch";
+import { supabaseAdmin } from "@/lib/supabase";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+type Marketplace = "mercadolivre" | "amazon";
+
+type ExtractSuccessResponse = {
+  success: true;
+  job_id: string;
+  offer_id?: string | null;
+  offer_status?: string | null;
+  needs_review?: boolean;
+  preview?: Record<string, unknown>;
+  extracted?: Record<string, unknown>;
+};
+
+type ExtractErrorResponse = {
+  error?: string;
+  job_id?: string | null;
+  details?: unknown;
+};
+
+async function isAuthenticatedRequest(req: NextRequest): Promise<boolean> {
+  const authHeader = req.headers.get("authorization") ?? "";
+  const token = authHeader.replace(/^Bearer\s+/i, "").trim();
+
+  if (token.length > 20) {
+    const { data, error } = await supabaseAdmin.auth.getUser(token);
+    if (!error && data.user) return true;
+  }
+
+  return req.cookies
+    .getAll()
+    .some(
+      (cookie) =>
+        cookie.name.startsWith("sb-") && cookie.name.includes("auth-token"),
+    );
+}
+
+function normalizeMarketplace(value: unknown): Marketplace | null {
+  const normalized = String(value ?? "").toLowerCase().trim();
+  if (normalized === "mercadolivre" || normalized === "amazon") {
+    return normalized;
+  }
+  return null;
+}
+
+function normalizeChannels(value: unknown): DistributionChannel[] {
+  if (!Array.isArray(value) || !value.length) {
+    return ["telegram", "whatsapp"];
+  }
+  const channels = Array.from(
+    new Set(value.map((item) => String(item ?? "").toLowerCase().trim())),
+  );
+  const filtered = channels.filter(
+    (channel): channel is DistributionChannel =>
+      channel === "telegram" || channel === "whatsapp",
+  );
+  return filtered.length ? filtered : ["telegram", "whatsapp"];
+}
+
+function normalizeCopyByChannel(body: {
+  ad_text?: unknown;
+  ad_text_by_channel?: unknown;
+}): Partial<Record<DistributionChannel, string>> {
+  const map = body.ad_text_by_channel;
+  const adTextByChannel: Partial<Record<DistributionChannel, string>> = {};
+
+  if (map && typeof map === "object") {
+    for (const channel of ["telegram", "whatsapp"] as const) {
+      const value = String(
+        (map as Record<string, unknown>)[channel] ?? "",
+      ).trim();
+      if (value) adTextByChannel[channel] = value;
+    }
+  }
+
+  if (Object.keys(adTextByChannel).length) return adTextByChannel;
+
+  const fallbackText = String(body.ad_text ?? "").trim();
+  if (fallbackText) {
+    return {
+      telegram: fallbackText,
+      whatsapp: fallbackText,
+    };
+  }
+
+  return {};
+}
+
+async function callExtractRoute(
+  req: NextRequest,
+  marketplace: Marketplace,
+  url: string,
+  affiliateUrl: string,
+) {
+  const endpoint =
+    marketplace === "amazon" ? "/api/admin/amazon/extract" : "/api/admin/ml/extract";
+
+  const headers = new Headers({ "Content-Type": "application/json" });
+  const authorization = req.headers.get("authorization");
+  const cookie = req.headers.get("cookie");
+
+  if (authorization) headers.set("authorization", authorization);
+  if (cookie) headers.set("cookie", cookie);
+
+  const response = await fetch(new URL(endpoint, req.nextUrl.origin), {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      url,
+      affiliate_url: affiliateUrl,
+      persist: true,
+    }),
+    cache: "no-store",
+  });
+
+  const json = (await response.json().catch(() => ({}))) as
+    | ExtractSuccessResponse
+    | ExtractErrorResponse;
+
+  return { response, json };
+}
+
+export async function POST(req: NextRequest) {
+  if (!(await isAuthenticatedRequest(req))) {
+    return NextResponse.json({ error: "Nao autorizado" }, { status: 401 });
+  }
+
+  try {
+    const body = (await req.json()) as {
+      marketplace?: string;
+      url?: string;
+      affiliate_url?: string;
+      channels?: unknown;
+      ad_text?: unknown;
+      ad_text_by_channel?: unknown;
+    };
+
+    const marketplace = normalizeMarketplace(body.marketplace);
+    const sourceUrl = String(body.url ?? "").trim();
+    const affiliateUrl = String(body.affiliate_url ?? "").trim();
+    const channels = normalizeChannels(body.channels);
+    const copyByChannel = normalizeCopyByChannel({
+      ad_text: body.ad_text,
+      ad_text_by_channel: body.ad_text_by_channel,
+    });
+
+    if (!marketplace) {
+      return NextResponse.json(
+        { error: "marketplace invalido. Use mercadolivre ou amazon." },
+        { status: 400 },
+      );
+    }
+
+    if (!sourceUrl) {
+      return NextResponse.json(
+        { error: "Campo url obrigatorio." },
+        { status: 400 },
+      );
+    }
+
+    if (!affiliateUrl) {
+      return NextResponse.json(
+        { error: "Campo affiliate_url obrigatorio." },
+        { status: 400 },
+      );
+    }
+
+    const { response: extractResponse, json: extractJson } = await callExtractRoute(
+      req,
+      marketplace,
+      sourceUrl,
+      affiliateUrl,
+    );
+
+    if (!extractResponse.ok) {
+      const extractError = extractJson as ExtractErrorResponse;
+      return NextResponse.json(
+        {
+          error:
+            extractError.error ??
+            "Falha ao extrair e persistir oferta.",
+          extract: extractError,
+        },
+        { status: extractResponse.status },
+      );
+    }
+
+    const extracted = extractJson as ExtractSuccessResponse;
+    const offerId = String(extracted.offer_id ?? "").trim();
+    const offerStatus = String(extracted.offer_status ?? "").toLowerCase();
+    const needsReview = Boolean(extracted.needs_review);
+
+    if (!offerId) {
+      return NextResponse.json(
+        {
+          error:
+            "Extracao retornou sucesso, mas sem offer_id para distribuicao.",
+          extract: extracted,
+        },
+        { status: 500 },
+      );
+    }
+
+    if (needsReview || offerStatus === "needs_review") {
+      return NextResponse.json({
+        success: true,
+        queued: false,
+        message:
+          "Oferta salva em needs_review. Nao foi enviada para os canais.",
+        offer_id: offerId,
+        offer_status: extracted.offer_status ?? "needs_review",
+        needs_review: true,
+        extract: extracted,
+      });
+    }
+
+    const dispatch = await dispatchLegacyOffer({
+      offerId,
+      affiliateUrl,
+      channels,
+      copyByChannel,
+    });
+
+    return NextResponse.json({
+      success: true,
+      queued: dispatch.queued > 0,
+      message:
+        dispatch.queued > 0
+          ? "Oferta salva e enviada para a fila de disparo!"
+          : "Oferta salva, mas nenhum job novo foi enfileirado (dedupe ou regra de fila).",
+      offer_id: offerId,
+      offer_status: extracted.offer_status ?? "active",
+      needs_review: false,
+      extract: extracted,
+      distribution: dispatch,
+    });
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error:
+          error instanceof Error
+            ? error.message
+            : "Erro interno ao publicar e distribuir oferta.",
+      },
+      { status: 500 },
+    );
+  }
+}
+

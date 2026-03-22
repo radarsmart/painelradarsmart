@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
@@ -10,6 +10,19 @@ export default function AdminLoginPage() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    supabase.auth.getSession().then(({ data }) => {
+      if (!mounted) return;
+      if (data.session) {
+        router.replace("/admin");
+      }
+    });
+    return () => {
+      mounted = false;
+    };
+  }, [router]);
 
   const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -24,7 +37,14 @@ export default function AdminLoginPage() {
       router.push("/admin");
       router.refresh();
     } catch (err) {
-      setError((err as Error).message);
+      const message = (err as Error).message;
+      if (message.toLowerCase().includes("failed to fetch")) {
+        setError(
+          "Falha de conexao com Supabase. Verifique NEXT_PUBLIC_SUPABASE_URL/ANON_KEY e reinicie o servidor.",
+        );
+      } else {
+        setError(message);
+      }
     } finally {
       setLoading(false);
     }

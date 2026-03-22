@@ -10,6 +10,22 @@ export type AmazonProduct = {
   affiliate_url: string;
 };
 
+type AmazonApiProduct = {
+  asin?: string | null;
+  product_title?: string | null;
+  product_price?: string | null;
+  product_original_price?: string | null;
+  product_photo?: string | null;
+  product_star_rating?: number | string | null;
+  product_num_ratings?: number | string | null;
+};
+
+type AmazonApiResponse = {
+  data?: {
+    products?: AmazonApiProduct[] | null;
+  } | null;
+};
+
 export const parseCurrencyToNumber = (raw?: string | null) => {
   if (!raw) return 0;
   const normalized = raw
@@ -22,11 +38,11 @@ export const parseCurrencyToNumber = (raw?: string | null) => {
 };
 
 export const normalizeAmazonProducts = (
-  data: any,
+  data: AmazonApiResponse | null | undefined,
   tag = "radarsmart-20",
 ): AmazonProduct[] => {
   const items = data?.data?.products ?? [];
-  return items.slice(0, 10).map((p: any) => {
+  return items.slice(0, 10).map((p) => {
     const asin = String(p.asin ?? "");
     return {
       asin,

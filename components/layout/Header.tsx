@@ -1,54 +1,68 @@
+"use client";
+
+import Image from "next/image";
 import Link from "next/link";
-import { Search, Bell, Heart, MessageCircle } from "lucide-react";
+import { MessageCircle } from "lucide-react";
+
+type HeaderProps = {
+  withTickerOffset?: boolean;
+};
 
 const navLinks = [
-  { href: "/", label: "Início" },
-  { href: "/comparativo", label: "Comparativo" },
+  { href: "/", label: "Inicio" },
+  { href: "/ofertas", label: "Ofertas" },
+  { href: "/comparativo", label: "Comparador" },
+  { href: "/blog", label: "Guias" },
   { href: "/blog", label: "Blog" },
-  { href: "/grupo", label: "Grupo" },
-  { href: "/admin", label: "Admin" },
 ];
 
-export default function Header() {
+const GROUP_URL =
+  process.env.NEXT_PUBLIC_WHATSAPP_GROUP_URL ??
+  "https://chat.whatsapp.com/G5fdVL51Zr94XDoqOexP9d";
+
+export default function Header({ withTickerOffset = false }: HeaderProps) {
   return (
-    <header className="sticky top-0 z-40 border-b border-rs-border bg-navy text-white">
-      <div className="mx-auto flex max-w-7xl items-center gap-4 px-4 py-3">
-        <Link href="/" className="font-display text-xl font-bold tracking-tight">
-          Radar <span className="text-orange-3">Smart</span>
+    <header
+      className={`sticky ${
+        withTickerOffset ? "top-11" : "top-0"
+      } z-[55] h-20 border-b border-slate-200/70 bg-white/70 backdrop-blur-xl`}
+    >
+      <div className="mx-auto grid h-full max-w-7xl grid-cols-[auto_1fr_auto] items-center gap-4 px-4">
+        <Link href="/" className="inline-flex items-center gap-3" aria-label="Radar Smart">
+          <Image
+            src="/logo.png"
+            alt="Logo Radar Smart"
+            width={160}
+            height={40}
+            priority
+            className="h-10 w-auto"
+          />
+          <span className="hidden text-base font-black tracking-wide text-[#22223B] sm:inline">
+            RADAR SMART
+          </span>
         </Link>
 
-        <div className="hidden flex-1 items-center gap-2 rounded-md border border-rs-border bg-white/95 px-3 py-2 text-navy md:flex">
-          <Search className="h-4 w-4 text-rs-muted" />
-          <input
-            aria-label="Buscar ofertas"
-            className="w-full bg-transparent text-sm outline-none"
-            placeholder="Buscar produto, loja ou categoria"
-          />
-        </div>
-
-        <nav className="hidden items-center gap-4 text-sm lg:flex">
+        <nav className="hidden items-center justify-center gap-6 text-sm font-semibold text-[#22223B] lg:flex">
           {navLinks.map((item) => (
-            <Link key={item.href} href={item.href} className="hover:text-orange-3">
+            <Link
+              key={item.label}
+              href={item.href}
+              className="transition-all duration-200 hover:text-[#9e6a18]"
+            >
               {item.label}
             </Link>
           ))}
         </nav>
 
-        <div className="ml-auto flex items-center gap-2">
-          <button className="rounded-md border border-rs-border p-2 hover:bg-navy-2">
-            <Bell className="h-4 w-4" />
-          </button>
-          <button className="rounded-md border border-rs-border p-2 hover:bg-navy-2">
-            <Heart className="h-4 w-4" />
-          </button>
-          <Link
-            href="/grupo"
-            className="inline-flex items-center gap-2 rounded-md bg-orange px-3 py-2 text-sm font-semibold text-white hover:bg-orange-2"
-          >
-            <MessageCircle className="h-4 w-4" />
-            Entrar no Grupo
-          </Link>
-        </div>
+        <a
+          href={GROUP_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-2 rounded-full bg-[#9e6a18] px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all duration-200 hover:brightness-110"
+        >
+          <MessageCircle className="h-4 w-4" />
+          Entrar no Grupo
+        </a>
       </div>
     </header>
   );

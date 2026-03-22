@@ -11,13 +11,28 @@ export type MlProduct = {
   condition: string;
 };
 
+type MlApiResult = {
+  id?: string | null;
+  title?: string | null;
+  price?: number | string | null;
+  original_price?: number | string | null;
+  permalink?: string | null;
+  thumbnail?: string | null;
+  sold_quantity?: number | string | null;
+  condition?: string | null;
+};
+
+type MlApiResponse = {
+  results?: MlApiResult[] | null;
+};
+
 export const normalizeMlProducts = (
-  data: any,
+  data: MlApiResponse | null | undefined,
   mattTool = "",
 ): MlProduct[] => {
   const items = data?.results ?? [];
 
-  return items.slice(0, 10).map((item: any) => {
+  return items.slice(0, 10).map((item) => {
     const price = Number(item.price ?? 0);
     const original = Number(item.original_price ?? price);
     const discountPct =

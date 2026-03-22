@@ -7,6 +7,20 @@ import { getHistoricoPreco, supabaseAdmin } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
 
+type OfferRow = {
+  title: string | null;
+  affiliate_url: string | null;
+};
+
+type PriceHistoryRow = {
+  id: string;
+  recorded_at: string;
+  price: number | string | null;
+  buy_score?: number | string | null;
+  store?: string | null;
+  marketplace?: string | null;
+};
+
 export default async function ComparativoDetalhePage({
   params,
 }: {
@@ -14,8 +28,8 @@ export default async function ComparativoDetalhePage({
 }) {
   const offerId = params.slug;
 
-  let offer: any = null;
-  let history: any[] = [];
+  let offer: OfferRow | null = null;
+  let history: PriceHistoryRow[] = [];
 
   try {
     const offerRes = await supabaseAdmin
@@ -23,8 +37,8 @@ export default async function ComparativoDetalhePage({
       .select("*")
       .eq("id", offerId)
       .maybeSingle();
-    offer = offerRes.data;
-    history = await getHistoricoPreco(offerId);
+    offer = (offerRes.data as OfferRow | null) ?? null;
+    history = (await getHistoricoPreco(offerId)) as PriceHistoryRow[];
   } catch {
     offer = null;
     history = [];
@@ -32,7 +46,7 @@ export default async function ComparativoDetalhePage({
 
   const chartData =
     history.length > 0
-      ? history.map((h) => ({ recorded_at: h.recorded_at, price: Number(h.price) }))
+      ? history.map((h) => ({ recorded_at: h.recorded_at, price: Number(h.price ?? 0) }))
       : [
           {
             recorded_at: new Date(Date.now() - 1000 * 60 * 60 * 24 * 2).toISOString(),
@@ -49,10 +63,10 @@ export default async function ComparativoDetalhePage({
     history.length > 0
       ? history.map((h) => ({
           id: h.id,
-          store: h.store,
-          marketplace: h.marketplace,
-          price: Number(h.price),
-          affiliate_url: offer?.affiliate_url,
+          store: h.store ?? undefined,
+          marketplace: h.marketplace ?? undefined,
+          price: Number(h.price ?? 0),
+          affiliate_url: offer?.affiliate_url ?? undefined,
           offer_id: offerId,
         }))
       : [];

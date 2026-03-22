@@ -2,16 +2,25 @@ import { supabaseAdmin } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
 
+type AffiliateProgramRow = {
+  marketplace: string | null;
+  tracking_tag: string | null;
+  active?: boolean | null;
+  enabled?: boolean | null;
+};
+
 export default async function AdminConfiguracoesPage() {
   const { data } = await supabaseAdmin
     .from("affiliate_programs")
     .select("*")
     .order("marketplace");
 
+  const programs = (data ?? []) as AffiliateProgramRow[];
+
   return (
     <div className="space-y-4">
       <h1 className="font-display text-3xl font-bold text-navy">
-        Configurações de Afiliado
+        Configuracoes de Afiliado
       </h1>
       <div className="overflow-hidden rounded-xl border border-rs-border bg-white">
         <table className="w-full text-left text-sm">
@@ -23,14 +32,14 @@ export default async function AdminConfiguracoesPage() {
             </tr>
           </thead>
           <tbody>
-            {(data ?? []).map((item: any) => (
-              <tr key={item.marketplace} className="border-t border-slate-200">
+            {programs.map((item, index) => (
+              <tr key={`${item.marketplace ?? "marketplace"}-${index}`} className="border-t border-slate-200">
                 <td className="px-4 py-3">{item.marketplace}</td>
                 <td className="px-4 py-3">{item.tracking_tag ?? "-"}</td>
-                <td className="px-4 py-3">{item.active ? "Sim" : "Não"}</td>
+                <td className="px-4 py-3">{(item.active ?? item.enabled) ? "Sim" : "Nao"}</td>
               </tr>
             ))}
-            {!data?.length ? (
+            {!programs.length ? (
               <tr>
                 <td colSpan={3} className="px-4 py-6 text-rs-muted">
                   Sem programas cadastrados.

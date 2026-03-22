@@ -1,7 +1,5 @@
 "use client";
 
-import { MouseEvent } from "react";
-
 type BotaoAfiliadoProps = {
   offerId: string;
   href: string;
@@ -17,7 +15,7 @@ export default function BotaoAfiliado({
   label,
   className,
 }: BotaoAfiliadoProps) {
-  const onClick = async (_event: MouseEvent<HTMLAnchorElement>) => {
+  const onClick = async () => {
     try {
       await fetch("/api/click", {
         method: "POST",

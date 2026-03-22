@@ -1,23 +1,60 @@
-import { cookies } from "next/headers";
-import { redirect } from "next/navigation";
+"use client";
+
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import AdminSidebar from "@/components/admin/AdminSidebar";
+import { supabase } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
 
-export default async function AdminProtectedLayout({
+export default function AdminProtectedLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const cookieStore = cookies();
-  const hasAuthCookie = cookieStore
-    .getAll()
-    .some(
-      (cookie) =>
-        cookie.name.startsWith("sb-") && cookie.name.includes("auth-token"),
+  const router = useRouter();
+  const [isReady, setIsReady] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+
+    const validate = async () => {
+      const { data, error } = await supabase.auth.getSession();
+      if (!active) return;
+
+      if (error || !data.session) {
+        router.replace("/admin/login");
+        return;
+      }
+
+      setIsReady(true);
+    };
+
+    validate();
+
+    const { data: authListener } = supabase.auth.onAuthStateChange(
+      (_event, session) => {
+        if (!active) return;
+        if (!session) {
+          setIsReady(false);
+          router.replace("/admin/login");
+        }
+      },
     );
 
-  if (!hasAuthCookie) redirect("/admin/login");
+    return () => {
+      active = false;
+      authListener.subscription.unsubscribe();
+    };
+  }, [router]);
+
+  if (!isReady) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-100 text-sm text-rs-muted">
+        Validando sessao...
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen bg-slate-100">

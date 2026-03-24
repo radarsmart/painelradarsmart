@@ -14,19 +14,38 @@ type ExtractPreview = {
   old_price?: number;
   discount_pct?: number;
   image_url?: string;
+  imageUrl?: string;
   rating?: number;
   reviews?: number;
   product_url: string;
+  productUrl?: string;
   affiliate_url: string;
+  affiliateUrl?: string;
 };
 
 type ExtractResponse = {
-  success: boolean;
-  job_id: string;
-  offer_id?: string | null;
-  offer_status?: string | null;
-  needs_review?: boolean;
-  preview: ExtractPreview;
+  success?: boolean;
+  status?: "ok" | "partial_failure" | "error";
+  missing_fields?: string[];
+  engine?: string;
+  extraction_layer?: string;
+  elapsed_ms?: number;
+  title?: string;
+  price?: number;
+  old_price?: number;
+  image?: string;
+  image_url?: string;
+  imageUrl?: string;
+  product_url?: string;
+  affiliate_url?: string;
+  preview?: Partial<ExtractPreview>;
+  extracted?: Record<string, unknown>;
+  debug_info?: {
+    layer_used?: "rainforest" | "zenscrape" | "official" | "container";
+    missing_fields?: string[];
+    latency_ms?: number;
+  };
+  error?: string;
 };
 
 type PublishResponse = {
@@ -48,11 +67,6 @@ type Feedback = {
   text: string;
 };
 
-const EXTRACT_ROUTE: Record<Marketplace, string> = {
-  mercadolivre: "/api/admin/ml/extract",
-  amazon: "/api/admin/amazon/extract",
-};
-
 const MARKETPLACE_LABEL: Record<Marketplace, string> = {
   mercadolivre: "Mercado Livre",
   amazon: "Amazon",
@@ -61,6 +75,66 @@ const MARKETPLACE_LABEL: Record<Marketplace, string> = {
 function toNumber(value: unknown): number {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : 0;
+}
+
+function toCleanText(value: unknown): string {
+  return String(value ?? "").trim();
+}
+
+async function parseApiResponse<T>(response: Response): Promise<T> {
+  const raw = await response.text();
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    throw new Error(raw || `Resposta invalida do servidor (HTTP ${response.status}).`);
+  }
+}
+
+function buildPreviewFromExtractResponse(
+  response: ExtractResponse,
+  sourceUrl: string,
+  manualAffiliateUrl: string,
+  forcedImageUrl?: string,
+): ExtractPreview {
+  const preview = response.preview ?? {};
+
+  const title = toCleanText(preview.title) || toCleanText(response.title);
+  const price = toNumber(preview.price ?? response.price);
+  const oldPrice = toNumber(
+    preview.original_price ?? preview.old_price ?? response.old_price,
+  );
+
+  const imageUrl =
+    toCleanText(forcedImageUrl) ||
+    toCleanText(preview.image_url) ||
+    toCleanText(preview.imageUrl) ||
+    toCleanText(response.image_url) ||
+    toCleanText(response.imageUrl) ||
+    toCleanText(response.image);
+
+  const productUrl =
+    toCleanText(preview.product_url) ||
+    toCleanText(preview.productUrl) ||
+    toCleanText(response.product_url) ||
+    sourceUrl;
+
+  const extractedAffiliate =
+    toCleanText(preview.affiliate_url) ||
+    toCleanText(preview.affiliateUrl) ||
+    toCleanText(response.affiliate_url);
+
+  return {
+    title,
+    price,
+    old_price: oldPrice,
+    original_price: oldPrice,
+    image_url:
+      imageUrl === "/logo.png" || imageUrl.endsWith("/logo.png")
+        ? ""
+        : imageUrl,
+    product_url: productUrl,
+    affiliate_url: manualAffiliateUrl || extractedAffiliate || productUrl,
+  };
 }
 
 function buildAidaCopy(
@@ -95,12 +169,14 @@ export default function AdminNovaOfertaPage() {
   const [marketplace, setMarketplace] = useState<Marketplace>("mercadolivre");
   const [sourceUrl, setSourceUrl] = useState("");
   const [affiliateUrl, setAffiliateUrl] = useState("");
+  const [imageUrl, setImageUrl] = useState("");
   const [extracting, setExtracting] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [preview, setPreview] = useState<ExtractPreview | null>(null);
   const [copyText, setCopyText] = useState("");
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<Feedback | null>(null);
+  const [extractDebug, setExtractDebug] = useState<string>("");
 
   const discountPct = useMemo(() => {
     if (!preview) return 0;
@@ -127,7 +203,7 @@ export default function AdminNovaOfertaPage() {
     return token;
   };
 
-  const handleExtractPreview = async () => {
+  const handleExtract = async () => {
     const url = sourceUrl.trim();
     const manualAffiliate = affiliateUrl.trim();
 
@@ -147,10 +223,11 @@ export default function AdminNovaOfertaPage() {
     setExtracting(true);
     setFeedback(null);
     setCopyFeedback(null);
+    setExtractDebug("");
 
     try {
       const accessToken = await getAccessToken();
-      const response = await fetch(EXTRACT_ROUTE[marketplace], {
+      const response = await fetch("/api/admin/extract", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -159,28 +236,65 @@ export default function AdminNovaOfertaPage() {
         body: JSON.stringify({
           url,
           affiliate_url: manualAffiliate,
+          marketplace,
           persist: false,
         }),
       });
 
-      const data = (await response.json()) as ExtractResponse | { error?: string };
+      const data = await parseApiResponse<ExtractResponse>(response);
       if (!response.ok) {
-        throw new Error(
-          (data as { error?: string }).error ??
-            "Falha ao extrair a URL informada.",
-        );
+        throw new Error(data.error ?? "Falha ao extrair a URL informada.");
       }
 
-      const result = data as ExtractResponse;
-      setPreview({
-        ...result.preview,
-        affiliate_url: manualAffiliate,
-      });
+      const img =
+        toCleanText(data.preview?.image_url) ||
+        toCleanText(data.image_url);
+      setImageUrl(img);
+
+      const result = data;
+      const nextPreview = buildPreviewFromExtractResponse(
+        result,
+        url,
+        manualAffiliate,
+        img,
+      );
+
+      const layerUsed =
+        toCleanText(result.debug_info?.layer_used) ||
+        toCleanText(result.extraction_layer) ||
+        "n/a";
+      const engineUsed = toCleanText(result.engine) || "n/a";
+      const missingFields =
+        result.debug_info?.missing_fields?.length
+          ? result.debug_info.missing_fields.join(", ")
+          : result.missing_fields?.length
+            ? result.missing_fields.join(", ")
+            : "nenhum";
+      const latency =
+        Number(result.debug_info?.latency_ms ?? result.elapsed_ms ?? 0) || 0;
+      const errorHint = toCleanText(result.error);
+      const imageWarning =
+        result.missing_fields?.includes("image_url") ||
+        result.debug_info?.missing_fields?.includes("image_url")
+          ? " | imagem ausente"
+          : "";
+
+      setExtractDebug(
+        `Engine: ${engineUsed} | Camada: ${layerUsed} | Missing: ${missingFields} | ${latency}ms${imageWarning}${errorHint ? ` | Erro: ${errorHint}` : ""}`,
+      );
+
+      setPreview(nextPreview);
       setFeedback({
-        type: "success",
-        text: `Extracao concluida (${MARKETPLACE_LABEL[marketplace]}). Revise o preview antes de publicar.`,
+        type: result.status === "partial_failure" ? "info" : "success",
+        text:
+          result.status === "partial_failure"
+            ? `Extracao parcial (${MARKETPLACE_LABEL[marketplace]}). Revise os campos antes de publicar.`
+            : `Extracao concluida (${MARKETPLACE_LABEL[marketplace]}). Revise o preview antes de publicar.`,
       });
     } catch (error) {
+      setExtractDebug(
+        `Engine: n/a | Camada: n/a | Missing: n/a | Erro: ${error instanceof Error ? error.message : "falha desconhecida"}`,
+      );
       setFeedback({
         type: "error",
         text: error instanceof Error ? error.message : "Falha ao extrair produto.",
@@ -240,7 +354,7 @@ export default function AdminNovaOfertaPage() {
         }),
       });
 
-      const data = (await response.json()) as PublishResponse;
+      const data = await parseApiResponse<PublishResponse>(response);
       if (!response.ok) {
         throw new Error(data.error ?? "Erro ao publicar e distribuir oferta.");
       }
@@ -316,9 +430,16 @@ export default function AdminNovaOfertaPage() {
             className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm outline-none focus:border-orange"
           />
 
+          <input
+            value={imageUrl}
+            onChange={(event) => setImageUrl(event.target.value)}
+            placeholder="URL da imagem (preenchida automaticamente após extração)"
+            className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm outline-none focus:border-orange"
+          />
+
           <button
             type="button"
-            onClick={handleExtractPreview}
+            onClick={handleExtract}
             disabled={extracting}
             className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-navy px-4 text-sm font-semibold text-white disabled:opacity-60 sm:w-fit"
           >
@@ -329,6 +450,10 @@ export default function AdminNovaOfertaPage() {
             )}
             {extracting ? "Extraindo..." : "Extrair URL"}
           </button>
+
+          {extractDebug ? (
+            <p className="text-xs text-slate-500">{extractDebug}</p>
+          ) : null}
         </div>
       </section>
 
@@ -342,10 +467,10 @@ export default function AdminNovaOfertaPage() {
         ) : (
           <div className="mt-4 space-y-4">
             <div className="flex gap-4">
-              {preview.image_url ? (
+              {toCleanText(imageUrl) || preview.image_url ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
-                  src={preview.image_url}
+                  src={toCleanText(imageUrl) || preview.image_url}
                   alt={preview.title}
                   className="h-24 w-24 rounded-lg border border-slate-200 object-cover"
                 />
@@ -439,4 +564,7 @@ export default function AdminNovaOfertaPage() {
     </div>
   );
 }
+
+
+
 

@@ -22,13 +22,13 @@ export default function CardOferta({ offer }: { offer: OfertaCard }) {
 
   return (
     <article className="rounded-xl border border-rs-border bg-white p-4 shadow-card transition hover:-translate-y-0.5">
-      <div className="relative mb-4 overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
+      <div className="relative mb-4 flex h-52 items-center justify-center overflow-hidden rounded-t-xl border border-slate-200 bg-white">
         <Image
           src={offer.image_url || "/next.svg"}
           alt={offer.title}
           width={600}
           height={420}
-          className="h-44 w-full object-cover"
+          className="h-full w-full object-contain"
         />
         {desconto > 0 ? (
           <Badge className="absolute left-2 top-2" variant="danger">

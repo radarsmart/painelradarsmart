@@ -1,36 +1,25 @@
 import { NextRequest, NextResponse } from "next/server";
-import { normalizeMlProducts } from "@/lib/mercadolivre";
+import { requireAdmin } from "@/lib/admin-auth";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
-  const q = req.nextUrl.searchParams.get("q") ?? "";
-  const mattId = process.env.ML_AFFILIATE_ID ?? "";
-  if (!q.trim()) {
-    return NextResponse.json({ products: [] });
-  }
-
-  try {
-    const res = await fetch(
-      `https://api.mercadolibre.com/sites/MLB/search?q=${encodeURIComponent(
-        q,
-      )}&limit=10`,
-      { cache: "no-store" },
-    );
-
-    if (!res.ok) {
-      const errText = await res.text();
-      return NextResponse.json(
-        { error: `ML API ${res.status}: ${errText}` },
-        { status: 500 },
-      );
-    }
-
-    const data = await res.json();
-    const products = normalizeMlProducts(data, mattId);
-    return NextResponse.json({ products });
-  } catch (err) {
+  const adminGuard = await requireAdmin(req);
+  if (!adminGuard.ok) {
     return NextResponse.json(
-      { error: (err as Error).message ?? "Falha na busca Mercado Livre" },
-      { status: 500 },
+      { error: adminGuard.error },
+      { status: adminGuard.status },
     );
   }
+
+  return NextResponse.json({
+    products: [],
+    public_offers: [],
+    items: [],
+    source: "manual_only",
+    sniper_disabled: true,
+    message:
+      "Busca automática Mercado Livre desativada temporariamente. Use o Radar Builder em /admin/ofertas/nova.",
+  });
 }

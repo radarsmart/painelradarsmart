@@ -7,17 +7,13 @@ import {
   ArrowUpRight,
   BadgeCheck,
   BookOpenText,
-  Facebook,
   Flame,
-  Instagram,
-  MessageCircle,
   Sparkles,
-  Timer,
   TrendingUp,
-  X,
 } from "lucide-react";
 import OfferTicker, { type TickerOffer } from "@/components/layout/OfferTicker";
 import Header from "@/components/layout/Header";
+import Footer from "@/components/layout/Footer";
 import CountdownTimer from "@/components/vitrine/CountdownTimer";
 import BotaoGrupoFlutuante from "@/components/layout/BotaoGrupoFlutuante";
 import { formatBRL } from "@/lib/formatters";
@@ -89,7 +85,7 @@ const fallbackGuides: HomePost[] = [
     id: "guide-1",
     title: "Melhores monitores gamer para 2026",
     slug: "melhores-monitores-gamer-2026",
-    excerpt: "Comparativo rapido com foco em desempenho, painel e custo-beneficio.",
+    excerpt: "Comparativo rápido com foco em desempenho, painel e custo-benefício.",
     image: null,
     publishedAt: null,
   },
@@ -97,13 +93,13 @@ const fallbackGuides: HomePost[] = [
     id: "guide-2",
     title: "Como comprar eletro com desconto real",
     slug: "como-comprar-eletro-com-desconto-real",
-    excerpt: "Checklist pratico para evitar falso desconto e oferta inflada.",
+    excerpt: "Checklist prático para evitar falso desconto e oferta inflada.",
     image: null,
     publishedAt: null,
   },
   {
     id: "guide-3",
-    title: "Guia de custo-beneficio para notebooks",
+    title: "Guia de custo-benefício para notebooks",
     slug: "guia-custo-beneficio-notebooks",
     excerpt: "Entenda processador, RAM, SSD e tela antes de fechar a compra.",
     image: null,
@@ -111,9 +107,9 @@ const fallbackGuides: HomePost[] = [
   },
   {
     id: "guide-4",
-    title: "Oferta relampago: como agir rapido sem errar",
+    title: "Oferta relâmpago: como agir rápido sem errar",
     slug: "oferta-relampago-como-agir-rapido",
-    excerpt: "Metodo para decidir em segundos e nao perder oportunidade boa.",
+    excerpt: "Método para decidir em segundos e não perder oportunidade boa.",
     image: null,
     publishedAt: null,
   },
@@ -131,13 +127,13 @@ function toNumber(value: unknown): number | null {
 }
 
 function normalizeOffer(row: OfferRow): HomeOffer | null {
-  const price = toNumber(row.price);
-  if (price === null || price <= 0) return null;
+  const parsedPrice = toNumber(row.price);
+  const price = parsedPrice !== null && parsedPrice > 0 ? parsedPrice : 0;
 
   const oldPriceRaw =
     toNumber(row.old_price) ?? toNumber(row.original_price) ?? toNumber(row.price_old);
   const oldPrice =
-    oldPriceRaw !== null && oldPriceRaw > price ? oldPriceRaw : null;
+    oldPriceRaw !== null && oldPriceRaw > price && price > 0 ? oldPriceRaw : null;
 
   const directDiscount =
     toNumber(row.discount_percent) ?? toNumber(row.discount_pct) ?? null;
@@ -150,7 +146,7 @@ function normalizeOffer(row: OfferRow): HomeOffer | null {
 
   return {
     id: row.id,
-    title: row.title?.trim() || "Oferta sem titulo",
+    title: row.title?.trim() || "Oferta sem título",
     marketplace: row.marketplace?.trim() || "Marketplace",
     price,
     oldPrice,
@@ -169,7 +165,7 @@ function normalizePost(row: BlogPostRow): HomePost {
     slug: row.slug?.trim() || "blog",
     excerpt:
       row.excerpt?.trim() ||
-      "Conteudo editorial com analise pratica para comprar melhor.",
+      "Conteúdo editorial com análise prática para comprar melhor.",
     image: row.cover_image || row.featured_image,
     publishedAt: row.published_at || row.created_at,
   };
@@ -179,9 +175,26 @@ export default function HomePage() {
   const [offers, setOffers] = useState<HomeOffer[]>([]);
   const [posts, setPosts] = useState<HomePost[]>(fallbackGuides);
   const [loading, setLoading] = useState(true);
+  const [publishNotice, setPublishNotice] = useState<string | null>(null);
   const [compareMode, setCompareMode] = useState<"price" | "discount" | "rating">(
     "price",
   );
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const publishedFlag = params.get("published");
+    const fromStorage = sessionStorage.getItem("radar_publish_notice");
+    if (publishedFlag === "1" && fromStorage) {
+      setPublishNotice(fromStorage);
+      sessionStorage.removeItem("radar_publish_notice");
+      return;
+    }
+    if (fromStorage) {
+      setPublishNotice(fromStorage);
+      sessionStorage.removeItem("radar_publish_notice");
+    }
+  }, []);
 
   useEffect(() => {
     const loadData = async () => {
@@ -194,6 +207,7 @@ export default function HomePage() {
             "id,title,price,old_price,original_price,price_old,discount_pct,discount_percent,image_url,affiliate_url,product_url,marketplace,rating,review_count,reviews_count,created_at,status",
           )
           .eq("status", "active")
+          .eq("curations_status", "approved")
           .order("created_at", { ascending: false })
           .limit(24),
         supabase
@@ -263,30 +277,32 @@ export default function HomePage() {
           initial="hidden"
           animate="show"
           transition={{ duration: 0.65 }}
-          className="relative overflow-hidden rounded-3xl border border-slate-200 bg-[#22223B] text-white"
+          className="relative isolate overflow-hidden rounded-3xl border border-slate-200 bg-[#22223B] text-white"
         >
           <video
             autoPlay
-            muted
             loop
+            muted
             playsInline
-            className="absolute inset-0 h-full w-full object-cover opacity-40"
+            preload="auto"
+            className="absolute inset-0 z-0 h-full w-full object-cover"
           >
             <source src="https://radarsmart.vercel.app/design-sem-nome-6.mp4" type="video/mp4" />
+            <source src="/radar-smart.mp4" type="video/mp4" />
           </video>
-          <div className="absolute inset-0 bg-gradient-to-b from-[#22223B]/90 via-[#22223B]/70 to-[#22223B]/60" />
+          <div className="absolute inset-0 z-10 bg-gradient-to-b from-[#22223B]/70 via-[#22223B]/65 to-[#22223B]/70" />
 
-          <div className="relative grid gap-8 p-7 md:grid-cols-[1.2fr_0.8fr] md:p-12">
+          <div className="relative z-20 grid gap-8 p-7 md:grid-cols-[1.2fr_0.8fr] md:p-12">
             <div>
               <span className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-1 text-xs uppercase tracking-wide">
                 <Sparkles className="h-3.5 w-3.5 text-[#9e6a18]" />
                 Curadoria inteligente em tempo real
               </span>
               <h1 className="mt-4 font-display text-4xl font-black leading-[1.1] md:text-5xl">
-                Economize com inteligencia e compre no momento certo.
+                Economize com inteligência e compre no momento certo.
               </h1>
               <p className="mt-4 max-w-xl text-sm text-slate-200 md:text-base">
-                A Radar Smart rastreia ofertas, compara precos e entrega oportunidades prontas para decisao.
+                A Radar Smart rastreia ofertas, compara preços e entrega oportunidades prontas para decisão.
               </p>
 
               <div className="mt-6 flex flex-wrap gap-3">
@@ -319,7 +335,7 @@ export default function HomePage() {
                 <p className="mt-1 text-2xl font-bold">2+</p>
               </div>
               <div className="rounded-2xl border border-white/10 bg-white/10 p-4">
-                <p className="text-xs uppercase text-slate-200">Economia media</p>
+                <p className="text-xs uppercase text-slate-200">Economia média</p>
                 <p className="mt-1 text-2xl font-bold">
                   {offers.length
                     ? `${Math.round(
@@ -342,7 +358,7 @@ export default function HomePage() {
           className="space-y-5"
         >
           <div className="flex items-center justify-between">
-            <h2 className="font-display text-2xl font-bold text-navy">Ofertas Relampago</h2>
+            <h2 className="font-display text-2xl font-bold text-navy">Ofertas Relâmpago</h2>
             <Flame className="h-5 w-5 text-[#9e6a18]" />
           </div>
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -351,16 +367,18 @@ export default function HomePage() {
                 key={`flash-${offer.id}`}
                 className="rounded-2xl border border-slate-200 bg-white p-4 shadow-card"
               >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={offer.imageUrl || "/next.svg"}
-                  alt={offer.title}
-                  className="h-40 w-full rounded-xl border border-slate-100 object-cover"
-                />
+                <div className="flex h-52 items-center justify-center overflow-hidden rounded-t-xl border border-slate-100 bg-white">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={offer.imageUrl || "/next.svg"}
+                    alt={offer.title}
+                    className="h-full w-full object-contain"
+                  />
+                </div>
                 <p className="mt-3 line-clamp-2 text-sm font-semibold">{offer.title}</p>
                 <div className="mt-2 flex items-center gap-2">
                   <p className="font-mono text-xl font-bold text-[#22223B]">
-                    {formatBRL(offer.price)}
+                    {formatOfferPrice(offer.price)}
                   </p>
                   {offer.oldPrice ? (
                     <span className="text-xs text-slate-400 line-through">
@@ -409,18 +427,20 @@ export default function HomePage() {
                 key={`day-${offer.id}`}
                 className="group rounded-2xl border border-slate-200 bg-white p-4 shadow-card transition hover:-translate-y-0.5"
               >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={offer.imageUrl || "/next.svg"}
-                  alt={offer.title}
-                  className="h-40 w-full rounded-xl border border-slate-100 object-cover"
-                />
+                <div className="flex h-52 items-center justify-center overflow-hidden rounded-t-xl border border-slate-100 bg-white">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={offer.imageUrl || "/next.svg"}
+                    alt={offer.title}
+                    className="h-full w-full object-contain"
+                  />
+                </div>
                 <p className="mt-3 text-xs uppercase tracking-wide text-slate-500">
                   {offer.marketplace}
                 </p>
                 <h3 className="mt-1 line-clamp-2 text-sm font-semibold">{offer.title}</h3>
                 <p className="mt-2 font-mono text-xl font-bold text-[#22223B]">
-                  {formatBRL(offer.price)}
+                  {formatOfferPrice(offer.price)}
                 </p>
                 <a
                   href={offer.affiliateUrl}
@@ -447,7 +467,7 @@ export default function HomePage() {
             <h2 className="font-display text-2xl font-bold text-navy">Comparador Inteligente</h2>
             <div className="flex items-center gap-2 rounded-full bg-slate-100 p-1">
               {[
-                { key: "price", label: "Menor preco" },
+                { key: "price", label: "Menor preço" },
                 { key: "discount", label: "Maior desconto" },
                 { key: "rating", label: "Melhor nota" },
               ].map((option) => (
@@ -473,10 +493,10 @@ export default function HomePage() {
                 <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
                   <th className="pb-3">Ranking</th>
                   <th className="pb-3">Produto</th>
-                  <th className="pb-3">Preco</th>
+                  <th className="pb-3">Preço</th>
                   <th className="pb-3">Desconto</th>
-                  <th className="pb-3">Avaliacao</th>
-                  <th className="pb-3">Acao</th>
+                  <th className="pb-3">Avaliação</th>
+                  <th className="pb-3">Ação</th>
                 </tr>
               </thead>
               <tbody>
@@ -499,7 +519,7 @@ export default function HomePage() {
                     <td className="py-3">
                       <p className="line-clamp-1 max-w-[260px] font-medium">{offer.title}</p>
                     </td>
-                    <td className="py-3 font-mono font-bold">{formatBRL(offer.price)}</td>
+                    <td className="py-3 font-mono font-bold">{formatOfferPrice(offer.price)}</td>
                     <td className="py-3 text-[#9e6a18]">{offer.discount}%</td>
                     <td className="py-3">{offer.rating ? offer.rating.toFixed(1) : "-"}</td>
                     <td className="py-3">
@@ -549,7 +569,7 @@ export default function HomePage() {
                   loading="lazy"
                 />
                 <p className="mt-3 inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-[#9e6a18]">
-                  <BookOpenText className="h-3.5 w-3.5" /> Guia estrategico
+                  <BookOpenText className="h-3.5 w-3.5" /> Guia estratégico
                 </p>
                 <h3 className="mt-2 line-clamp-2 text-sm font-semibold text-navy">
                   {post.title}
@@ -564,43 +584,7 @@ export default function HomePage() {
         </motion.section>
       </main>
 
-      <footer className="border-t border-slate-200 bg-[#22223B] text-white">
-        <div className="mx-auto grid max-w-7xl gap-8 px-4 py-10 md:grid-cols-3">
-          <div>
-            <h3 className="font-display text-2xl font-bold">
-              Radar <span className="text-[#f4d6a0]">Smart</span>
-            </h3>
-            <p className="mt-3 text-sm text-slate-300">
-              Curadoria premium de ofertas para comprar melhor, mais rapido e com seguranca.
-            </p>
-          </div>
-          <div>
-            <p className="text-xs uppercase tracking-wide text-slate-400">Paginas</p>
-            <div className="mt-3 space-y-2 text-sm text-slate-200">
-              <p><Link href="/ofertas" className="hover:text-[#f4d6a0]">Ofertas</Link></p>
-              <p><Link href="/comparativo" className="hover:text-[#f4d6a0]">Comparador</Link></p>
-              <p><Link href="/blog" className="hover:text-[#f4d6a0]">Guias e Blog</Link></p>
-            </div>
-          </div>
-          <div>
-            <p className="text-xs uppercase tracking-wide text-slate-400">Redes</p>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <a
-                href={WHATSAPP_GROUP_URL}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="rounded-full bg-green-500 p-2.5 text-white"
-              >
-                <MessageCircle className="h-4 w-4" />
-              </a>
-              <a href="#" className="rounded-full bg-pink-500 p-2.5 text-white"><Instagram className="h-4 w-4" /></a>
-              <a href="#" className="rounded-full bg-blue-600 p-2.5 text-white"><Facebook className="h-4 w-4" /></a>
-              <a href="#" className="rounded-full bg-black p-2.5 text-white"><Timer className="h-4 w-4" /></a>
-              <a href="#" className="rounded-full bg-slate-900 p-2.5 text-white"><X className="h-4 w-4" /></a>
-            </div>
-          </div>
-        </div>
-      </footer>
+      <Footer />
 
       <BotaoGrupoFlutuante />
 
@@ -609,8 +593,25 @@ export default function HomePage() {
           Atualizando ofertas...
         </div>
       ) : null}
+
+      {publishNotice ? (
+        <div className="fixed left-1/2 top-24 z-[90] w-[92%] max-w-xl -translate-x-1/2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700 shadow-lg">
+          {publishNotice}
+          <button
+            type="button"
+            onClick={() => setPublishNotice(null)}
+            className="ml-3 underline underline-offset-2"
+          >
+            Fechar
+          </button>
+        </div>
+      ) : null}
     </div>
   );
+}
+
+function formatOfferPrice(price: number): string {
+  return price > 0 ? formatBRL(price) : "Consultar";
 }
 
 

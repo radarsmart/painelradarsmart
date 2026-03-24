@@ -2,8 +2,9 @@ import Link from "next/link";
 
 const items = [
   { href: "/admin", label: "Dashboard" },
+  { href: "/admin/ofertas/nova", label: "🚀 Nova Oferta" },
+  { href: "/admin/curadoria", label: "Curadoria" },
   { href: "/admin/ofertas", label: "Ofertas" },
-  { href: "/admin/ofertas/nova", label: "Nova oferta" },
   { href: "/admin/blog/novo", label: "Novo post" },
   { href: "/admin/fila", label: "Fila" },
   { href: "/admin/configuracoes", label: "Configurações" },

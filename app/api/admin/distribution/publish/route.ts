@@ -4,6 +4,7 @@ import {
   type DistributionChannel,
 } from "@/lib/distribution/legacy-dispatch";
 import { supabaseAdmin } from "@/lib/supabase";
+import { requireAdmin } from "@/lib/admin-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,21 +27,17 @@ type ExtractErrorResponse = {
   details?: unknown;
 };
 
-async function isAuthenticatedRequest(req: NextRequest): Promise<boolean> {
-  const authHeader = req.headers.get("authorization") ?? "";
-  const token = authHeader.replace(/^Bearer\s+/i, "").trim();
-
-  if (token.length > 20) {
-    const { data, error } = await supabaseAdmin.auth.getUser(token);
-    if (!error && data.user) return true;
+async function parseResponsePayload(
+  response: Response,
+): Promise<ExtractSuccessResponse | ExtractErrorResponse> {
+  const raw = await response.text();
+  try {
+    return JSON.parse(raw) as ExtractSuccessResponse | ExtractErrorResponse;
+  } catch {
+    return {
+      error: raw || `Resposta invalida da rota de extracao (HTTP ${response.status}).`,
+    };
   }
-
-  return req.cookies
-    .getAll()
-    .some(
-      (cookie) =>
-        cookie.name.startsWith("sb-") && cookie.name.includes("auth-token"),
-    );
 }
 
 function normalizeMarketplace(value: unknown): Marketplace | null {
@@ -100,9 +97,6 @@ async function callExtractRoute(
   url: string,
   affiliateUrl: string,
 ) {
-  const endpoint =
-    marketplace === "amazon" ? "/api/admin/amazon/extract" : "/api/admin/ml/extract";
-
   const headers = new Headers({ "Content-Type": "application/json" });
   const authorization = req.headers.get("authorization");
   const cookie = req.headers.get("cookie");
@@ -110,27 +104,30 @@ async function callExtractRoute(
   if (authorization) headers.set("authorization", authorization);
   if (cookie) headers.set("cookie", cookie);
 
-  const response = await fetch(new URL(endpoint, req.nextUrl.origin), {
+  const response = await fetch(new URL("/api/admin/extract", req.nextUrl.origin), {
     method: "POST",
     headers,
     body: JSON.stringify({
       url,
       affiliate_url: affiliateUrl,
+      marketplace,
       persist: true,
     }),
     cache: "no-store",
   });
 
-  const json = (await response.json().catch(() => ({}))) as
-    | ExtractSuccessResponse
-    | ExtractErrorResponse;
+  const json = await parseResponsePayload(response);
 
   return { response, json };
 }
 
 export async function POST(req: NextRequest) {
-  if (!(await isAuthenticatedRequest(req))) {
-    return NextResponse.json({ error: "Nao autorizado" }, { status: 401 });
+  const adminGuard = await requireAdmin(req);
+  if (!adminGuard.ok) {
+    return NextResponse.json(
+      { error: adminGuard.error },
+      { status: adminGuard.status },
+    );
   }
 
   try {
@@ -220,6 +217,39 @@ export async function POST(req: NextRequest) {
         needs_review: true,
         extract: extracted,
       });
+    }
+
+    const activatePayload: Record<string, unknown> = {
+      status: "active",
+      curations_status: "approved",
+      affiliate_url: affiliateUrl,
+      updated_at: new Date().toISOString(),
+    };
+
+    let { error: activateError } = await supabaseAdmin
+      .from("offers")
+      .update(activatePayload)
+      .eq("id", offerId);
+
+    if (activateError && activateError.message.includes("curations_status")) {
+      const fallbackPayload = { ...activatePayload };
+      delete fallbackPayload.curations_status;
+      const fallback = await supabaseAdmin
+        .from("offers")
+        .update(fallbackPayload)
+        .eq("id", offerId);
+      activateError = fallback.error;
+    }
+
+    if (activateError) {
+      return NextResponse.json(
+        {
+          error: `Oferta salva, mas falhou ao ativar para vitrine: ${activateError.message}`,
+          offer_id: offerId,
+          extract: extracted,
+        },
+        { status: 500 },
+      );
     }
 
     const dispatch = await dispatchLegacyOffer({

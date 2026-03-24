@@ -1,6 +1,9 @@
 import { load } from "cheerio";
+import { normalizeAmazonImageUrl } from "@/lib/amazon";
+import { fetchHtmlWithRotation } from "@/lib/scraping/http-fetch-rotator";
 
 type Availability = "in_stock" | "out_of_stock" | "unknown";
+type ExtractionLayer = "json_ld" | "open_graph" | "dom" | "mixed" | "none";
 
 interface JsonLdExtraction {
   title: string | null;
@@ -13,6 +16,12 @@ interface JsonLdExtraction {
   brand: string | null;
   currency: string | null;
   availability: Availability;
+}
+
+interface OpenGraphExtraction {
+  title: string | null;
+  imageUrl: string | null;
+  price: number | null;
 }
 
 export type AmazonOfferPreview = {
@@ -33,27 +42,8 @@ export type AmazonOfferPreview = {
   availability: Availability;
   currency: string;
   extractionMethod: "amazon_html_jsonld" | "amazon_html" | "amazon_jsonld" | "amazon_url";
+  extractionLayer: ExtractionLayer;
   raw: Record<string, unknown>;
-};
-
-const DEFAULT_HEADERS: Record<string, string> = {
-  "accept":
-    "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-  "accept-encoding": "gzip, deflate, br",
-  "accept-language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
-  "cache-control": "no-cache",
-  "dnt": "1",
-  "pragma": "no-cache",
-  "sec-ch-ua":
-    "\"Chromium\";v=\"126\", \"Google Chrome\";v=\"126\", \"Not.A/Brand\";v=\"99\"",
-  "sec-ch-ua-mobile": "?0",
-  "sec-ch-ua-platform": "\"Windows\"",
-  "sec-fetch-dest": "document",
-  "sec-fetch-mode": "navigate",
-  "sec-fetch-site": "none",
-  "upgrade-insecure-requests": "1",
-  "user-agent":
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
 };
 
 function toNonEmptyString(value: unknown): string | null {
@@ -215,6 +205,18 @@ function cleanUrl(rawUrl: string): string {
   return url.toString();
 }
 
+function dedupeUrls(urls: Array<string | null | undefined>): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of urls) {
+    const value = String(raw ?? "").trim();
+    if (!value || seen.has(value)) continue;
+    seen.add(value);
+    out.push(value);
+  }
+  return out;
+}
+
 function ensureAmazonUrl(rawUrl: string): void {
   const host = new URL(rawUrl).hostname.toLowerCase();
   if (!host.includes("amazon.") && !host.endsWith("amzn.to")) {
@@ -253,7 +255,10 @@ function buildAffiliateUrl(productUrl: string, explicitAffiliateUrl: string | nu
     return explicitAffiliateUrl.trim();
   }
 
-  const affiliateTag = process.env.AMAZON_AFFILIATE_TAG?.trim();
+  const affiliateTag =
+    process.env.AMAZON_AFFILIATE_TAG?.trim() ||
+    process.env.AMAZON_STORE_ID?.trim() ||
+    "radarsmart202-20";
   if (!affiliateTag) return productUrl;
 
   try {
@@ -278,26 +283,68 @@ function isCaptchaOrBlockedPage(html: string): boolean {
 
 async function fetchHtml(url: string): Promise<{ html: string; finalUrl: string } | null> {
   try {
-    const res = await fetch(url, {
-      method: "GET",
-      headers: DEFAULT_HEADERS,
-      redirect: "follow",
-      cache: "no-store",
-      signal: AbortSignal.timeout(25000),
+    const result = await fetchHtmlWithRotation({
+      url,
+      timeoutMs: 12000,
+      maxAttempts: 3,
+      minHtmlLength: 1200,
+      blockedPatterns: [
+        /enter the characters you see below/i,
+        /robot check/i,
+        /captcha/i,
+        /api-services-support@amazon.com/i,
+      ],
     });
-    if (!res.ok) return null;
-    const html = await res.text();
+    const html = result.html;
     if (!html || html.length < 1000) return null;
     if (isCaptchaOrBlockedPage(html)) {
       throw new Error("Amazon bloqueou a requisicao (captcha/robot check).");
     }
-    return { html, finalUrl: res.url || url };
+    return { html, finalUrl: result.finalUrl || url };
   } catch (error) {
     if (error instanceof Error) {
       throw error;
     }
     return null;
   }
+}
+
+async function fetchBestHtmlSnapshot(
+  candidateUrls: string[],
+): Promise<{ html: string; finalUrl: string } | null> {
+  let best:
+    | {
+        html: string;
+        finalUrl: string;
+        score: number;
+      }
+    | null = null;
+
+  for (const candidateUrl of candidateUrls) {
+    try {
+      const snapshot = await fetchHtml(candidateUrl);
+      if (!snapshot) continue;
+
+      const parsed = parseHtmlSnapshot(snapshot.html, snapshot.finalUrl);
+      let score = 0;
+      if (parsed.title) score += 1;
+      if (parsed.imageUrl) score += 1;
+      if (parsed.price !== null) score += 1;
+
+      if (score >= 3) {
+        return snapshot;
+      }
+
+      if (!best || score > best.score) {
+        best = { ...snapshot, score };
+      }
+    } catch {
+      // tenta próxima variação de URL
+    }
+  }
+
+  if (!best) return null;
+  return { html: best.html, finalUrl: best.finalUrl };
 }
 
 function parseJsonLdScripts(html: string): JsonLdExtraction {
@@ -346,6 +393,9 @@ function parseJsonLdScripts(html: string): JsonLdExtraction {
         (Array.isArray(object.image)
           ? toNonEmptyString((object.image as unknown[])[0])
           : toNonEmptyString(object.image));
+      if (result.imageUrl) {
+        result.imageUrl = normalizeAmazonImageUrl(result.imageUrl);
+      }
 
       const brandRaw = object.brand;
       if (typeof brandRaw === "object" && brandRaw !== null) {
@@ -405,6 +455,43 @@ function parseJsonLdScripts(html: string): JsonLdExtraction {
   return result;
 }
 
+function parseOpenGraphSnapshot(html: string): OpenGraphExtraction {
+  const $ = load(html);
+  return {
+    title:
+      toNonEmptyString($('meta[property="og:title"]').attr("content")) ??
+      toNonEmptyString($("title").first().text()),
+    imageUrl: normalizeAmazonImageUrl(
+      toNonEmptyString($('meta[property="og:image"]').attr("content")),
+    ),
+    price:
+      toPrice($('meta[property="product:price:amount"]').attr("content")) ??
+      toPrice($('meta[property="og:price:amount"]').attr("content")) ??
+      toPrice($('meta[itemprop="price"]').attr("content")),
+  };
+}
+
+function detectExtractionLayer(input: {
+  jsonLd: JsonLdExtraction;
+  openGraph: OpenGraphExtraction;
+  dom: { title: string | null; imageUrl: string | null; price: number | null } | null;
+}): ExtractionLayer {
+  const hasJsonLd = Boolean(input.jsonLd.title && input.jsonLd.imageUrl && input.jsonLd.price);
+  if (hasJsonLd) return "json_ld";
+
+  const hasOg = Boolean(input.openGraph.title && input.openGraph.imageUrl && input.openGraph.price);
+  if (hasOg) return "open_graph";
+
+  const hasDom = Boolean(input.dom?.title && input.dom?.imageUrl && input.dom?.price);
+  if (hasDom) return "dom";
+
+  const hasAny =
+    Boolean(input.jsonLd.title || input.jsonLd.imageUrl || input.jsonLd.price) ||
+    Boolean(input.openGraph.title || input.openGraph.imageUrl || input.openGraph.price) ||
+    Boolean(input.dom?.title || input.dom?.imageUrl || input.dom?.price);
+  return hasAny ? "mixed" : "none";
+}
+
 function parseBrandFromDetails($: ReturnType<typeof load>): string | null {
   const byline = toNonEmptyString($("#bylineInfo").first().text());
   if (byline) return byline.replace(/^marca:\s*/i, "").trim();
@@ -432,8 +519,7 @@ function parseHtmlSnapshot(html: string, finalUrl: string) {
 
   const title =
     toNonEmptyString($("#productTitle").first().text()) ??
-    toNonEmptyString($('meta[property="og:title"]').attr("content")) ??
-    toNonEmptyString($("title").first().text());
+    toNonEmptyString($("#title").first().text());
 
   const imageFromDataDynamic = (() => {
     const raw = toNonEmptyString($("#landingImage").attr("data-a-dynamic-image"));
@@ -447,13 +533,24 @@ function parseHtmlSnapshot(html: string, finalUrl: string) {
     }
   })();
 
-  const imageUrl =
+  const rawImageUrl =
+    toNonEmptyString($('meta[property="og:image"]').attr("content")) ??
+    toNonEmptyString($('meta[name="og:image"]').attr("content")) ??
     toNonEmptyString($("#landingImage").attr("data-old-hires")) ??
+    toNonEmptyString($("#landingImage").attr("data-a-hires")) ??
     imageFromDataDynamic ??
+    toNonEmptyString($("#imgTagWrapperId img").attr("data-old-hires")) ??
     toNonEmptyString($("#landingImage").attr("src")) ??
     toNonEmptyString($("#imgTagWrapperId img").attr("src")) ??
-    toNonEmptyString($('meta[property="og:image"]').attr("content")) ??
-    toNonEmptyString(html.match(/"mainUrl"\s*:\s*"([^"]+)"/i)?.[1]?.replace(/\\u0026/g, "&"));
+    toNonEmptyString($("#main-image-container img").first().attr("src")) ??
+    toNonEmptyString($("#altImages img").first().attr("src")) ??
+    toNonEmptyString(
+      html.match(/"mainUrl"\s*:\s*"([^"]+)"/i)?.[1]?.replace(/\\u0026/g, "&"),
+    ) ??
+    toNonEmptyString(
+      html.match(/"hiRes"\s*:\s*"([^"]+)"/i)?.[1]?.replace(/\\u0026/g, "&"),
+    );
+  const imageUrl = normalizeAmazonImageUrl(rawImageUrl);
 
   const canonical =
     toNonEmptyString($('link[rel="canonical"]').attr("href")) ??
@@ -477,9 +574,20 @@ function parseHtmlSnapshot(html: string, finalUrl: string) {
     toNonEmptyString($("#apex_desktop .a-price .a-price-fraction").first().text()) ??
     toNonEmptyString($("#tp_price_block_total_price_ww .a-price-fraction").first().text());
   const currentFromParts = parseAmountFromParts(currentWhole, currentFraction);
+  const currentFromTwisterModel = pickMinPrice(
+    toPrice($("#twister-plus-price-data-model").first().text()),
+    toPrice($("#twister-plus-price-data-model").first().attr("data-price")),
+    toPrice($("#twister-plus-price-data-model .a-offscreen").first().text()),
+  );
 
   const priceFromSelectors = pickMinPrice(
     currentFromParts,
+    currentFromTwisterModel,
+    toPrice($("#twister-plus-price-data-price-unit").first().text()),
+    toPrice($("#apexPriceToPay .a-offscreen").first().text()),
+    toPrice($("#apex_desktop #corePrice_feature_div .a-offscreen").first().text()),
+    toPrice($("#corePrice_feature_div #corePriceDisplay_desktop_feature_div .a-offscreen").first().text()),
+    toPrice($("#desktop_qualifiedBuyBox .a-price .a-offscreen").first().text()),
     toPrice($("#corePriceDisplay_desktop_feature_div .a-price .a-offscreen").first().text()),
     toPrice($("#corePrice_feature_div .a-price .a-offscreen").first().text()),
     toPrice($("#apex_desktop .a-price .a-offscreen").first().text()),
@@ -613,23 +721,32 @@ export async function extractAmazonOffer(input: {
 
   ensureAmazonUrl(input.url);
   const sourceUrl = cleanUrl(input.url);
+  const sourceAsin = extractAsin(sourceUrl);
+  const htmlCandidates = dedupeUrls([
+    sourceUrl,
+    sourceAsin ? `https://www.amazon.com.br/dp/${sourceAsin}` : null,
+    sourceAsin ? `https://www.amazon.com.br/gp/aw/d/${sourceAsin}` : null,
+  ]);
 
-  const htmlSnapshot = await fetchHtml(sourceUrl);
+  const htmlSnapshot = await fetchBestHtmlSnapshot(htmlCandidates);
   if (!htmlSnapshot) {
     throw new Error("Nao foi possivel obter HTML da Amazon.");
   }
 
   const htmlParsed = parseHtmlSnapshot(htmlSnapshot.html, htmlSnapshot.finalUrl);
   const jsonLd = parseJsonLdScripts(htmlSnapshot.html);
+  const openGraph = parseOpenGraphSnapshot(htmlSnapshot.html);
 
   const asin = htmlParsed.asin ?? extractAsin(htmlSnapshot.finalUrl);
   const productUrl = canonicalAmazonUrl(htmlParsed.productUrl || htmlSnapshot.finalUrl, asin);
   const affiliateUrl = buildAffiliateUrl(productUrl, input.affiliateUrl);
 
-  const title = htmlParsed.title ?? jsonLd.title;
-  const imageUrl = htmlParsed.imageUrl ?? jsonLd.imageUrl;
-  const price = pickBestCurrentPrice(title, htmlParsed.price, jsonLd.price);
-  const oldPrice = pickMaxOldPrice(price, htmlParsed.oldPrice, jsonLd.oldPrice);
+  const title = jsonLd.title ?? openGraph.title ?? htmlParsed.title;
+  const imageUrl = normalizeAmazonImageUrl(
+    openGraph.imageUrl ?? jsonLd.imageUrl ?? htmlParsed.imageUrl,
+  );
+  const price = pickBestCurrentPrice(title, jsonLd.price, openGraph.price, htmlParsed.price);
+  const oldPrice = pickMaxOldPrice(price, jsonLd.oldPrice, htmlParsed.oldPrice);
   const rating = htmlParsed.rating ?? jsonLd.rating;
   const reviewCount = htmlParsed.reviewCount ?? jsonLd.reviewCount;
   const sellerName = htmlParsed.sellerName ?? jsonLd.sellerName;
@@ -640,12 +757,7 @@ export async function extractAmazonOffer(input: {
   const currency = htmlParsed.currency ?? jsonLd.currency ?? "BRL";
   const discountPct = computeDiscountPct(price, oldPrice);
 
-  if (!title) {
-    throw new Error("Nao foi possivel extrair titulo da Amazon com confianca.");
-  }
-  if (price === null && !imageUrl) {
-    throw new Error("Nao foi possivel extrair preco/imagem da Amazon com confianca.");
-  }
+  const safeTitle = title ?? `Produto Amazon ${asin ?? ""}`.trim();
 
   const extractionMethod: AmazonOfferPreview["extractionMethod"] = htmlParsed.title && jsonLd.title
     ? "amazon_html_jsonld"
@@ -654,6 +766,11 @@ export async function extractAmazonOffer(input: {
     : jsonLd.title
     ? "amazon_jsonld"
     : "amazon_url";
+  const extractionLayer = detectExtractionLayer({
+    jsonLd,
+    openGraph,
+    dom: { title: htmlParsed.title, imageUrl: htmlParsed.imageUrl, price: htmlParsed.price },
+  });
 
   return {
     marketplace: "amazon",
@@ -661,7 +778,7 @@ export async function extractAmazonOffer(input: {
     productUrl,
     affiliateUrl,
     asin,
-    title,
+    title: safeTitle,
     imageUrl,
     price,
     oldPrice,
@@ -673,10 +790,13 @@ export async function extractAmazonOffer(input: {
     availability,
     currency,
     extractionMethod,
+    extractionLayer,
     raw: {
       asin,
       html: htmlParsed,
       json_ld: jsonLd,
+      open_graph: openGraph,
+      extraction_layer: extractionLayer,
       final_url: htmlSnapshot.finalUrl,
       source_url: sourceUrl,
     },

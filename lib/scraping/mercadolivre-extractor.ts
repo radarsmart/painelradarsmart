@@ -1,36 +1,8 @@
 import { load } from "cheerio";
+import { fetchHtmlWithRotation } from "@/lib/scraping/http-fetch-rotator";
 
 type Availability = "in_stock" | "out_of_stock" | "unknown";
-
-interface MlItemPicture {
-  url?: string;
-  secure_url?: string;
-}
-
-interface MlItemAttribute {
-  id?: string;
-  name?: string;
-  value_name?: string | null;
-}
-
-interface MlItemResponse {
-  id?: string;
-  title?: string;
-  price?: number;
-  original_price?: number | null;
-  currency_id?: string;
-  permalink?: string;
-  thumbnail?: string;
-  secure_thumbnail?: string;
-  pictures?: MlItemPicture[];
-  seller_id?: number;
-  available_quantity?: number;
-  attributes?: MlItemAttribute[];
-}
-
-interface MlUserResponse {
-  nickname?: string;
-}
+type ExtractionLayer = "json_ld" | "open_graph" | "dom" | "mixed" | "none";
 
 interface JsonLdExtraction {
   title: string | null;
@@ -42,6 +14,12 @@ interface JsonLdExtraction {
   sellerName: string | null;
   brand: string | null;
   currency: string | null;
+}
+
+interface OpenGraphExtraction {
+  title: string | null;
+  imageUrl: string | null;
+  price: number | null;
 }
 
 export type MercadoLivreOfferPreview = {
@@ -61,19 +39,9 @@ export type MercadoLivreOfferPreview = {
   brand: string | null;
   availability: Availability;
   currency: string;
-  extractionMethod: "ml_api_html" | "ml_api" | "ml_html" | "ml_url";
+  extractionMethod: "ml_html" | "ml_url";
+  extractionLayer: ExtractionLayer;
   raw: Record<string, unknown>;
-};
-
-const DEFAULT_HEADERS: Record<string, string> = {
-  "accept":
-    "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-  "accept-language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
-  "cache-control": "no-cache",
-  "pragma": "no-cache",
-  "upgrade-insecure-requests": "1",
-  "user-agent":
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
 };
 
 function toNonEmptyString(value: unknown): string | null {
@@ -123,6 +91,17 @@ function toPrice(value: unknown): number | null {
 function computeDiscountPct(price: number | null, oldPrice: number | null): number | null {
   if (price === null || oldPrice === null || oldPrice <= price) return null;
   return Math.round(((oldPrice - price) / oldPrice) * 100);
+}
+
+function normalizeMercadoLivreImageUrl(rawUrl: string | null): string | null {
+  const value = String(rawUrl ?? "").trim();
+  if (!value) return null;
+  const noHash = value.split("#")[0];
+  const noQuery = noHash.split("?")[0];
+  const normalized = noQuery
+    .replace(/-V(?=\.(jpg|jpeg|png|webp)$)/i, "")
+    .replace(/([_-])I\.(jpg|jpeg|png|webp)$/i, "$1F.$2");
+  return normalized || noQuery || value;
 }
 
 function parseAmountFromParts(fractionText: string | null, centsText: string | null): number | null {
@@ -288,36 +267,35 @@ function extractItemIdFromUrl(url: string): string | null {
   return extractMlItemId(url);
 }
 
-async function fetchJson<T>(url: string): Promise<T | null> {
-  try {
-    const res = await fetch(url, {
-      headers: {
-        accept: "application/json",
-        "user-agent": DEFAULT_HEADERS["user-agent"],
-      },
-      cache: "no-store",
-      signal: AbortSignal.timeout(20000),
-    });
-    if (!res.ok) return null;
-    return await res.json() as T;
-  } catch {
-    return null;
-  }
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function randomHandshakeDelay() {
+  const delayMs = 350 + Math.floor(Math.random() * 301); // 350-650ms
+  await sleep(delayMs);
 }
 
 async function fetchHtml(url: string): Promise<{ html: string; finalUrl: string } | null> {
   try {
-    const res = await fetch(url, {
-      method: "GET",
-      headers: DEFAULT_HEADERS,
-      redirect: "follow",
-      cache: "no-store",
-      signal: AbortSignal.timeout(25000),
+    await randomHandshakeDelay();
+    const result = await fetchHtmlWithRotation({
+      url,
+      timeoutMs: 12000,
+      maxAttempts: 3,
+      minHtmlLength: 1200,
+      extraHeaders: {
+        "accept-encoding": "gzip, deflate, br",
+      },
+      blockedPatterns: [
+        /captcha/i,
+        /robot check/i,
+        /acesso negado/i,
+        /digite os caracteres/i,
+        /verifique que voc[eê] [ée] humano/i,
+      ],
     });
-    if (!res.ok) return null;
-    const html = await res.text();
-    if (!html || html.length < 1000) return null;
-    return { html, finalUrl: res.url || url };
+    return { html: result.html, finalUrl: result.finalUrl || url };
   } catch {
     return null;
   }
@@ -362,6 +340,9 @@ function parseJsonLdScripts(html: string): JsonLdExtraction {
         (Array.isArray(product.image)
           ? toNonEmptyString((product.image as unknown[])[0])
           : toNonEmptyString(product.image));
+      if (result.imageUrl) {
+        result.imageUrl = normalizeMercadoLivreImageUrl(result.imageUrl);
+      }
 
       const brand = product.brand;
       if (typeof brand === "object" && brand !== null) {
@@ -424,6 +405,47 @@ function parseJsonLdScripts(html: string): JsonLdExtraction {
   return result;
 }
 
+function parseOpenGraphSnapshot(html: string): OpenGraphExtraction {
+  const $ = load(html);
+  const twitterData1Price = toPrice(
+    toNonEmptyString($('meta[name="twitter:data1"]').attr("content")),
+  );
+  return {
+    title: toNonEmptyString($('meta[property="og:title"]').attr("content")),
+    imageUrl: normalizeMercadoLivreImageUrl(
+      toNonEmptyString($('meta[property="og:image"]').attr("content")),
+    ),
+    price:
+      twitterData1Price ??
+      toPrice($('meta[property="product:price:amount"]').attr("content")) ??
+      toPrice($('meta[property="og:price:amount"]').attr("content")) ??
+      toPrice($('meta[itemprop="price"]').attr("content")) ??
+      toPrice($('meta[property="price:amount"]').attr("content")),
+  };
+}
+
+function detectExtractionLayer(input: {
+  jsonLd: JsonLdExtraction;
+  openGraph: OpenGraphExtraction;
+  dom: { title: string | null; imageUrl: string | null; price: number | null } | null;
+}): ExtractionLayer {
+  const hasJsonLd = Boolean(input.jsonLd.title && input.jsonLd.imageUrl && input.jsonLd.price);
+  if (hasJsonLd) return "json_ld";
+
+  const hasOg = Boolean(input.openGraph.title && input.openGraph.imageUrl && input.openGraph.price);
+  if (hasOg) return "open_graph";
+
+  const hasDom = Boolean(input.dom?.title && input.dom?.imageUrl && input.dom?.price);
+  if (hasDom) return "dom";
+
+  const hasAny =
+    Boolean(input.jsonLd.title || input.jsonLd.imageUrl || input.jsonLd.price) ||
+    Boolean(input.openGraph.title || input.openGraph.imageUrl || input.openGraph.price) ||
+    Boolean(input.dom?.title || input.dom?.imageUrl || input.dom?.price);
+
+  return hasAny ? "mixed" : "none";
+}
+
 function parseBrandFromSpecs($: ReturnType<typeof load>): string | null {
   const candidates = [
     ".ui-pdp-specs__table .andes-table__row",
@@ -448,21 +470,26 @@ function parseBrandFromSpecs($: ReturnType<typeof load>): string | null {
 
 function parseHtmlSnapshot(html: string, finalUrl: string) {
   const $ = load(html);
-  const jsonLd = parseJsonLdScripts(html);
+  const title =
+    toNonEmptyString($("h1.ui-pdp-title").first().text()) ??
+    toNonEmptyString($('meta[property="og:title"]').attr("content"));
 
-  const title = toNonEmptyString(
-    $("h1.ui-pdp-title").first().text(),
-  ) ?? toNonEmptyString($('meta[property="og:title"]').attr("content")) ??
-    jsonLd.title;
-
-  const imageUrl = toNonEmptyString(
-    $('meta[property="og:image"]').attr("content"),
-  ) ??
-    toNonEmptyString($('meta[name="twitter:image"]').attr("content")) ??
-    toNonEmptyString($(".ui-pdp-gallery__figure img").first().attr("src")) ??
-    toNonEmptyString(html.match(/"secure_thumbnail"\s*:\s*"([^"]+)"/i)?.[1]) ??
-    toNonEmptyString(html.match(/"thumbnail"\s*:\s*"([^"]+)"/i)?.[1]) ??
-    jsonLd.imageUrl;
+  const imageUrl = normalizeMercadoLivreImageUrl(
+    toNonEmptyString(
+      $(".ui-pdp-image.ui-pdp-image--active").first().attr("src"),
+    ) ??
+      toNonEmptyString(
+        $(".ui-pdp-image.ui-pdp-image--active").first().attr("data-zoom"),
+      ) ??
+      toNonEmptyString(
+        $(".ui-pdp-image.ui-pdp-image--active").first().attr("data-src"),
+      ) ??
+      toNonEmptyString($(".ui-pdp-gallery__figure img").first().attr("src")) ??
+      toNonEmptyString(html.match(/"secure_thumbnail"\s*:\s*"([^"]+)"/i)?.[1]) ??
+      toNonEmptyString(html.match(/"thumbnail"\s*:\s*"([^"]+)"/i)?.[1]) ??
+      toNonEmptyString($('meta[property="og:image"]').attr("content")) ??
+      toNonEmptyString($('meta[name="twitter:image"]').attr("content")),
+  );
 
   const canonical = toNonEmptyString($('link[rel="canonical"]').attr("href")) ??
     toNonEmptyString($('meta[property="og:url"]').attr("content")) ??
@@ -475,7 +502,16 @@ function parseHtmlSnapshot(html: string, finalUrl: string) {
     $(".ui-pdp-price__second-line .andes-money-amount__cents").first().text(),
   );
   const currentFromParts = parseAmountFromParts(fractionCurrent, centsCurrent);
+  const currentFromShadow = toPrice(
+    $(".ui-p-price__shadow").first().text(),
+  );
+  const currentFromMainValue = toPrice(
+    $(".ui-p-price__main-value").first().text(),
+  );
   const currentFromMeta = toPrice($('meta[itemprop="price"]').attr("content"));
+  const currentFromPriceAmountMeta = toPrice(
+    $('meta[property="price:amount"]').attr("content"),
+  );
   const currentFromProductMeta = toPrice(
     $('meta[property="product:price:amount"]').attr("content"),
   );
@@ -497,19 +533,25 @@ function parseHtmlSnapshot(html: string, finalUrl: string) {
       toNonEmptyString($('meta[property="og:title"]').attr("content")),
     ),
   );
+  const currentFromTwitterData1 = toPrice(
+    toNonEmptyString($('meta[name="twitter:data1"]').attr("content")),
+  );
 
   // Regra de negocio: sempre priorizar o menor preco a vista disponivel,
   // mas ignorando valores implausiveis para o tipo de produto.
   const price = pickBestCurrentPrice(
     title,
+    currentFromShadow,
+    currentFromMainValue,
     currentFromParts,
-    jsonLd.price,
+    currentFromPriceAmountMeta,
     currentFromMeta,
     currentFromProductMeta,
     currentFromOgMeta,
     currentFromPreloadValue,
     currentFromPreloadAmount,
     currentFromRegex,
+    currentFromTwitterData1,
     currentFromOgTitle,
   );
 
@@ -533,10 +575,7 @@ function parseHtmlSnapshot(html: string, finalUrl: string) {
   );
 
   // Prioridade: JSON estruturado/API-like > parse visual do DOM.
-  const oldFromStructured = pickPrioritizedOldPrice(
-    price,
-    [jsonLd.oldPrice, oldFromRegex, oldFromOriginalValue],
-  );
+  const oldFromStructured = pickPrioritizedOldPrice(price, [oldFromRegex, oldFromOriginalValue]);
   const oldPrice = pickPrioritizedOldPrice(
     price,
     [oldFromStructured],
@@ -548,19 +587,16 @@ function parseHtmlSnapshot(html: string, finalUrl: string) {
 
   const rating = toNumber(
     $(".ui-pdp-review__rating").first().text(),
-  ) ?? toNumber($('meta[itemprop="ratingValue"]').attr("content")) ??
-    jsonLd.rating;
+  ) ?? toNumber($('meta[itemprop="ratingValue"]').attr("content"));
 
   const reviewCount = parseReviewCount(
     $(".ui-pdp-review__amount").first().text(),
-  ) ?? toNumber($('meta[itemprop="reviewCount"]').attr("content")) ??
-    jsonLd.reviewCount;
+  ) ?? toNumber($('meta[itemprop="reviewCount"]').attr("content"));
 
   const sellerName = toNonEmptyString(
     $(".ui-pdp-seller__header__title").first().text(),
   ) ??
-    toNonEmptyString($(".ui-pdp-media__title").first().text()) ??
-    jsonLd.sellerName;
+    toNonEmptyString($(".ui-pdp-media__title").first().text());
 
   const bodyText = $("body").text().toLowerCase();
   const availability: Availability = bodyText.includes("sem estoque") ||
@@ -570,15 +606,13 @@ function parseHtmlSnapshot(html: string, finalUrl: string) {
     ? "in_stock"
     : "unknown";
 
-  const brand = parseBrandFromSpecs($) ?? jsonLd.brand;
+  const brand = parseBrandFromSpecs($);
   const currency = toNonEmptyString(
     $('meta[property="product:price:currency"]').attr("content"),
   ) ??
     toNonEmptyString(
       html.match(/"currency_id"\s*:\s*"([A-Z]{3})"/i)?.[1],
-    ) ??
-    jsonLd.currency ??
-    "BRL";
+    ) ?? "BRL";
 
   return {
     title,
@@ -593,81 +627,6 @@ function parseHtmlSnapshot(html: string, finalUrl: string) {
     availability,
     currency,
   };
-}
-
-function pickBrandFromAttributes(attributes: MlItemAttribute[] | undefined): string | null {
-  if (!attributes?.length) return null;
-  const byId = attributes.find((attribute) =>
-    String(attribute.id ?? "").toUpperCase() === "BRAND"
-  );
-  if (byId?.value_name) return byId.value_name;
-  const byName = attributes.find((attribute) =>
-    String(attribute.name ?? "").toLowerCase() === "marca"
-  );
-  if (byName?.value_name) return byName.value_name;
-  return null;
-}
-
-async function fetchMlSellerName(sellerId: number): Promise<string | null> {
-  const user = await fetchJson<MlUserResponse>(
-    `https://api.mercadolibre.com/users/${sellerId}`,
-  );
-  return toNonEmptyString(user?.nickname);
-}
-
-async function fetchMlItem(itemId: string) {
-  const item = await fetchJson<MlItemResponse>(
-    `https://api.mercadolibre.com/items/${itemId}`,
-  );
-  if (!item) return null;
-
-  const sellerName = item.seller_id
-    ? await fetchMlSellerName(item.seller_id)
-    : null;
-
-  const availability: Availability = typeof item.available_quantity === "number"
-    ? (item.available_quantity > 0 ? "in_stock" : "out_of_stock")
-    : "unknown";
-
-  return {
-    itemId: extractMlItemId(item.id ?? itemId),
-    title: toNonEmptyString(item.title),
-    productUrl: toNonEmptyString(item.permalink),
-    imageUrl: toNonEmptyString(
-      item.pictures?.[0]?.secure_url ??
-        item.pictures?.[0]?.url ??
-        item.secure_thumbnail ??
-        item.thumbnail,
-    ),
-    price: toPrice(item.price),
-    oldPrice: toPrice(item.original_price),
-    sellerName,
-    brand: pickBrandFromAttributes(item.attributes),
-    availability,
-    currency: toNonEmptyString(item.currency_id) ?? "BRL",
-  };
-}
-
-function slugFromUrl(url: string): string | null {
-  try {
-    const parsed = new URL(url);
-    const firstPart = parsed.pathname.split("/").filter(Boolean)[0];
-    if (!firstPart) return null;
-    const normalized = firstPart.replace(/-/g, " ").replace(/\s+/g, " ").trim();
-    return normalized.length >= 3 ? normalized : null;
-  } catch {
-    return null;
-  }
-}
-
-async function searchItemIdBySlug(url: string): Promise<string | null> {
-  const query = slugFromUrl(url);
-  if (!query) return null;
-
-  const response = await fetchJson<{ results?: Array<{ id?: string }> }>(
-    `https://api.mercadolibre.com/sites/MLB/search?q=${encodeURIComponent(query)}&limit=5`,
-  );
-  return extractMlItemId(response?.results?.[0]?.id);
 }
 
 function ensureMercadoLivreUrl(rawUrl: string): void {
@@ -716,68 +675,70 @@ export async function extractMercadoLivreOffer(input: {
 
   ensureMercadoLivreUrl(input.url);
   const normalizedUrl = normalizeMercadoLivreUrl(input.url);
-
-  let itemId = extractItemIdFromUrl(normalizedUrl);
-  if (!itemId) {
-    itemId = await searchItemIdBySlug(normalizedUrl);
-  }
-
-  const [apiSnapshot, htmlSnapshot] = await Promise.all([
-    itemId ? fetchMlItem(itemId) : Promise.resolve(null),
-    fetchHtml(normalizedUrl),
-  ]);
+  const itemId = extractItemIdFromUrl(normalizedUrl);
+  const htmlSnapshot = await fetchHtml(normalizedUrl);
+  const htmlPayload = htmlSnapshot?.html ?? "";
+  console.log("[ML htmlPayload]", htmlPayload);
 
   const htmlParsed = htmlSnapshot
     ? parseHtmlSnapshot(htmlSnapshot.html, htmlSnapshot.finalUrl)
     : null;
+  const jsonLd = htmlSnapshot ? parseJsonLdScripts(htmlSnapshot.html) : null;
+  const openGraph = htmlSnapshot ? parseOpenGraphSnapshot(htmlSnapshot.html) : null;
 
-  const title = apiSnapshot?.title ?? htmlParsed?.title ?? slugFromUrl(normalizedUrl);
-  const price = pickMinPrice(
-    apiSnapshot?.price ?? null,
+  const title =
+    jsonLd?.title ??
+    openGraph?.title ??
+    htmlParsed?.title ??
+    "Produto Mercado Livre";
+  const price = pickBestCurrentPrice(
+    title,
+    jsonLd?.price ?? null,
+    openGraph?.price ?? null,
     htmlParsed?.price ?? null,
   );
-  const oldPrice = pickPrioritizedOldPrice(
-    price,
-    [
-      apiSnapshot?.oldPrice ?? null,
-      htmlParsed?.oldPrice ?? null,
-    ],
+  const oldPrice = pickPrioritizedOldPrice(price, [jsonLd?.oldPrice, htmlParsed?.oldPrice ?? null]);
+  const imageUrl = normalizeMercadoLivreImageUrl(
+    jsonLd?.imageUrl ?? openGraph?.imageUrl ?? htmlParsed?.imageUrl ?? null,
   );
-  const imageUrl = htmlParsed?.imageUrl ?? apiSnapshot?.imageUrl ?? null;
-  const productUrl = htmlParsed?.productUrl ?? apiSnapshot?.productUrl ?? normalizedUrl;
-  const sellerName = htmlParsed?.sellerName ?? apiSnapshot?.sellerName ?? null;
-  const brand = htmlParsed?.brand ?? apiSnapshot?.brand ?? null;
-  const availability = htmlParsed?.availability ?? apiSnapshot?.availability ?? "unknown";
-  const currency = htmlParsed?.currency ?? apiSnapshot?.currency ?? "BRL";
-  const rating = htmlParsed?.rating ?? null;
-  const reviewCount = htmlParsed?.reviewCount ?? null;
+  const productUrl = htmlParsed?.productUrl ?? normalizedUrl;
+  const sellerName = jsonLd?.sellerName ?? htmlParsed?.sellerName ?? null;
+  const brand = jsonLd?.brand ?? htmlParsed?.brand ?? null;
+  const availability = htmlParsed?.availability ?? "unknown";
+  const currency = jsonLd?.currency ?? htmlParsed?.currency ?? "BRL";
+  const rating = jsonLd?.rating ?? htmlParsed?.rating ?? null;
+  const reviewCount = jsonLd?.reviewCount ?? htmlParsed?.reviewCount ?? null;
   const discountPct = computeDiscountPct(price, oldPrice);
-
-  if (!title) {
-    throw new Error(
-      "Nao foi possivel extrair titulo do produto. Tente outro link do produto ou reprocessar em alguns segundos.",
-    );
-  }
-  if (price === null && !imageUrl) {
-    throw new Error(
-      "Nao foi possivel extrair preco/imagem com confianca. Tente novamente em alguns segundos.",
-    );
-  }
-
-  const extractionMethod: MercadoLivreOfferPreview["extractionMethod"] = apiSnapshot && htmlParsed
-    ? "ml_api_html"
-    : apiSnapshot
-    ? "ml_api"
-    : htmlParsed
-    ? "ml_html"
-    : "ml_url";
+  const extractionMethod: MercadoLivreOfferPreview["extractionMethod"] =
+    htmlParsed ? "ml_html" : "ml_url";
+  const extractionLayer = detectExtractionLayer({
+    jsonLd: jsonLd ?? {
+      title: null,
+      imageUrl: null,
+      price: null,
+      oldPrice: null,
+      rating: null,
+      reviewCount: null,
+      sellerName: null,
+      brand: null,
+      currency: null,
+    },
+    openGraph: openGraph ?? {
+      title: null,
+      imageUrl: null,
+      price: null,
+    },
+    dom: htmlParsed
+      ? { title: htmlParsed.title, imageUrl: htmlParsed.imageUrl, price: htmlParsed.price }
+      : null,
+  });
 
   return {
     marketplace: "mercadolivre",
     sourceUrl: normalizedUrl,
     productUrl,
     affiliateUrl: input.affiliateUrl?.trim() || normalizedUrl,
-    itemId: apiSnapshot?.itemId ?? itemId,
+    itemId,
     title,
     imageUrl,
     price,
@@ -790,9 +751,12 @@ export async function extractMercadoLivreOffer(input: {
     availability,
     currency,
     extractionMethod,
+    extractionLayer,
     raw: {
-      item_id: apiSnapshot?.itemId ?? itemId,
-      api: apiSnapshot,
+      item_id: itemId,
+      extraction_layer: extractionLayer,
+      json_ld: jsonLd,
+      open_graph: openGraph,
       html: htmlParsed,
       url: normalizedUrl,
     },

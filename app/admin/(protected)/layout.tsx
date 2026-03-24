@@ -7,6 +7,17 @@ import { supabase } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
 
+function shouldBypassAdminAuth(): boolean {
+  // Em ambiente local/dev o painel pode ser acessado sem login,
+  // conforme fluxo operacional pedido para localhost.
+  if (process.env.NEXT_PUBLIC_ADMIN_LOCAL_BYPASS === "true") return true;
+  if (process.env.NODE_ENV !== "production") return true;
+
+  if (typeof window === "undefined") return false;
+  const host = window.location.hostname.toLowerCase();
+  return host === "localhost" || host === "127.0.0.1";
+}
+
 export default function AdminProtectedLayout({
   children,
 }: {
@@ -17,6 +28,13 @@ export default function AdminProtectedLayout({
 
   useEffect(() => {
     let active = true;
+
+    if (shouldBypassAdminAuth()) {
+      setIsReady(true);
+      return () => {
+        active = false;
+      };
+    }
 
     const validate = async () => {
       const { data, error } = await supabase.auth.getSession();

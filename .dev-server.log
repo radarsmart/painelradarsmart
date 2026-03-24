@@ -1,0 +1,24 @@
+
+> radar-smart@0.1.0 dev
+> next dev
+
+  ▲ Next.js 14.2.32
+  - Local:        http://localhost:3000
+  - Environments: .env.local
+
+ ✓ Starting...
+ ✓ Ready in 7.5s
+ ○ Compiling /admin/ofertas/nova ...
+ ✓ Compiled /admin/ofertas/nova in 6.7s (640 modules)
+ HEAD /admin/ofertas/nova 200 in 7119ms
+ GET /admin/ofertas/nova 200 in 303ms
+ ○ Compiling /_not-found ...
+ ✓ Compiled /_not-found in 2.1s (643 modules)
+ GET /_next/static/css/app/layout.css?v=1774368506358 404 in 2638ms
+ GET /_next/static/chunks/webpack.js?v=1774368506358 404 in 2663ms
+ GET /_next/static/chunks/main-app.js?v=1774368506358 404 in 1401ms
+ GET /_next/static/chunks/app-pages-internals.js 404 in 1397ms
+ GET /_next/static/chunks/app/admin/(protected)/ofertas/nova/page.js 404 in 1393ms
+ GET /_next/static/chunks/app/admin/(protected)/layout.js 404 in 1388ms
+ ○ Compiling / ...
+ ✓ Compiled / in 6.1s (1490 modules)

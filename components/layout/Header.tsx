@@ -9,7 +9,7 @@ type HeaderProps = {
 };
 
 const navLinks = [
-  { href: "/", label: "Inicio" },
+  { href: "/", label: "Início" },
   { href: "/ofertas", label: "Ofertas" },
   { href: "/comparativo", label: "Comparador" },
   { href: "/blog", label: "Guias" },

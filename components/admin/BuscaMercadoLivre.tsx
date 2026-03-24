@@ -1,8 +1,10 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Search } from "lucide-react";
 import { formatBRL } from "@/lib/formatters";
+import { supabase } from "@/lib/supabase";
 
 export type ProdutoML = {
   id: string;
@@ -22,20 +24,38 @@ type BuscaMercadoLivreProps = {
 };
 
 export default function BuscaMercadoLivre({ onSelect }: BuscaMercadoLivreProps) {
+  const router = useRouter();
   const [q, setQ] = useState("");
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<ProdutoML[]>([]);
   const [error, setError] = useState<string | null>(null);
+
+  const getAuthHeaders = async (): Promise<HeadersInit> => {
+    const { data } = await supabase.auth.getSession();
+    const token = data.session?.access_token;
+    const headers: HeadersInit = { "Content-Type": "application/json" };
+    if (token) headers.Authorization = `Bearer ${token}`;
+    return headers;
+  };
 
   const search = async () => {
     if (!q.trim()) return;
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/admin/ml/search?q=${encodeURIComponent(q)}`);
+      const headers = await getAuthHeaders();
+      const res = await fetch(`/api/admin/ml/search?q=${encodeURIComponent(q)}`, {
+        method: "GET",
+        headers,
+        credentials: "include",
+      });
       const data = await res.json();
+      if (res.status === 401 || res.status === 403) {
+        router.replace("/admin/login");
+        return;
+      }
       if (!res.ok) throw new Error(data?.error ?? "Falha ao consultar ML");
-      setResults(data.products ?? []);
+      setResults((data.public_offers ?? data.products ?? []) as ProdutoML[]);
     } catch (err) {
       setError((err as Error).message);
     } finally {

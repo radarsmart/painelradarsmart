@@ -9,7 +9,7 @@ const GROUP_URL =
 
 export default function Footer() {
   return (
-    <footer className="border-t border-white/10 bg-[#22223B] py-12 text-white">
+    <footer className="border-t border-white/10 bg-[#22223B] pb-28 pt-12 text-white md:pb-12">
       <div className="mx-auto max-w-7xl px-4">
         <div className="grid gap-10 md:grid-cols-3">
           <div className="space-y-4">

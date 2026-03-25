@@ -15,7 +15,7 @@ import OfferTicker, { type TickerOffer } from "@/components/layout/OfferTicker";
 import Header from "@/components/layout/Header";
 import Footer from "@/components/layout/Footer";
 import CountdownTimer from "@/components/vitrine/CountdownTimer";
-import BotaoGrupoFlutuante from "@/components/layout/BotaoGrupoFlutuante";
+import { PushSubscription } from "@/components/PushSubscription";
 import { formatBRL } from "@/lib/formatters";
 import { supabase } from "@/lib/supabase";
 
@@ -71,6 +71,23 @@ type HomePost = {
   image: string | null;
   publishedAt: string | null;
 };
+
+function dedupeOffers(offers: HomeOffer[]): HomeOffer[] {
+  const seen = new Set<string>();
+  const unique: HomeOffer[] = [];
+
+  for (const offer of offers) {
+    if (seen.has(offer.id)) continue;
+    seen.add(offer.id);
+    unique.push(offer);
+  }
+
+  return unique;
+}
+
+function buildTrackedOfferUrl(id: string, source: string): string {
+  return `/go/${id}?source=${encodeURIComponent(source)}`;
+}
 
 const reveal = {
   hidden: { opacity: 0, y: 30 },
@@ -172,7 +189,10 @@ function normalizePost(row: BlogPostRow): HomePost {
 }
 
 export default function HomePage() {
-  const [offers, setOffers] = useState<HomeOffer[]>([]);
+  const [heroOffers, setHeroOffers] = useState<HomeOffer[]>([]);
+  const [flashOffers, setFlashOffers] = useState<HomeOffer[]>([]);
+  const [bestOffers, setBestOffers] = useState<HomeOffer[]>([]);
+  const [comparatorOffers, setComparatorOffers] = useState<HomeOffer[]>([]);
   const [posts, setPosts] = useState<HomePost[]>(fallbackGuides);
   const [loading, setLoading] = useState(true);
   const [publishNotice, setPublishNotice] = useState<string | null>(null);
@@ -200,16 +220,48 @@ export default function HomePage() {
     const loadData = async () => {
       setLoading(true);
 
-      const [{ data: offerRows }, { data: postRows }] = await Promise.all([
+      const offerSelect =
+        "id,title,price,old_price,original_price,price_old,discount_pct,discount_percent,image_url,affiliate_url,product_url,marketplace,rating,review_count,reviews_count,created_at,status";
+
+      const [
+        { data: heroRows },
+        { data: flashRows },
+        { data: bestRows },
+        { data: comparatorRows },
+        { data: postRows },
+      ] = await Promise.all([
         supabase
           .from("offers")
-          .select(
-            "id,title,price,old_price,original_price,price_old,discount_pct,discount_percent,image_url,affiliate_url,product_url,marketplace,rating,review_count,reviews_count,created_at,status",
-          )
+          .select(offerSelect)
           .eq("status", "active")
           .eq("curations_status", "approved")
+          .eq("slot_type", "hero")
           .order("created_at", { ascending: false })
-          .limit(24),
+          .limit(3),
+        supabase
+          .from("offers")
+          .select(offerSelect)
+          .eq("status", "active")
+          .eq("curations_status", "approved")
+          .eq("slot_type", "flash")
+          .order("created_at", { ascending: false })
+          .limit(8),
+        supabase
+          .from("offers")
+          .select(offerSelect)
+          .eq("status", "active")
+          .eq("curations_status", "approved")
+          .eq("slot_type", "best")
+          .order("created_at", { ascending: false })
+          .limit(20),
+        supabase
+          .from("offers")
+          .select(offerSelect)
+          .eq("status", "active")
+          .eq("curations_status", "approved")
+          .eq("slot_type", "comparator")
+          .order("click_count", { ascending: false })
+          .limit(12),
         supabase
           .from("blog_posts")
           .select(
@@ -220,7 +272,16 @@ export default function HomePage() {
           .limit(4),
       ]);
 
-      const normalizedOffers = ((offerRows ?? []) as OfferRow[])
+      const normalizedHeroOffers = ((heroRows ?? []) as OfferRow[])
+        .map(normalizeOffer)
+        .filter((offer): offer is HomeOffer => Boolean(offer));
+      const normalizedFlashOffers = ((flashRows ?? []) as OfferRow[])
+        .map(normalizeOffer)
+        .filter((offer): offer is HomeOffer => Boolean(offer));
+      const normalizedBestOffers = ((bestRows ?? []) as OfferRow[])
+        .map(normalizeOffer)
+        .filter((offer): offer is HomeOffer => Boolean(offer));
+      const normalizedComparatorOffers = ((comparatorRows ?? []) as OfferRow[])
         .map(normalizeOffer)
         .filter((offer): offer is HomeOffer => Boolean(offer));
 
@@ -228,13 +289,21 @@ export default function HomePage() {
         .map(normalizePost)
         .slice(0, 4);
 
-      setOffers(normalizedOffers);
+      setHeroOffers(normalizedHeroOffers);
+      setFlashOffers(normalizedFlashOffers);
+      setBestOffers(normalizedBestOffers);
+      setComparatorOffers(normalizedComparatorOffers);
       setPosts(normalizedPosts.length ? normalizedPosts : fallbackGuides);
       setLoading(false);
     };
 
     void loadData();
   }, []);
+
+  const offers = useMemo(
+    () => dedupeOffers([...heroOffers, ...flashOffers, ...bestOffers, ...comparatorOffers]),
+    [heroOffers, flashOffers, bestOffers, comparatorOffers],
+  );
 
   const tickerOffers: TickerOffer[] = useMemo(
     () =>
@@ -249,29 +318,37 @@ export default function HomePage() {
     [offers],
   );
 
-  const flashOffers = useMemo(
-    () => [...offers].sort((a, b) => b.discount - a.discount).slice(0, 4),
-    [offers],
+  const spotlightOffers = useMemo(
+    () => (heroOffers.length ? heroOffers.slice(0, 3) : bestOffers.slice(0, 3)),
+    [heroOffers, bestOffers],
   );
 
-  const dayOffers = useMemo(() => offers.slice(0, 4), [offers]);
+  const relampagoOffers = useMemo(
+    () => (flashOffers.length ? flashOffers.slice(0, 4) : bestOffers.slice(0, 4)),
+    [flashOffers, bestOffers],
+  );
+
+  const dayOffers = useMemo(
+    () => (bestOffers.length ? bestOffers.slice(0, 4) : offers.slice(0, 4)),
+    [bestOffers, offers],
+  );
 
   const compareOffers = useMemo(() => {
-    const base = offers.slice(0, 6);
+    const base = comparatorOffers.length ? comparatorOffers : bestOffers.slice(0, 6);
     const sorted = [...base].sort((a, b) => {
       if (compareMode === "price") return a.price - b.price;
       if (compareMode === "discount") return b.discount - a.discount;
       return (b.rating ?? 0) - (a.rating ?? 0);
     });
     return sorted.slice(0, 4);
-  }, [offers, compareMode]);
+  }, [comparatorOffers, bestOffers, compareMode]);
 
   return (
     <div className="bg-[#F3F6F9] text-navy">
       <OfferTicker offers={tickerOffers} />
       <Header withTickerOffset />
 
-      <main className="mx-auto max-w-7xl space-y-14 px-4 pb-16 pt-24">
+      <main className="mx-auto max-w-7xl space-y-14 px-4 pb-24 pt-24 md:pb-16">
         <motion.section
           variants={reveal}
           initial="hidden"
@@ -323,6 +400,30 @@ export default function HomePage() {
                   Ver Ofertas
                 </Link>
               </div>
+
+              {spotlightOffers.length ? (
+                <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {spotlightOffers.map((offer) => (
+                    <a
+                      key={`hero-${offer.id}`}
+                      href={buildTrackedOfferUrl(offer.id, "home_hero")}
+                      target="_blank"
+                      rel="noopener noreferrer sponsored"
+                      className="rounded-2xl border border-white/10 bg-white/10 p-3 transition hover:bg-white/15"
+                    >
+                      <p className="line-clamp-2 text-sm font-semibold">{offer.title}</p>
+                      <div className="mt-2 flex items-center justify-between">
+                        <span className="font-mono text-sm font-bold text-[#F6C453]">
+                          {formatOfferPrice(offer.price)}
+                        </span>
+                        <span className="rounded-full bg-white/10 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-slate-100">
+                          Hero
+                        </span>
+                      </div>
+                    </a>
+                  ))}
+                </div>
+              ) : null}
             </div>
 
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 md:grid-cols-1">
@@ -361,8 +462,8 @@ export default function HomePage() {
             <h2 className="font-display text-2xl font-bold text-navy">Ofertas Relâmpago</h2>
             <Flame className="h-5 w-5 text-[#9e6a18]" />
           </div>
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            {flashOffers.map((offer, index) => (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:gap-6 lg:grid-cols-3 xl:grid-cols-4">
+            {relampagoOffers.map((offer, index) => (
               <article
                 key={`flash-${offer.id}`}
                 className="rounded-2xl border border-slate-200 bg-white p-4 shadow-card"
@@ -395,7 +496,7 @@ export default function HomePage() {
                   />
                 </div>
                 <a
-                  href={offer.affiliateUrl}
+                  href={buildTrackedOfferUrl(offer.id, "home_flash")}
                   target="_blank"
                   rel="noopener noreferrer sponsored"
                   className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#22223B] px-3 py-2 text-sm font-semibold text-white hover:bg-[#2f2f4d]"
@@ -416,12 +517,12 @@ export default function HomePage() {
           className="space-y-5"
         >
           <div className="flex items-center justify-between">
-            <h2 className="font-display text-2xl font-bold text-navy">Ofertas do Dia</h2>
+            <h2 className="font-display text-2xl font-bold text-navy">Melhores Ofertas</h2>
             <Link href="/ofertas" className="text-sm font-semibold text-[#9e6a18] hover:underline">
               Ver todas
             </Link>
           </div>
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:gap-6 lg:grid-cols-3 xl:grid-cols-4">
             {dayOffers.map((offer) => (
               <article
                 key={`day-${offer.id}`}
@@ -443,7 +544,7 @@ export default function HomePage() {
                   {formatOfferPrice(offer.price)}
                 </p>
                 <a
-                  href={offer.affiliateUrl}
+                  href={buildTrackedOfferUrl(offer.id, "home_best")}
                   target="_blank"
                   rel="noopener noreferrer sponsored"
                   className="mt-3 inline-flex w-full items-center justify-center rounded-xl border border-[#9e6a18] px-3 py-2 text-sm font-semibold text-[#9e6a18] transition group-hover:bg-[#9e6a18] group-hover:text-white"
@@ -524,7 +625,7 @@ export default function HomePage() {
                     <td className="py-3">{offer.rating ? offer.rating.toFixed(1) : "-"}</td>
                     <td className="py-3">
                       <a
-                        href={offer.affiliateUrl}
+                        href={buildTrackedOfferUrl(offer.id, "home_compare")}
                         target="_blank"
                         rel="noopener noreferrer sponsored"
                         className="inline-flex items-center gap-1 rounded-lg border border-slate-300 px-3 py-1 text-xs font-semibold hover:border-[#9e6a18] hover:text-[#9e6a18]"
@@ -554,7 +655,7 @@ export default function HomePage() {
             </Link>
           </div>
 
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
             {posts.slice(0, 4).map((post) => (
               <Link
                 key={post.id}
@@ -586,10 +687,10 @@ export default function HomePage() {
 
       <Footer />
 
-      <BotaoGrupoFlutuante />
+      <PushSubscription />
 
       {loading ? (
-        <div className="pointer-events-none fixed bottom-4 right-4 z-[80] rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-600 shadow">
+        <div className="pointer-events-none fixed bottom-24 right-4 z-[80] rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-600 shadow md:bottom-4">
           Atualizando ofertas...
         </div>
       ) : null}

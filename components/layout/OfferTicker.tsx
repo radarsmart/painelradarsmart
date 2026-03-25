@@ -49,7 +49,9 @@ export default function OfferTicker({ offers }: OfferTickerProps) {
           }}
         >
           {tickerItems.map((offer, index) => {
-            const href = offer.affiliate_url || offer.product_url || "#";
+            const href = offer.id
+              ? `/go/${offer.id}?source=ticker`
+              : offer.affiliate_url || offer.product_url || "#";
             const discount = Math.max(0, Math.round(toValidNumber(offer.discount_pct)));
 
             return (

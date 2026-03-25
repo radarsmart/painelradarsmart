@@ -4,6 +4,7 @@ import { getValidToken } from "@/lib/supabase";
 import { extractWithContainerEngine } from "@/lib/scraping/container-engine";
 import { mapToAdminProdutoML } from "@/lib/scraping/mercadolivre-extractor";
 import { mapToAdminProdutoAmazon } from "@/lib/scraping/amazon-extractor";
+import { computeProfitPotential } from "@/lib/radar-sniper";
 import { extractMercadoLivreOfficial } from "@/lib/scraping/mercadolivre-official";
 import { extractMercadoLivreWithZenscrape } from "@/lib/scraping/mercadolivre-zenscrape";
 import { extractAmazonWithRainforest } from "@/lib/scraping/amazon-rainforest";
@@ -32,12 +33,16 @@ type ExtractPreviewPayload = {
   price: number;
   old_price: number;
   original_price: number;
+  final_price?: number;
   image_url: string;
   product_url: string;
   affiliate_url: string;
   permalink?: string;
   condition?: string | null;
   status?: string | null;
+  coupon_code?: string | null;
+  coupon_discount_pct?: number | null;
+  momentum_score?: number;
 };
 
 type SuccessResponse = {
@@ -55,6 +60,10 @@ type SuccessResponse = {
   image_url: string;
   product_url: string;
   affiliate_url: string;
+  final_price?: number;
+  coupon_code?: string | null;
+  coupon_discount_pct?: number | null;
+  momentum_score?: number;
   preview: ExtractPreviewPayload;
   extracted: Record<string, unknown>;
   debug_info?: {
@@ -82,6 +91,25 @@ function extractErrorMessage(error: unknown): string {
 
 function toText(value: unknown): string {
   return String(value ?? "").trim();
+}
+
+function toNumber(value: unknown): number | null {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
+function roundCurrency(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+function normalizeCouponDiscountPct(value: unknown): number | null {
+  const parsed = toNumber(value);
+  if (parsed === null || parsed <= 0) return null;
+  return clamp(parsed, 0, 100);
 }
 
 function toAbsoluteHttpUrl(value: unknown): string {
@@ -336,6 +364,106 @@ function normalizeCommercialValues(
   }
 
   return { price: safePrice, oldPrice: safeOldPrice };
+}
+
+function resolveAveragePrice(payload: SuccessResponse): number | null {
+  const extracted = payload.extracted;
+  const candidates = [
+    extracted.average_price,
+    extracted.averagePrice,
+    (extracted.product as Record<string, unknown> | undefined)?.average_price,
+    (extracted.data as Record<string, unknown> | undefined)?.average_price,
+  ];
+
+  for (const candidate of candidates) {
+    const parsed = toNumber(candidate);
+    if (parsed !== null && parsed > 0) return parsed;
+  }
+
+  return null;
+}
+
+function calculateMomentum(input: {
+  title: string;
+  marketplace: Marketplace;
+  price: number;
+  oldPrice: number;
+  averagePrice: number | null;
+  hasCoupon: boolean;
+  raw: Record<string, unknown>;
+}): number {
+  const baseScore = computeProfitPotential({
+    title: input.title,
+    marketplace: input.marketplace,
+    price: input.price,
+    oldPrice: input.oldPrice,
+    raw: input.raw,
+  });
+
+  const averageLift =
+    input.averagePrice && input.averagePrice > input.price
+      ? clamp(Math.round(((input.averagePrice - input.price) / input.averagePrice) * 20), 0, 12)
+      : 0;
+  const couponLift = input.hasCoupon ? 8 : 0;
+
+  return clamp(baseScore + averageLift + couponLift, 0, 100);
+}
+
+function enrichResponseWithCoupon(
+  payload: SuccessResponse,
+  couponCode: string,
+  couponDiscountPct: number | null,
+): SuccessResponse {
+  const normalizedCouponCode = toText(couponCode).toUpperCase();
+  const originalPrice = payload.preview.price > 0 ? payload.preview.price : payload.price;
+  const finalPrice =
+    couponDiscountPct !== null && originalPrice > 0
+      ? roundCurrency(originalPrice * (1 - couponDiscountPct / 100))
+      : originalPrice;
+  const displayOldPrice =
+    payload.old_price > originalPrice
+      ? payload.old_price
+      : couponDiscountPct !== null && finalPrice < originalPrice
+        ? originalPrice
+        : payload.old_price;
+  const averagePrice = resolveAveragePrice(payload);
+  const momentumScore = calculateMomentum({
+    title: payload.title,
+    marketplace: payload.marketplace,
+    price: finalPrice,
+    oldPrice: displayOldPrice,
+    averagePrice,
+    hasCoupon: Boolean(normalizedCouponCode),
+    raw: payload.extracted,
+  });
+
+  return {
+    ...payload,
+    price: finalPrice,
+    old_price: displayOldPrice,
+    final_price: finalPrice,
+    coupon_code: normalizedCouponCode || null,
+    coupon_discount_pct: couponDiscountPct,
+    momentum_score: momentumScore,
+    preview: {
+      ...payload.preview,
+      price: finalPrice,
+      old_price: displayOldPrice,
+      original_price: displayOldPrice,
+      final_price: finalPrice,
+      coupon_code: normalizedCouponCode || null,
+      coupon_discount_pct: couponDiscountPct,
+      momentum_score: momentumScore,
+    },
+    extracted: {
+      ...payload.extracted,
+      average_price: averagePrice,
+      final_price: finalPrice,
+      coupon_code: normalizedCouponCode || null,
+      coupon_discount_pct: couponDiscountPct,
+      momentum_score: momentumScore,
+    },
+  };
 }
 
 function mergeMercadoLivrePayloads(
@@ -646,6 +774,8 @@ export async function POST(req: NextRequest) {
       url?: string;
       affiliate_url?: string | null;
       marketplace?: string;
+      coupon_code?: string | null;
+      coupon_discount_pct?: number | string | null;
     };
 
     const sourceUrl = String(body?.url ?? "").trim();
@@ -655,6 +785,8 @@ export async function POST(req: NextRequest) {
 
     const affiliateUrl = String(body?.affiliate_url ?? sourceUrl).trim() || sourceUrl;
     const marketplace = detectMarketplace(sourceUrl, body.marketplace);
+    const couponCode = toText(body?.coupon_code).toUpperCase();
+    const couponDiscountPct = normalizeCouponDiscountPct(body?.coupon_discount_pct);
     if (!marketplace) {
       return NextResponse.json(
         { error: "URL invalida. Use link do Mercado Livre ou Amazon." },
@@ -726,24 +858,27 @@ export async function POST(req: NextRequest) {
           zensPayload,
           officialPayload,
         );
+        const enrichedPayload = responsePayload
+          ? enrichResponseWithCoupon(responsePayload, couponCode, couponDiscountPct)
+          : null;
 
-        if (responsePayload?.status === "ok") {
+        if (enrichedPayload?.status === "ok") {
           return NextResponse.json({
-            ...responsePayload,
+            ...enrichedPayload,
             retries: 1,
             debug_info: {
               layer_used:
-                responsePayload.engine === "ml-merged-v1"
+                enrichedPayload.engine === "ml-merged-v1"
                   ? "merged"
-                  : responsePayload.engine === "ml-official-v2"
+                  : enrichedPayload.engine === "ml-official-v2"
                     ? "official"
                     : "zenscrape",
-              missing_fields: responsePayload.missing_fields,
-              latency_ms: responsePayload.elapsed_ms,
+              missing_fields: enrichedPayload.missing_fields,
+              latency_ms: enrichedPayload.elapsed_ms,
             },
           });
         }
-        partialFallback = responsePayload;
+        partialFallback = enrichedPayload;
       } else {
         const startedAt = Date.now();
         const amazon = await extractAmazonWithRainforest({
@@ -763,25 +898,30 @@ export async function POST(req: NextRequest) {
           affiliateUrl: productData.affiliate_url,
           rawData: productData.raw_data,
         });
+        const enrichedPayload = enrichResponseWithCoupon(
+          responsePayload,
+          couponCode,
+          couponDiscountPct,
+        );
 
         // Garantia explícita para o formulário "Nova Oferta":
         // preview.image_url precisa vir de productData.image_url.
-        responsePayload.preview.image_url = productData.image_url;
-        responsePayload.image_url = productData.image_url;
-        responsePayload.image = productData.image_url;
+        enrichedPayload.preview.image_url = productData.image_url;
+        enrichedPayload.image_url = productData.image_url;
+        enrichedPayload.image = productData.image_url;
 
-        if (responsePayload.status === "ok") {
+        if (enrichedPayload.status === "ok") {
           return NextResponse.json({
-            ...responsePayload,
+            ...enrichedPayload,
             retries: 1,
             debug_info: {
               layer_used: "rainforest",
-              missing_fields: responsePayload.missing_fields,
-              latency_ms: responsePayload.elapsed_ms,
+              missing_fields: enrichedPayload.missing_fields,
+              latency_ms: enrichedPayload.elapsed_ms,
             },
           });
         }
-        partialFallback = responsePayload;
+        partialFallback = enrichedPayload;
       }
     } catch (error) {
       officialError = extractErrorMessage(error);
@@ -795,7 +935,11 @@ export async function POST(req: NextRequest) {
           affiliateUrl,
         });
 
-        const fallbackPayload = buildFromContainerFallback(extractedEngine);
+        const fallbackPayload = enrichResponseWithCoupon(
+          buildFromContainerFallback(extractedEngine),
+          couponCode,
+          couponDiscountPct,
+        );
         if (fallbackPayload.status === "ok") {
           return NextResponse.json({
             ...fallbackPayload,
@@ -843,7 +987,8 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const manual = buildManualFallbackResponse({
+    const manual = enrichResponseWithCoupon(
+      buildManualFallbackResponse({
       marketplace,
       sourceUrl,
       affiliateUrl,
@@ -852,7 +997,10 @@ export async function POST(req: NextRequest) {
         officialError ||
         fallbackError ||
         "Falha na extração automática. Preencha manualmente.",
-    });
+      }),
+      couponCode,
+      couponDiscountPct,
+    );
     return NextResponse.json({
       ...manual,
       debug_info: {

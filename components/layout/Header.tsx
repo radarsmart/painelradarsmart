@@ -9,11 +9,10 @@ type HeaderProps = {
 };
 
 const navLinks = [
-  { href: "/", label: "Início" },
+  { href: "/", label: "Inicio" },
   { href: "/ofertas", label: "Ofertas" },
   { href: "/comparativo", label: "Comparador" },
   { href: "/blog", label: "Guias" },
-  { href: "/blog", label: "Blog" },
 ];
 
 const GROUP_URL =
@@ -58,7 +57,7 @@ export default function Header({ withTickerOffset = false }: HeaderProps) {
           href={GROUP_URL}
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex items-center gap-2 rounded-full bg-[#9e6a18] px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all duration-200 hover:brightness-110"
+          className="hidden items-center gap-2 rounded-full bg-[#9e6a18] px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all duration-200 hover:brightness-110 sm:inline-flex"
         >
           <MessageCircle className="h-4 w-4" />
           Entrar no Grupo

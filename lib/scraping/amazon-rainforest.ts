@@ -1,4 +1,5 @@
 import { load } from "cheerio";
+import { extractAmazonAsin, fetchAmazonData } from "@/lib/extractors/api-clients";
 import { fetchHtmlWithRotation } from "@/lib/scraping/http-fetch-rotator";
 
 type AmazonRainforestInput = {
@@ -44,31 +45,13 @@ function toNumber(value: unknown): number | null {
 
 function readPrice(node: Record<string, unknown> | undefined): number | null {
   if (!node) return null;
+
   return (
     toNumber(node.value) ??
     toNumber(node.amount) ??
     toNumber(node.raw) ??
     toNumber(node.display_price)
   );
-}
-
-function extractAsinFromUrl(url: string): string | null {
-  const source = toText(url).toUpperCase();
-  if (!source) return null;
-
-  const patterns = [
-    /\/DP\/([A-Z0-9]{10})(?:[/?]|$)/,
-    /\/GP\/PRODUCT\/([A-Z0-9]{10})(?:[/?]|$)/,
-    /\/PRODUCT\/([A-Z0-9]{10})(?:[/?]|$)/,
-    /[?&]ASIN=([A-Z0-9]{10})(?:[&#]|$)/,
-  ];
-
-  for (const pattern of patterns) {
-    const match = source.match(pattern);
-    if (match?.[1]) return match[1];
-  }
-
-  return null;
 }
 
 function isAmazonImageHost(value: string): boolean {
@@ -103,6 +86,25 @@ function readGalleryImageCandidate(
   }
 
   return "";
+}
+
+function isValidAmazonProductImage(value: string): boolean {
+  const normalized = toAbsoluteHttpUrl(value).toLowerCase();
+  if (!normalized) return false;
+  if (!isHttpUrl(normalized)) return false;
+  if (!isAmazonImageHost(normalized)) return false;
+
+  if (
+    normalized.includes("logo") ||
+    normalized.includes("icon") ||
+    normalized.includes("sprite") ||
+    normalized.includes("favicon") ||
+    normalized.includes("nav-logo")
+  ) {
+    return false;
+  }
+
+  return true;
 }
 
 function pickMainImageFromProductNode(product: Record<string, unknown>): string {
@@ -140,6 +142,10 @@ function pickGalleryImageFromProductNode(product: Record<string, unknown>): stri
   return "";
 }
 
+function pickImageFromProductNode(product: Record<string, unknown>): string {
+  return pickMainImageFromProductNode(product) || pickGalleryImageFromProductNode(product);
+}
+
 function parseAmazonDynamicImageAttribute(value: unknown): string {
   const raw = toText(value);
   if (!raw) return "";
@@ -160,7 +166,7 @@ function parseAmazonDynamicImageAttribute(value: unknown): string {
         return firstImageUrl;
       }
     } catch {
-      // Continua tentando as variações de parsing.
+      // Try the next parsing variation.
     }
   }
 
@@ -173,14 +179,12 @@ function pickLandingImageFromHtml(html: string): string {
   const $ = load(html);
   const landingImage = $("#landingImage").first();
 
-  // Regra solicitada: prioriza data-a-dynamic-image (JSON -> primeira chave URL).
   const dynamicImageRaw = toText(landingImage.attr("data-a-dynamic-image"));
   const imageFromDynamicJson = parseAmazonDynamicImageAttribute(dynamicImageRaw);
   if (imageFromDynamicJson) {
     return imageFromDynamicJson;
   }
 
-  // Fallback solicitado: data-old-hires.
   const imageFromOldHires = toAbsoluteHttpUrl(landingImage.attr("data-old-hires"));
   if (isValidAmazonProductImage(imageFromOldHires)) {
     return imageFromOldHires;
@@ -190,7 +194,7 @@ function pickLandingImageFromHtml(html: string): string {
 }
 
 async function extractLandingImageFallbackFromPage(sourceUrl: string): Promise<string> {
-  const asin = extractAsinFromUrl(sourceUrl);
+  const asin = extractAmazonAsin(sourceUrl);
   const candidateUrls = Array.from(
     new Set([sourceUrl, asin ? `https://www.amazon.com.br/dp/${asin}` : ""]),
   ).filter(Boolean) as string[];
@@ -215,47 +219,22 @@ async function extractLandingImageFallbackFromPage(sourceUrl: string): Promise<s
         return landingImage;
       }
     } catch {
-      // Mantém resiliente e tenta a próxima URL candidata.
+      // Keep the fallback resilient and try the next candidate URL.
     }
   }
 
   return "";
 }
 
-function pickImageFromProductNode(product: Record<string, unknown>): string {
-  return pickMainImageFromProductNode(product) || pickGalleryImageFromProductNode(product);
-}
-
-function isValidAmazonProductImage(value: string): boolean {
-  const normalized = toAbsoluteHttpUrl(value).toLowerCase();
-  if (!normalized) return false;
-  if (!isHttpUrl(normalized)) return false;
-  if (!isAmazonImageHost(normalized)) return false;
-
-  if (
-    normalized.includes("logo") ||
-    normalized.includes("icon") ||
-    normalized.includes("sprite") ||
-    normalized.includes("favicon") ||
-    normalized.includes("nav-logo")
-  ) {
-    return false;
-  }
-
-  return true;
-}
-
 function pickRainforestProductImage(payload: Record<string, unknown>): string {
   const dataNode = (payload.data ?? {}) as Record<string, unknown>;
   const dataProduct = (dataNode.product ?? {}) as Record<string, unknown>;
 
-  // 1) Prioridade máxima: data.product.main_image.link + fallback da galeria data.product.images.
   const imageFromDataProduct = pickImageFromProductNode(dataProduct);
   if (imageFromDataProduct) {
     return imageFromDataProduct;
   }
 
-  // 2) Compatibilidade: alguns payloads podem expor product na raiz.
   const rootProduct = (payload.product ?? {}) as Record<string, unknown>;
   const imageFromRootProduct = pickImageFromProductNode(rootProduct);
   if (imageFromRootProduct) {
@@ -305,50 +284,15 @@ export async function extractAmazonWithRainforest(
   input: AmazonRainforestInput,
 ): Promise<AmazonRainforestPreview> {
   const sourceUrl = toText(input.url);
-  if (!sourceUrl) throw new Error("URL Amazon obrigatória.");
+  if (!sourceUrl) throw new Error("URL Amazon obrigatoria.");
 
-  const apiKey =
-    toText(process.env.RAINFOREST_API_KEY) ||
-    toText(process.env.RAINFORESTAPI_KEY) ||
-    toText(process.env.RAINFOREST_API_TOKEN);
-  if (!apiKey) {
-    throw new Error("RAINFOREST_API_KEY não configurada.");
-  }
-
-  const endpoint = new URL("https://api.rainforestapi.com/request");
-  endpoint.searchParams.set("api_key", apiKey);
-  endpoint.searchParams.set("type", "product");
-  endpoint.searchParams.set("amazon_domain", "amazon.com.br");
-
-  const asinFromUrl = extractAsinFromUrl(sourceUrl);
-  if (asinFromUrl) {
-    endpoint.searchParams.set("asin", asinFromUrl);
-  } else {
-    endpoint.searchParams.set("url", sourceUrl);
-  }
-
-  const response = await fetch(endpoint, {
-    method: "GET",
-    cache: "no-store",
-    headers: {
-      accept: "application/json",
-    },
-  });
-
-  const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
-  if (!response.ok) {
-    const reason =
-      toText(payload.message) || toText(payload.error) || `HTTP ${response.status}`;
-    throw new Error(`Rainforest API falhou: ${reason}`);
-  }
+  const asinFromUrl = extractAmazonAsin(sourceUrl);
+  const { raw: payload } = await fetchAmazonData(asinFromUrl ?? "", sourceUrl);
 
   const dataNode = (payload.data ?? {}) as Record<string, unknown>;
   const dataProduct = (dataNode.product ?? {}) as Record<string, unknown>;
   const rootProduct = (payload.product ?? {}) as Record<string, unknown>;
-  const product =
-    Object.keys(dataProduct).length > 0
-      ? dataProduct
-      : rootProduct;
+  const product = Object.keys(dataProduct).length > 0 ? dataProduct : rootProduct;
   const buybox = (product.buybox_winner ?? {}) as Record<string, unknown>;
   const priceNode = (buybox.price ?? {}) as Record<string, unknown>;
   const rrpNode = (buybox.rrp ?? {}) as Record<string, unknown>;
@@ -358,15 +302,9 @@ export async function extractAmazonWithRainforest(
   const landingImageFallback = strictMainImageUrl
     ? ""
     : await extractLandingImageFallbackFromPage(sourceUrl);
-  const rainforestGalleryImageUrl = strictMainImageUrl || landingImageFallback
-    ? ""
-    : pickRainforestGalleryImage(payload);
+  const rainforestGalleryImageUrl =
+    strictMainImageUrl || landingImageFallback ? "" : pickRainforestGalleryImage(payload);
 
-  // Ordem final (missão elite Amazon BR):
-  // 1) data.product.main_image.link (estrito)
-  // 2) #landingImage[data-a-dynamic-image] (primeira chave do JSON)
-  // 3) #landingImage[data-old-hires]
-  // 4) galeria Rainforest (fallback adicional de segurança)
   const imageUrl = strictMainImageUrl || landingImageFallback || rainforestGalleryImageUrl;
   const normalizedImageUrl = imageUrl;
 

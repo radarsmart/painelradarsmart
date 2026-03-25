@@ -1,35 +1,236 @@
-import Link from "next/link";
+"use client";
 
-const items = [
-  { href: "/admin", label: "Dashboard" },
-  { href: "/admin/ofertas/nova", label: "🚀 Nova Oferta" },
-  { href: "/admin/curadoria", label: "Curadoria" },
-  { href: "/admin/ofertas", label: "Ofertas" },
-  { href: "/admin/blog/novo", label: "Novo post" },
-  { href: "/admin/fila", label: "Fila" },
-  { href: "/admin/configuracoes", label: "Configurações" },
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import type { LucideIcon } from "lucide-react";
+import {
+  FileText,
+  Flame,
+  LayoutDashboard,
+  MousePointer2,
+  Package,
+  Send,
+  Settings,
+  ShoppingBag,
+  Store,
+  Zap,
+} from "lucide-react";
+
+type SidebarUser = {
+  email?: string;
+};
+
+type SidebarItem = {
+  label: string;
+  icon: LucideIcon;
+  href?: string;
+  activePatterns?: string[];
+  disabled?: boolean;
+};
+
+type SidebarGroup = {
+  group: string;
+  items: SidebarItem[];
+};
+
+const MENU_ITEMS: SidebarGroup[] = [
+  {
+    group: "Operacao",
+    items: [
+      {
+        label: "Dashboard",
+        icon: LayoutDashboard,
+        href: "/admin",
+        activePatterns: ["/admin"],
+      },
+      {
+        label: "Curadoria Geral",
+        icon: ShoppingBag,
+        href: "/admin/curadoria",
+        activePatterns: ["/admin/curadoria"],
+      },
+      {
+        label: "Painel de Envios",
+        icon: Send,
+        href: "/admin/envios",
+        activePatterns: ["/admin/envios", "/admin/fila"],
+      },
+    ],
+  },
+  {
+    group: "Marketplace Hubs",
+    items: [
+      { label: "Mercado Livre", icon: Store, disabled: true },
+      { label: "Shopee Hub", icon: Zap, disabled: true },
+      {
+        label: "Amazon Hub",
+        icon: ShoppingBag,
+        href: "/admin/amazon",
+        activePatterns: ["/admin/amazon"],
+      },
+    ],
+  },
+  {
+    group: "Inteligencia & SEO",
+    items: [
+      {
+        label: "Tendencias (IA)",
+        icon: Flame,
+        href: "/admin/tendencias",
+        activePatterns: ["/admin/tendencias"],
+      },
+      {
+        label: "Produtos & SEO",
+        icon: Package,
+        href: "/admin/produtos",
+        activePatterns: ["/admin/produtos", "/admin/ofertas"],
+      },
+      {
+        label: "Blog & Reviews",
+        icon: FileText,
+        href: "/admin/blog/novo",
+        activePatterns: ["/admin/blog"],
+      },
+    ],
+  },
+  {
+    group: "Ferramentas",
+    items: [
+      {
+        label: "Extrator Manual",
+        icon: MousePointer2,
+        href: "/admin/extrator",
+        activePatterns: ["/admin/extrator", "/admin/ofertas/nova"],
+      },
+      {
+        label: "Configuracoes",
+        icon: Settings,
+        href: "/admin/configuracoes",
+        activePatterns: ["/admin/configuracoes"],
+      },
+    ],
+  },
 ];
 
-export default function AdminSidebar({ user }: { user?: { email?: string } }) {
+function isItemActive(pathname: string, item: SidebarItem) {
+  if (!item.href) return false;
+
+  const patterns = item.activePatterns?.length ? item.activePatterns : [item.href];
+  return patterns.some((pattern) =>
+    pattern === "/admin" ? pathname === pattern : pathname.startsWith(pattern),
+  );
+}
+
+function getProfileLabel(user?: SidebarUser) {
+  if (!user?.email) {
+    return {
+      name: "Radar Smart",
+      role: "Admin Master",
+      initials: "RS",
+    };
+  }
+
+  const local = user.email.split("@")[0] || "admin";
+  const name = local
+    .split(/[._-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+
+  const initials = name
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part.charAt(0).toUpperCase())
+    .join("");
+
+  return {
+    name: name || "Radar Smart",
+    role: user.email,
+    initials: initials || "RS",
+  };
+}
+
+export default function AdminSidebar({ user }: { user?: SidebarUser }) {
+  const pathname = usePathname();
+  const profile = getProfileLabel(user);
+
   return (
-    <aside className="hidden w-72 border-r border-rs-border bg-navy-3 text-white lg:block">
-      <div className="border-b border-rs-border px-5 py-4">
-        <p className="font-display text-xl font-bold">
-          Radar <span className="text-orange-3">Admin</span>
-        </p>
-        <p className="mt-1 truncate text-xs text-rs-muted">{user?.email}</p>
+    <aside className="sticky top-0 hidden h-screen w-64 flex-col border-r border-white/10 bg-[#1A1A1A] text-white lg:flex">
+      <div className="border-b border-white/5 p-6">
+        <div className="flex items-center gap-2">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#FFC300]">
+            <Zap className="h-5 w-5 fill-black text-black" />
+          </div>
+          <span className="text-xl font-bold tracking-tighter">
+            RADAR <span className="text-[#FFC300]">SMART</span>
+          </span>
+        </div>
       </div>
-      <nav className="space-y-1 p-4">
-        {items.map((item) => (
-          <Link
-            key={item.href}
-            href={item.href}
-            className="block rounded-lg px-3 py-2 text-sm text-slate-200 hover:bg-navy-2"
-          >
-            {item.label}
-          </Link>
+
+      <nav className="flex-1 space-y-8 overflow-y-auto p-4">
+        {MENU_ITEMS.map((group) => (
+          <div key={group.group}>
+            <h3 className="mb-4 px-2 text-[10px] font-bold uppercase tracking-[0.3em] text-gray-500">
+              {group.group}
+            </h3>
+
+            <div className="space-y-1">
+              {group.items.map((item) => {
+                const active = isItemActive(pathname, item);
+                const Icon = item.icon;
+                const baseClass =
+                  "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200";
+                const activeClass =
+                  "bg-[#FFC300] text-black shadow-lg shadow-[#FFC300]/10";
+                const idleClass = item.disabled
+                  ? "cursor-not-allowed text-gray-600"
+                  : "text-gray-400 hover:bg-white/5 hover:text-white";
+                const iconClass = active ? "text-black" : item.disabled ? "text-gray-700" : "text-gray-500";
+
+                if (!item.href || item.disabled) {
+                  return (
+                    <div
+                      key={`${group.group}-${item.label}`}
+                      className={`${baseClass} ${idleClass}`}
+                      aria-disabled="true"
+                    >
+                      <Icon size={18} className={iconClass} />
+                      <span className="flex-1">{item.label}</span>
+                      <span className="rounded-full border border-white/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-gray-500">
+                        Em breve
+                      </span>
+                    </div>
+                  );
+                }
+
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className={`${baseClass} ${active ? activeClass : idleClass}`}
+                  >
+                    <Icon size={18} className={iconClass} />
+                    {item.label}
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
         ))}
       </nav>
+
+      <div className="border-t border-white/5 bg-black/20 p-4">
+        <div className="flex items-center gap-3 px-2">
+          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#FFC300] text-xs font-bold text-black">
+            {profile.initials}
+          </div>
+          <div className="min-w-0">
+            <p className="truncate text-xs font-bold">{profile.name}</p>
+            <p className="truncate text-[10px] text-gray-500">{profile.role}</p>
+          </div>
+        </div>
+      </div>
     </aside>
   );
 }

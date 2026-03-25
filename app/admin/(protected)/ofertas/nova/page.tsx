@@ -6,6 +6,7 @@ import { formatBRL } from "@/lib/formatters";
 import { supabase } from "@/lib/supabase";
 
 type Marketplace = "mercadolivre" | "amazon";
+type OfferSlot = "hero" | "flash" | "best" | "comparator";
 
 type ExtractPreview = {
   title: string;
@@ -67,10 +68,19 @@ type Feedback = {
   text: string;
 };
 
+type CopyTemplateKey = "aida" | "urgencia" | "social" | "tecnico";
+
 const MARKETPLACE_LABEL: Record<Marketplace, string> = {
   mercadolivre: "Mercado Livre",
   amazon: "Amazon",
 };
+
+const SLOT_OPTIONS: Array<{ id: OfferSlot; label: string; icon: string }> = [
+  { id: "hero", label: "Banner Video (Hero)", icon: "🎬" },
+  { id: "flash", label: "Oferta Relampago", icon: "⚡" },
+  { id: "best", label: "Melhores Ofertas", icon: "🏆" },
+  { id: "comparator", label: "Comparador", icon: "📊" },
+];
 
 function toNumber(value: unknown): number {
   const numeric = Number(value);
@@ -165,8 +175,98 @@ function buildAidaCopy(
   ].join("\n");
 }
 
+function getOfferUrl(preview: ExtractPreview | null, affiliateUrl: string): string {
+  return affiliateUrl || preview?.affiliate_url || preview?.product_url || "";
+}
+
+function getOldPrice(preview: ExtractPreview | null): number {
+  return toNumber(preview?.original_price ?? preview?.old_price ?? 0);
+}
+
+const copyTemplates: Record<
+  Exclude<CopyTemplateKey, "aida">,
+  (preview: ExtractPreview | null, affiliateUrl: string) => string
+> = {
+  urgencia: (preview, affiliateUrl) => {
+    if (!preview) return "";
+
+    return [
+      "🚨 *ESTOQUE BAIXO!*",
+      "",
+      `*${preview.title}*`,
+      "",
+      `🔥 Por apenas: *${formatBRL(toNumber(preview.price))}*`,
+      "",
+      "O preço caiu agora e pode subir a qualquer momento! Aproveite antes que esgote.",
+      "",
+      `👉 Link: ${getOfferUrl(preview, affiliateUrl)}`,
+    ].join("\n");
+  },
+  social: (preview, affiliateUrl) => {
+    if (!preview) return "";
+
+    return [
+      "⭐ *O MAIS VENDIDO!*",
+      "",
+      `*${preview.title}*`,
+      "",
+      `💰 *${formatBRL(toNumber(preview.price))}*`,
+      "",
+      "Este item é o campeão de vendas na categoria hoje. Quem comprou, aprovou!",
+      "",
+      `👉 Garanta o seu: ${getOfferUrl(preview, affiliateUrl)}`,
+    ].join("\n");
+  },
+  tecnico: (preview, affiliateUrl) => {
+    if (!preview) return "";
+
+    const oldPrice = getOldPrice(preview);
+    const hasOldPrice = oldPrice > toNumber(preview.price);
+
+    return [
+      "✅ *MENOR PREÇO DETECTADO!*",
+      "",
+      `*${preview.title}*`,
+      "",
+      hasOldPrice ? `📉 De: ~~${formatBRL(oldPrice)}~~` : null,
+      `🔥 Por: *${formatBRL(toNumber(preview.price))}*`,
+      "",
+      "Análise do Radar Smart: Este é o melhor momento de compra dos últimos 30 dias.",
+      "",
+      `👉 Link: ${getOfferUrl(preview, affiliateUrl)}`,
+    ]
+      .filter(Boolean)
+      .join("\n");
+  },
+};
+
+function buildCopyByTemplate(
+  template: CopyTemplateKey,
+  preview: ExtractPreview | null,
+  affiliateUrl: string,
+): string {
+  if (template === "aida") {
+    return buildAidaCopy(preview, affiliateUrl);
+  }
+
+  return copyTemplates[template](preview, affiliateUrl);
+}
+
+function getPriceScore(price: number, oldPrice: number) {
+  if (price <= 0 || oldPrice <= price) {
+    return { label: "🥉 BRONZE", color: "text-orange-600" };
+  }
+
+  const discount = ((oldPrice - price) / oldPrice) * 100;
+
+  if (discount >= 40) return { label: "💎 OURO", color: "text-yellow-600" };
+  if (discount >= 20) return { label: "🥈 PRATA", color: "text-gray-500" };
+  return { label: "🥉 BRONZE", color: "text-orange-600" };
+}
+
 export default function AdminNovaOfertaPage() {
   const [marketplace, setMarketplace] = useState<Marketplace>("mercadolivre");
+  const [selectedSlot, setSelectedSlot] = useState<OfferSlot>("best");
   const [sourceUrl, setSourceUrl] = useState("");
   const [affiliateUrl, setAffiliateUrl] = useState("");
   const [imageUrl, setImageUrl] = useState("");
@@ -174,6 +274,7 @@ export default function AdminNovaOfertaPage() {
   const [publishing, setPublishing] = useState(false);
   const [preview, setPreview] = useState<ExtractPreview | null>(null);
   const [copyText, setCopyText] = useState("");
+  const [selectedTemplate, setSelectedTemplate] = useState<CopyTemplateKey>("aida");
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<Feedback | null>(null);
   const [extractDebug, setExtractDebug] = useState<string>("");
@@ -191,8 +292,13 @@ export default function AdminNovaOfertaPage() {
       setCopyText("");
       return;
     }
-    setCopyText(buildAidaCopy(preview, affiliateUrl.trim()));
-  }, [preview, affiliateUrl]);
+    setCopyText(buildCopyByTemplate(selectedTemplate, preview, affiliateUrl.trim()));
+  }, [preview, affiliateUrl, selectedTemplate]);
+
+  const priceScore = useMemo(
+    () => getPriceScore(toNumber(preview?.price), getOldPrice(preview)),
+    [preview],
+  );
 
   const getAccessToken = async (): Promise<string> => {
     const { data, error } = await supabase.auth.getSession();
@@ -314,7 +420,7 @@ export default function AdminNovaOfertaPage() {
     }
   };
 
-  const handlePublishAndDistribute = async () => {
+  const handleFinalPublish = async () => {
     const url = sourceUrl.trim();
     const manualAffiliate = affiliateUrl.trim();
 
@@ -349,6 +455,7 @@ export default function AdminNovaOfertaPage() {
           marketplace,
           url,
           affiliate_url: manualAffiliate,
+          slot_type: selectedSlot,
           channels: ["telegram", "whatsapp"],
           ad_text: copyText,
         }),
@@ -368,8 +475,8 @@ export default function AdminNovaOfertaPage() {
         type: "success",
         text:
           queued > 0
-            ? `${baseMessage} Jobs enfileirados: ${queued}${skipped ? ` | Ignorados: ${skipped}` : ""}.`
-            : baseMessage,
+            ? `${baseMessage} Bloco: ${selectedSlot}. Jobs enfileirados: ${queued}${skipped ? ` | Ignorados: ${skipped}` : ""}.`
+            : `${baseMessage} Bloco: ${selectedSlot}.`,
       });
     } catch (error) {
       setFeedback({
@@ -501,6 +608,9 @@ export default function AdminNovaOfertaPage() {
                 <p className="text-xs text-rs-muted">
                   Desconto estimado: {discountPct}%
                 </p>
+                <p className={`text-xs font-semibold ${priceScore.color}`}>
+                  Temperatura da oferta: {priceScore.label}
+                </p>
               </div>
             </div>
 
@@ -514,6 +624,52 @@ export default function AdminNovaOfertaPage() {
                 rows={10}
                 className="mt-2 w-full rounded-lg border border-slate-300 p-3 text-sm leading-6 text-slate-800 outline-none focus:border-orange"
               />
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => setSelectedTemplate("urgencia")}
+                  className={`rounded-lg px-3 py-1 text-sm font-semibold ${
+                    selectedTemplate === "urgencia"
+                      ? "bg-red-500 text-white"
+                      : "bg-red-50 text-red-700"
+                  }`}
+                >
+                  🔥 Urgência
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedTemplate("social")}
+                  className={`rounded-lg px-3 py-1 text-sm font-semibold ${
+                    selectedTemplate === "social"
+                      ? "bg-blue-500 text-white"
+                      : "bg-blue-50 text-blue-700"
+                  }`}
+                >
+                  ⭐ Social
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedTemplate("tecnico")}
+                  className={`rounded-lg px-3 py-1 text-sm font-semibold ${
+                    selectedTemplate === "tecnico"
+                      ? "bg-green-600 text-white"
+                      : "bg-green-50 text-green-700"
+                  }`}
+                >
+                  📊 Análise
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedTemplate("aida")}
+                  className={`rounded-lg px-3 py-1 text-sm font-semibold ${
+                    selectedTemplate === "aida"
+                      ? "bg-slate-800 text-white"
+                      : "bg-white text-slate-700 ring-1 ring-slate-200"
+                  }`}
+                >
+                  AIDA
+                </button>
+              </div>
               <div className="mt-2 flex items-center gap-2">
                 <button
                   type="button"
@@ -529,21 +685,50 @@ export default function AdminNovaOfertaPage() {
               </div>
             </div>
 
-            <button
-              type="button"
-              onClick={handlePublishAndDistribute}
-              disabled={publishing}
-              className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-rs-green px-4 text-sm font-semibold text-white disabled:opacity-60 sm:w-fit"
-            >
-              {publishing ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <CheckCircle2 className="h-4 w-4" />
-              )}
-              {publishing
-                ? "Publicando e distribuindo..."
-                : "Publicar e Enviar para WhatsApp/Telegram"}
-            </button>
+            <div className="mt-8 rounded-xl border-2 border-dashed border-gray-200 bg-gray-50 p-6">
+              <h3 className="mb-4 flex items-center gap-2 text-lg font-bold text-navy">
+                <span aria-hidden="true">🎯</span>
+                Onde essa oferta vai aparecer no Radar Smart?
+              </h3>
+
+              <div className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-4">
+                {SLOT_OPTIONS.map((slot) => (
+                  <button
+                    key={slot.id}
+                    type="button"
+                    onClick={() => setSelectedSlot(slot.id)}
+                    className={`flex flex-col items-center gap-2 rounded-lg border-2 p-4 transition-all ${
+                      selectedSlot === slot.id
+                        ? "border-blue-600 bg-blue-50 text-blue-700 shadow-md"
+                        : "border-white bg-white text-gray-500 hover:border-gray-200"
+                    }`}
+                  >
+                    <span className="text-2xl" aria-hidden="true">
+                      {slot.icon}
+                    </span>
+                    <span className="text-center text-xs font-semibold uppercase">
+                      {slot.label}
+                    </span>
+                  </button>
+                ))}
+              </div>
+
+              <button
+                type="button"
+                onClick={handleFinalPublish}
+                disabled={publishing}
+                className="flex w-full items-center justify-center gap-2 rounded-lg bg-green-600 py-4 font-bold text-white shadow-lg transition-all hover:bg-green-700 disabled:opacity-60"
+              >
+                {publishing ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <CheckCircle2 className="h-4 w-4" />
+                )}
+                {publishing
+                  ? "Publicando no site e enviando canais..."
+                  : `Publicar no Site (${selectedSlot.toUpperCase()}) e Enviar Canais`}
+              </button>
+            </div>
           </div>
         )}
       </section>

@@ -15,6 +15,7 @@ export type LegacyDispatchInput = {
   affiliateUrl?: string | null;
   channels?: DistributionChannel[];
   copyByChannel?: Partial<Record<DistributionChannel, string>>;
+  allowRequeueSameDay?: boolean;
 };
 
 export type LegacyDispatchResult = {
@@ -118,10 +119,11 @@ export async function dispatchLegacyOffer(
   }
 
   const copyByChannel = normalizeCopyByChannel(input.copyByChannel);
+  const allowRequeueSameDay = input.allowRequeueSameDay ?? true;
   const payload: Record<string, unknown> = {
     offer_id: offerId,
     channels,
-    allow_requeue_same_day: true,
+    allow_requeue_same_day: allowRequeueSameDay,
     auto_approve_if_needed: true,
   };
 

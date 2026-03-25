@@ -13,6 +13,7 @@ import Header from "@/components/layout/Header";
 import Footer from "@/components/layout/Footer";
 import BotaoAfiliado from "@/components/ui/BotaoAfiliado";
 import { formatBRL } from "@/lib/formatters";
+import { formatMonthYearPtBr, toAbsoluteSiteUrl } from "@/lib/site";
 import { supabaseAdmin } from "@/lib/supabase";
 
 type PageProps = {
@@ -281,7 +282,61 @@ async function getRelatedOffers(source: OfferRow): Promise<OfferSummary[]> {
   return normalized.slice(0, 4);
 }
 
-export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
+function buildOfferPageUrl(id: string): string {
+  return toAbsoluteSiteUrl(`/ofertas/${id}`);
+}
+
+function buildStructuredData(summary: OfferSummary, row: OfferRow): Record<string, unknown> {
+  const rating = toNumber(row.rating);
+  const reviewCount = toNumber(row.review_count) ?? toNumber(row.reviews_count);
+
+  const structuredData: Record<string, unknown> = {
+    "@context": "https://schema.org",
+    "@type": "Product",
+    name: summary.title,
+    description: buildAiAnalysis(summary, row),
+    category: row.category || undefined,
+    image: summary.imageUrl ? [summary.imageUrl] : undefined,
+    brand: row.brand
+      ? {
+          "@type": "Brand",
+          name: row.brand,
+        }
+      : undefined,
+    offers: {
+      "@type": "Offer",
+      priceCurrency: "BRL",
+      price: summary.price,
+      availability:
+        row.status === "active"
+          ? "https://schema.org/InStock"
+          : "https://schema.org/OutOfStock",
+      url: buildOfferPageUrl(summary.id),
+      seller: row.seller_name
+        ? {
+            "@type": "Organization",
+            name: row.seller_name,
+          }
+        : {
+            "@type": "Organization",
+            name: summary.marketplace,
+          },
+    },
+    url: buildOfferPageUrl(summary.id),
+  };
+
+  if (rating !== null && reviewCount !== null && reviewCount > 0) {
+    structuredData.aggregateRating = {
+      "@type": "AggregateRating",
+      ratingValue: rating,
+      reviewCount,
+    };
+  }
+
+  return structuredData;
+}
+
+async function generateMetadataLegacy({ params }: PageProps): Promise<Metadata> {
   const offer = await getOfferById(params.id);
   if (!offer) {
     return {
@@ -352,13 +407,19 @@ async function OfferDetailContent({ id }: { id: string }) {
   const relatedOffers = await getRelatedOffers(offer);
   const specs = extractSpecs(offer);
   const aiAnalysis = buildAiAnalysis(summary, offer);
+  const structuredData = buildStructuredData(summary, offer);
   const savings = summary.oldPrice ? summary.oldPrice - summary.price : 0;
   const whatsappHref = buildSupportWhatsAppUrl(
     `Olá! Tenho uma dúvida sobre esta oferta: ${summary.title}`,
   );
 
   return (
-    <main className="mx-auto max-w-7xl px-4 py-8">
+    <main className="mx-auto max-w-7xl px-4 py-8 pb-32 md:pb-8">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
+      />
+
       <nav
         aria-label="Breadcrumb"
         className="mb-5 flex flex-wrap items-center gap-1 text-sm text-slate-500"
@@ -422,14 +483,14 @@ async function OfferDetailContent({ id }: { id: string }) {
               href={summary.affiliateUrl}
               source="oferta_detalhe_cta"
               label="IR PARA A LOJA OFICIAL"
-              className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#9e6a18] px-5 py-3 text-sm font-bold uppercase tracking-wide text-white transition hover:brightness-110"
+              className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#9e6a18] px-5 py-3 text-sm font-bold uppercase tracking-wide text-white transition hover:brightness-110 sm:w-auto"
             />
 
             <a
               href={whatsappHref}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-700 hover:border-[#9e6a18] hover:text-[#9e6a18]"
+              className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-700 hover:border-[#9e6a18] hover:text-[#9e6a18] sm:w-auto"
             >
               <MessageCircleQuestion className="h-4 w-4" />
               Dúvida? Chamar no WhatsApp
@@ -485,7 +546,7 @@ async function OfferDetailContent({ id }: { id: string }) {
         </div>
 
         {relatedOffers.length > 0 ? (
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 md:gap-6 xl:grid-cols-4">
             {relatedOffers.map((item) => (
               <article
                 key={item.id}
@@ -512,7 +573,7 @@ async function OfferDetailContent({ id }: { id: string }) {
                     {formatBRL(item.oldPrice)}
                   </p>
                 ) : null}
-                <div className="mt-3 flex items-center justify-between">
+                <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <span className="rounded-full bg-emerald-50 px-2 py-1 text-xs font-bold text-emerald-700">
                     {item.discountPct}% OFF
                   </span>
@@ -521,7 +582,7 @@ async function OfferDetailContent({ id }: { id: string }) {
                     href={item.affiliateUrl}
                     source="relacionados_card"
                     label="Ver oferta"
-                    className="inline-flex items-center gap-1 rounded-lg border border-[#9e6a18] px-3 py-1.5 text-xs font-semibold text-[#9e6a18] hover:bg-[#9e6a18] hover:text-white"
+                    className="inline-flex w-full items-center justify-center gap-1 rounded-lg border border-[#9e6a18] px-3 py-1.5 text-xs font-semibold text-[#9e6a18] hover:bg-[#9e6a18] hover:text-white sm:w-auto"
                   />
                 </div>
               </article>
@@ -549,12 +610,96 @@ async function OfferDetailContent({ id }: { id: string }) {
             href={summary.affiliateUrl}
             source="oferta_detalhe_footer_cta"
             label="Comprar agora"
-            className="inline-flex items-center gap-2 rounded-xl bg-[#9e6a18] px-5 py-3 text-sm font-bold text-white transition hover:brightness-110"
+            className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#9e6a18] px-5 py-3 text-sm font-bold text-white transition hover:brightness-110 sm:w-auto"
           />
         </div>
       </section>
+
+      <div className="fixed inset-x-0 bottom-16 z-[120] border-t border-slate-200 bg-white/95 px-4 py-3 shadow-[0_-8px_24px_rgba(15,23,42,0.12)] backdrop-blur md:hidden">
+        <div className="mx-auto flex max-w-7xl items-center gap-3">
+          <div className="min-w-0 flex-1">
+            <p className="line-clamp-1 text-[11px] font-bold text-slate-800">{summary.title}</p>
+            <p className="text-sm font-black text-green-600">{formatBRL(summary.price)}</p>
+          </div>
+          <BotaoAfiliado
+            offerId={summary.id}
+            href={summary.affiliateUrl}
+            source="oferta_detalhe_sticky_mobile"
+            label="PEGAR OFERTA"
+            className="inline-flex w-full max-w-[190px] items-center justify-center rounded-xl bg-gradient-to-r from-orange-500 to-orange-600 px-4 py-3 text-[11px] font-black uppercase tracking-tight text-white shadow-md transition-all active:scale-95"
+          />
+        </div>
+      </div>
     </main>
   );
+}
+
+export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
+  const fallbackMetadata = await generateMetadataLegacy({ params });
+  const offer = await getOfferById(params.id);
+  if (!offer) {
+    return {
+      ...fallbackMetadata,
+      robots: {
+        index: false,
+        follow: false,
+      },
+    };
+  }
+
+  if (offer.status !== "active") {
+    return {
+      ...fallbackMetadata,
+      robots: {
+        index: false,
+        follow: false,
+      },
+    };
+  }
+
+  const summary = toSummary(offer);
+  if (!summary) {
+    return {
+      ...fallbackMetadata,
+      robots: {
+        index: false,
+        follow: false,
+      },
+    };
+  }
+
+  const savings = summary.oldPrice ? summary.oldPrice - summary.price : 0;
+  const monthYear = formatMonthYearPtBr();
+  const canonicalUrl = buildOfferPageUrl(summary.id);
+  const title =
+    savings > 0
+      ? `${summary.title} com DESCONTO no Radar Smart | Melhor Preco ${monthYear}`
+      : `${summary.title} no Radar Smart | Melhor Preco ${monthYear}`;
+  const description =
+    savings > 0
+      ? `Economize ${formatBRL(savings)} nesta oferta. ${summary.discountPct}% OFF com curadoria Radar Smart e monitoramento em tempo real.`
+      : `Confira o melhor preco para ${summary.title} com curadoria Radar Smart e link blindado para a loja oficial.`;
+
+  return {
+    title,
+    description,
+    alternates: {
+      canonical: canonicalUrl,
+    },
+    openGraph: {
+      title,
+      description,
+      url: canonicalUrl,
+      type: "website",
+      images: summary.imageUrl ? [{ url: summary.imageUrl, alt: summary.title }] : [],
+    },
+    twitter: {
+      card: "summary_large_image",
+      title,
+      description,
+      images: summary.imageUrl ? [summary.imageUrl] : [],
+    },
+  };
 }
 
 export default function OfertaDetailPage({ params }: PageProps) {

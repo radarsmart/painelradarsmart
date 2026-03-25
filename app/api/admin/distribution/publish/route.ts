@@ -3,6 +3,7 @@ import {
   dispatchLegacyOffer,
   type DistributionChannel,
 } from "@/lib/distribution/legacy-dispatch";
+import { sendPushNotification } from "@/lib/notifications/push";
 import { supabaseAdmin } from "@/lib/supabase";
 import { requireAdmin } from "@/lib/admin-auth";
 
@@ -10,6 +11,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 type Marketplace = "mercadolivre" | "amazon";
+type OfferSlot = "hero" | "flash" | "best" | "comparator";
 
 type ExtractSuccessResponse = {
   success: true;
@@ -43,6 +45,19 @@ async function parseResponsePayload(
 function normalizeMarketplace(value: unknown): Marketplace | null {
   const normalized = String(value ?? "").toLowerCase().trim();
   if (normalized === "mercadolivre" || normalized === "amazon") {
+    return normalized;
+  }
+  return null;
+}
+
+function normalizeOfferSlot(value: unknown): OfferSlot | null {
+  const normalized = String(value ?? "").toLowerCase().trim();
+  if (
+    normalized === "hero" ||
+    normalized === "flash" ||
+    normalized === "best" ||
+    normalized === "comparator"
+  ) {
     return normalized;
   }
   return null;
@@ -91,6 +106,23 @@ function normalizeCopyByChannel(body: {
   return {};
 }
 
+function resolveSiteBaseUrl(req: NextRequest): string {
+  return (
+    process.env.NEXT_PUBLIC_SITE_URL?.trim() ||
+    process.env.NEXT_PUBLIC_VERCEL_PROJECT_PRODUCTION_URL?.trim() ||
+    req.nextUrl.origin
+  ).replace(/\/$/, "");
+}
+
+function formatPushPrice(value: unknown): string {
+  const price = Number(value);
+  if (!Number.isFinite(price) || price <= 0) return "0,00";
+  return price.toLocaleString("pt-BR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
 async function callExtractRoute(
   req: NextRequest,
   marketplace: Marketplace,
@@ -135,12 +167,14 @@ export async function POST(req: NextRequest) {
       marketplace?: string;
       url?: string;
       affiliate_url?: string;
+      slot_type?: string;
       channels?: unknown;
       ad_text?: unknown;
       ad_text_by_channel?: unknown;
     };
 
     const marketplace = normalizeMarketplace(body.marketplace);
+    const slotType = normalizeOfferSlot(body.slot_type);
     const sourceUrl = String(body.url ?? "").trim();
     const affiliateUrl = String(body.affiliate_url ?? "").trim();
     const channels = normalizeChannels(body.channels);
@@ -225,6 +259,9 @@ export async function POST(req: NextRequest) {
       affiliate_url: affiliateUrl,
       updated_at: new Date().toISOString(),
     };
+    if (slotType) {
+      activatePayload.slot_type = slotType;
+    }
 
     let { error: activateError } = await supabaseAdmin
       .from("offers")
@@ -259,6 +296,41 @@ export async function POST(req: NextRequest) {
       copyByChannel,
     });
 
+    let pushNotification:
+      | { ok: boolean; skipped: boolean; status?: number; reason?: string }
+      | null = null;
+
+    if (slotType === "flash") {
+      const { data: offerForPush } = await supabaseAdmin
+        .from("offers")
+        .select("title,price")
+        .eq("id", offerId)
+        .maybeSingle();
+
+      const pushTitle = "⚡ OFERTA RELAMPAGO!";
+      const pushBody = `${String(offerForPush?.title ?? "Oferta em destaque")} por apenas R$ ${formatPushPrice(offerForPush?.price)}`;
+      const pushUrl = `${resolveSiteBaseUrl(req)}/go/${offerId}`;
+
+      try {
+        pushNotification = await sendPushNotification({
+          title: pushTitle,
+          body: pushBody,
+          url: pushUrl,
+          icon: "/icon-192x192.png",
+        });
+      } catch (pushError) {
+        console.error("Falha ao disparar push flash:", pushError);
+        pushNotification = {
+          ok: false,
+          skipped: false,
+          reason:
+            pushError instanceof Error
+              ? pushError.message
+              : "push_dispatch_failed",
+        };
+      }
+    }
+
     return NextResponse.json({
       success: true,
       queued: dispatch.queued > 0,
@@ -271,6 +343,7 @@ export async function POST(req: NextRequest) {
       needs_review: false,
       extract: extracted,
       distribution: dispatch,
+      push: pushNotification,
     });
   } catch (error) {
     return NextResponse.json(

@@ -15,25 +15,17 @@ export default function BotaoAfiliado({
   label,
   className,
 }: BotaoAfiliadoProps) {
-  const onClick = async () => {
-    try {
-      await fetch("/api/click", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ offerId, source }),
-        keepalive: true,
-      });
-    } catch {
-      // não bloquear navegação do usuário se rastreamento falhar
-    }
-  };
+  const safeOfferId = String(offerId ?? "").trim();
+  const trackedHref =
+    safeOfferId && safeOfferId !== "unknown"
+      ? `/go/${safeOfferId}?source=${encodeURIComponent(source)}`
+      : href;
 
   return (
     <a
-      href={href}
+      href={trackedHref}
       target="_blank"
-      rel="noopener noreferrer"
-      onClick={onClick}
+      rel="noopener noreferrer sponsored"
       className={
         className ??
         "inline-flex items-center justify-center rounded-lg bg-orange px-4 py-2 text-sm font-semibold text-white transition hover:bg-orange-2"

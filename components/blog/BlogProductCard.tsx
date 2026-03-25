@@ -103,6 +103,12 @@ export default async function BlogProductCard({ offerId }: BlogProductCardProps)
             {offer.title || "Produto sem titulo"}
           </h3>
           <div className="mt-2">
+            <div className="mb-2 flex items-center gap-1.5">
+              <div className="h-1.5 w-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)]" />
+              <span className="text-[9px] font-black uppercase tracking-widest text-emerald-600">
+                Menor preco dos ultimos 30 dias
+              </span>
+            </div>
             {oldPrice ? (
               <p className="text-xs text-slate-400 line-through">
                 {formatBRL(oldPrice)}
@@ -123,7 +129,7 @@ export default async function BlogProductCard({ offerId }: BlogProductCardProps)
             href={href}
             source="blog_product_card"
             label="Ver Oferta Agora"
-            className="mt-3 inline-flex items-center justify-center rounded-xl bg-[#9e6a18] px-4 py-2 text-sm font-bold text-white transition hover:brightness-110"
+            className="mt-3 inline-flex w-full items-center justify-center rounded-xl bg-[#9e6a18] px-4 py-2 text-sm font-bold text-white transition hover:brightness-110 sm:w-auto"
           />
         </div>
       </div>

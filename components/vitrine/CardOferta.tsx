@@ -1,5 +1,4 @@
 import Image from "next/image";
-import Badge from "@/components/ui/Badge";
 import BotaoAfiliado from "@/components/ui/BotaoAfiliado";
 import { formatBRL } from "@/lib/formatters";
 
@@ -8,6 +7,7 @@ export type OfertaCard = {
   title: string;
   marketplace?: string;
   price: number;
+  old_price?: number;
   original_price?: number;
   discount_pct?: number;
   image_url?: string;
@@ -15,52 +15,70 @@ export type OfertaCard = {
   product_url?: string;
 };
 
+function getMarketplaceBadgeLabel(marketplace?: string): string {
+  const normalized = String(marketplace ?? "").toLowerCase();
+  if (normalized.includes("amazon")) return "Amazon Brasil";
+  if (normalized.includes("mercado")) return "Mercado Livre";
+  return "Marketplace";
+}
+
 export default function CardOferta({ offer }: { offer: OfertaCard }) {
-  const desconto = Number(offer.discount_pct ?? 0);
-  const oldPrice = Number(offer.original_price ?? offer.price);
+  const desconto = Math.max(0, Math.round(Number(offer.discount_pct ?? 0)));
+  const oldPrice = Number(offer.old_price ?? offer.original_price ?? offer.price);
   const href = offer.affiliate_url || offer.product_url || "#";
 
   return (
-    <article className="rounded-xl border border-rs-border bg-white p-4 shadow-card transition hover:-translate-y-0.5">
-      <div className="relative mb-4 flex h-52 items-center justify-center overflow-hidden rounded-t-xl border border-slate-200 bg-white">
+    <article className="flex h-full flex-col rounded-2xl border border-gray-100 bg-white p-2 shadow-sm transition hover:-translate-y-0.5 md:p-4">
+      <div className="relative">
+        {desconto > 0 ? (
+          <span className="absolute left-1 top-1 z-10 rounded-md bg-red-600 px-1.5 py-0.5 text-[8px] font-black text-white">
+            -{desconto}%
+          </span>
+        ) : null}
+
         <Image
           src={offer.image_url || "/next.svg"}
           alt={offer.title}
           width={600}
           height={420}
-          className="h-full w-full object-contain"
+          className="mb-2 h-28 w-full object-contain md:h-40"
         />
-        {desconto > 0 ? (
-          <Badge className="absolute left-2 top-2" variant="danger">
-            -{desconto}%
-          </Badge>
-        ) : null}
       </div>
 
-      <p className="text-xs font-medium uppercase tracking-wide text-rs-muted">
-        {offer.marketplace || "Marketplace"}
-      </p>
-      <h3 className="mt-1 line-clamp-2 min-h-12 text-sm font-semibold text-navy-3">
-        {offer.title}
-      </h3>
+      <div className="flex flex-1 flex-col">
+        <div className="mb-2 flex flex-wrap gap-1">
+          <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-[8px] font-black uppercase tracking-tight text-slate-600">
+            {getMarketplaceBadgeLabel(offer.marketplace)}
+          </span>
+          {desconto >= 20 ? (
+            <span className="rounded-md bg-orange-100 px-1.5 py-0.5 text-[8px] font-black uppercase tracking-tight text-orange-700">
+              Oferta Relampago
+            </span>
+          ) : null}
+        </div>
 
-      <div className="mt-3">
-        {oldPrice > offer.price ? (
-          <p className="text-xs text-rs-muted line-through">{formatBRL(oldPrice)}</p>
-        ) : null}
-        <p className="font-mono text-2xl font-bold text-rs-red">
-          {formatBRL(offer.price)}
-        </p>
-      </div>
+        <h3 className="mb-2 h-8 line-clamp-2 text-[11px] font-bold leading-tight text-gray-800 md:text-sm">
+          {offer.title}
+        </h3>
 
-      <div className="mt-4">
-        <BotaoAfiliado
-          offerId={offer.id}
-          href={href}
-          source="vitrine_card"
-          label="Ver oferta"
-          className="inline-flex w-full items-center justify-center rounded-lg bg-orange px-4 py-2 text-sm font-semibold text-white hover:bg-orange-2"
-        />
+        <div className="mt-auto">
+          <div className="mb-2 flex flex-col">
+            {oldPrice > offer.price ? (
+              <span className="text-[9px] text-gray-400 line-through">{formatBRL(oldPrice)}</span>
+            ) : null}
+            <span className="text-sm font-black text-green-600 md:text-lg">
+              {formatBRL(offer.price)}
+            </span>
+          </div>
+
+          <BotaoAfiliado
+            offerId={offer.id}
+            href={href}
+            source="vitrine_card"
+            label="RESGATAR 🚀"
+            className="inline-flex w-full items-center justify-center rounded-xl bg-gradient-to-r from-orange-500 to-orange-600 px-4 py-2.5 text-[10px] font-black uppercase tracking-tight text-white shadow-md transition-all active:scale-95 hover:from-orange-600 hover:to-orange-600"
+          />
+        </div>
       </div>
     </article>
   );

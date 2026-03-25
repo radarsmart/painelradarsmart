@@ -1,9 +1,12 @@
 import type { Metadata } from "next";
+import { BottomNav } from "@/components/navigation/BottomNav";
+import { InstallPrompt } from "@/components/navigation/InstallPrompt";
 import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Radar Smart",
-  description: "Radar Smart · inteligência em ofertas afiliadas",
+  description: "Radar Smart · inteligencia em ofertas afiliadas",
+  manifest: "/manifest.json",
 };
 
 export default function RootLayout({
@@ -15,6 +18,8 @@ export default function RootLayout({
     <html lang="pt-BR">
       <body className="bg-slate-50 font-body text-navy antialiased">
         {children}
+        <InstallPrompt />
+        <BottomNav />
       </body>
     </html>
   );

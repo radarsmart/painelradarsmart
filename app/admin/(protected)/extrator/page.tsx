@@ -331,6 +331,11 @@ export default function ExtratorManualPage() {
   const [priceAlert, setPriceAlert] = useState<PriceAlert | null>(null);
   const [showSlotModal, setShowSlotModal] = useState(false);
   const [selectedSlotType, setSelectedSlotType] = useState<SlotType | null>(null);
+  const [mlStatus, setMlStatus] = useState<{
+    hasToken: boolean;
+    isExpired: boolean;
+    minutesRemaining: number;
+  } | null>(null);
 
   const canDispatch = Boolean(
     preview && preview.title && preview.price > 0 && preview.product_url && preview.affiliate_url,
@@ -350,6 +355,30 @@ export default function ExtratorManualPage() {
   }, [preview]);
   const dailyTip = useMemo(() => getDailyTip(), []);
   const categoryLinks = useMemo(() => getCategoryLinks(), []);
+
+  useEffect(() => {
+    const fetchMLStatus = async () => {
+      try {
+        const accessToken = await getAccessToken();
+        const response = await fetch("/api/admin/ml/status", {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        });
+        if (response.ok) {
+          const data = await response.json();
+          setMlStatus(data);
+        }
+      } catch (error) {
+        console.warn("Failed to fetch ML status:", error);
+      }
+    };
+
+    fetchMLStatus();
+    // Refresh every 5 minutes
+    const interval = setInterval(fetchMLStatus, 5 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, []);
 
   const getAccessToken = async () => {
     const { data, error } = await supabase.auth.getSession();
@@ -606,10 +635,25 @@ export default function ExtratorManualPage() {
                 href={buildMercadoLivreCategoryUrl(categoryLinks.ml)}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="group flex-1 items-center justify-center gap-2 rounded-2xl bg-blue-600 px-6 py-4 text-center font-black text-white shadow-md transition-all hover:bg-blue-700 md:flex"
+                className="group relative flex-1 items-center justify-center gap-2 rounded-2xl bg-blue-600 px-6 py-4 text-center font-black text-white shadow-md transition-all hover:bg-blue-700 md:flex"
               >
                 <span>🎯 BUSCAR NO MERCADO LIVRE</span>
                 <span className="transition-transform group-hover:translate-x-1">→</span>
+                {mlStatus && (
+                  <span className={`absolute -top-2 -right-2 rounded-full px-2 py-1 text-xs font-bold ${
+                    mlStatus.hasToken && !mlStatus.isExpired
+                      ? mlStatus.minutesRemaining < 30
+                        ? "bg-yellow-500 text-black"
+                        : "bg-green-500 text-white"
+                      : "bg-red-500 text-white"
+                  }`}>
+                    {mlStatus.hasToken && !mlStatus.isExpired
+                      ? mlStatus.minutesRemaining < 30
+                        ? `${mlStatus.minutesRemaining}min`
+                        : "✓"
+                      : "✗"}
+                  </span>
+                )}
               </a>
             </div>
 

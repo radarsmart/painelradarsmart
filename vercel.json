@@ -9,9 +9,8 @@
       "schedule": "0 8 * * *"
     }
   ],
-  "functions": {
-    "api/admin/**": {
-      "maxDuration": 60
-    }
-  }
+  "rewrites": [
+    { "source": "/admin/:path*", "destination": "/" },
+    { "source": "/:path*", "destination": "/" }
+  ]
 }

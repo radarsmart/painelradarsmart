@@ -191,7 +191,6 @@ async function readMercadoLivreAuth(): Promise<MercadoLivreAuthRow | null> {
 }
 
 async function refreshMercadoLivreToken(refreshToken: string): Promise<string> {
-  console.log("[DEBUG] refreshMercadoLivreToken - Starting token refresh");
   if (!ML_CLIENT_ID || !ML_CLIENT_SECRET) {
     throw new Error("Credenciais ML ausentes (MERCADOLIVRE_APP_ID/CLIENT_SECRET).");
   }
@@ -203,7 +202,6 @@ async function refreshMercadoLivreToken(refreshToken: string): Promise<string> {
     refresh_token: refreshToken,
   });
 
-  console.log("[DEBUG] refreshMercadoLivreToken - Making request to ML API");
   const response = await fetch("https://api.mercadolibre.com/oauth/token", {
     method: "POST",
     headers: {
@@ -214,14 +212,12 @@ async function refreshMercadoLivreToken(refreshToken: string): Promise<string> {
     cache: "no-store",
   });
 
-  console.log("[DEBUG] refreshMercadoLivreToken - ML API response status:", response.status);
   const payload = (await response.json().catch(() => ({}))) as Partial<MercadoLivreTokenResponse> & {
     message?: string;
     error?: string;
   };
 
   if (!response.ok || !payload.access_token) {
-    console.log("[DEBUG] refreshMercadoLivreToken - Refresh failed:", payload);
     throw new Error(
       payload.message ||
         payload.error ||
@@ -229,26 +225,19 @@ async function refreshMercadoLivreToken(refreshToken: string): Promise<string> {
     );
   }
 
-  console.log("[DEBUG] refreshMercadoLivreToken - Refresh successful, saving new token");
   await saveMercadoLivreAuth(payload as MercadoLivreTokenResponse);
   return String(payload.access_token);
 }
 
 export async function getValidToken(): Promise<string> {
-  console.log("[DEBUG] getValidToken - Starting token validation");
   const row = await readMercadoLivreAuth();
-  console.log("[DEBUG] getValidToken - Token row found:", Boolean(row), "has access_token:", Boolean(row?.access_token));
-
   if (!row?.access_token) {
     throw new Error("Token Mercado Livre nao encontrado em mercadolivre_auth.");
   }
 
   const expiresAt = row.expires_at ? Date.parse(row.expires_at) : NaN;
   const notExpired = Number.isFinite(expiresAt) ? expiresAt > Date.now() : false;
-  console.log("[DEBUG] getValidToken - Token expires at:", row.expires_at, "Not expired:", notExpired);
-
   if (notExpired) {
-    console.log("[DEBUG] getValidToken - Returning valid token");
     return row.access_token;
   }
 
@@ -256,7 +245,6 @@ export async function getValidToken(): Promise<string> {
     throw new Error("refresh_token ausente para renovar token do Mercado Livre.");
   }
 
-  console.log("[DEBUG] getValidToken - Token expired, attempting refresh");
   return refreshMercadoLivreToken(row.refresh_token);
 }
 

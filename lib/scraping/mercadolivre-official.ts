@@ -148,10 +148,7 @@ function buildRequestHeaders(accessToken?: string | null): HeadersInit {
     accept: "application/json",
   };
   if (accessToken) {
-    console.log("[DEBUG] ML Official - Adding Authorization header with token:", accessToken.substring(0, 20) + "...");
     headers.authorization = `Bearer ${accessToken}`;
-  } else {
-    console.log("[DEBUG] ML Official - No access token provided");
   }
   return headers;
 }
@@ -196,8 +193,6 @@ async function fetchItemById(
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), ML_API_TIMEOUT_MS);
 
-  console.log("[DEBUG] ML Official - Fetching item:", itemId, "with headers:", Object.keys(headers));
-
   try {
     const response = await fetch(`https://api.mercadolibre.com/items/${itemId}`, {
       method: "GET",
@@ -205,18 +200,12 @@ async function fetchItemById(
       cache: "no-store",
       signal: controller.signal,
     });
-
-    console.log("[DEBUG] ML Official - API response status:", response.status);
-
     const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
     if (!response.ok) {
       const reason =
         toText(payload.message) || toText(payload.error) || `HTTP ${response.status}`;
-      console.log("[DEBUG] ML Official - API error:", reason, "Full payload:", payload);
       throw new Error(`Mercado Livre items API falhou: ${reason}`);
     }
-
-    console.log("[DEBUG] ML Official - API success, item data keys:", Object.keys(payload));
     return payload;
   } finally {
     clearTimeout(timeout);
@@ -227,7 +216,6 @@ async function resolveItemFromProductId(
   productId: string,
   headers: HeadersInit,
 ): Promise<string | null> {
-  console.log("[DEBUG] ML Official - Resolving productId to itemId:", productId);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), ML_API_TIMEOUT_MS);
 
@@ -239,33 +227,23 @@ async function resolveItemFromProductId(
       signal: controller.signal,
     });
     const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
-    console.log("[DEBUG] ML Official - Products API response status:", response.status, "has data:", Boolean(payload && Object.keys(payload).length > 0));
-
     if (!response.ok) return null;
 
     const winnerRaw = payload.buy_box_winner;
     const winner =
       findMlbCandidate(toText(winnerRaw)) ||
       findMlbCandidate(toText((winnerRaw as Record<string, unknown> | null)?.id));
-    if (winner) {
-      console.log("[DEBUG] ML Official - Found winner itemId:", winner);
-      return winner;
-    }
+    if (winner) return winner;
 
     const items = Array.isArray(payload.items)
       ? (payload.items as Array<Record<string, unknown>>)
       : [];
-    console.log("[DEBUG] ML Official - Found", items.length, "items in product");
     for (const item of items) {
       const candidate =
         findMlbCandidate(toText(item.id)) || findMlbCandidate(toText(item.item_id));
-      if (candidate) {
-        console.log("[DEBUG] ML Official - Found itemId from items list:", candidate);
-        return candidate;
-      }
+      if (candidate) return candidate;
     }
 
-    console.log("[DEBUG] ML Official - No itemId found for productId:", productId);
     return null;
   } finally {
     clearTimeout(timeout);
@@ -317,34 +295,23 @@ export async function extractMercadoLivreOfficial(
   const sourceUrl = await resolveShortUrl(toText(input.url));
   if (!sourceUrl) throw new Error("URL Mercado Livre obrigatoria.");
 
-  console.log("[DEBUG] ML Official - Starting extraction for URL:", sourceUrl);
-  console.log("[DEBUG] ML Official - Access token provided:", Boolean(input.accessToken));
-
   const headers = buildRequestHeaders(input.accessToken ?? undefined);
   const ids = extractIdsFromUrl(sourceUrl);
 
-  console.log("[DEBUG] ML Official - Extracted IDs:", ids);
-
   let itemId = ids.itemId;
   if (!itemId && ids.productId) {
-    console.log("[DEBUG] ML Official - No itemId found, resolving from productId:", ids.productId);
     itemId = await resolveItemFromProductId(ids.productId, headers);
     // If product resolution fails, try using productId directly as itemId
     if (!itemId) {
-      console.log("[DEBUG] ML Official - Product resolution failed, trying productId as itemId:", ids.productId);
       itemId = ids.productId;
     }
   }
   if (!itemId) {
-    console.log("[DEBUG] ML Official - Trying search slug resolution");
     itemId = await resolveItemBySearchSlug(sourceUrl, headers);
   }
   if (!itemId) {
-    console.log("[DEBUG] ML Official - Failed to resolve any itemId");
     throw new Error("Nao foi possivel identificar item_id do Mercado Livre.");
   }
-
-  console.log("[DEBUG] ML Official - Final itemId to fetch:", itemId);
 
   const itemPayload = await fetchItemById(itemId, headers);
   const imageUrl = pickImageFromItemPayload(itemPayload);

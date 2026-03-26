@@ -817,22 +817,13 @@ export async function POST(req: NextRequest) {
           let accessToken: string | null = null;
           try {
             accessToken = await getValidToken();
-            console.log("[DEBUG] ML Extract - Access token obtained:", accessToken ? "YES" : "NO");
-          } catch (tokenError) {
-            console.log("[DEBUG] ML Extract - Failed to get access token:", tokenError);
-            console.log("[DEBUG] ML Extract - Will try extraction without token");
+          } catch {
             accessToken = null;
           }
-          console.log("[DEBUG] ML Extract - Calling extractMercadoLivreOfficial with accessToken:", accessToken ? "PRESENT" : "NULL");
           const mlOfficial = await extractMercadoLivreOfficial({
             url: sourceUrl,
             affiliateUrl,
             accessToken: accessToken ?? undefined,
-          });
-          console.log("[DEBUG] ML Extract - extractMercadoLivreOfficial succeeded:", {
-            title: mlOfficial.title,
-            price: mlOfficial.price,
-            hasImage: Boolean(mlOfficial.imageUrl)
           });
           officialPayload = buildFromMercadoLivreOfficial({
             elapsedMs: Date.now() - startedAt,
@@ -848,7 +839,6 @@ export async function POST(req: NextRequest) {
             rawData: mlOfficial.rawData,
           });
         } catch (error) {
-          console.log("[DEBUG] ML Extract - extractMercadoLivreOfficial failed:", error);
           officialError = extractErrorMessage(error);
         }
 
@@ -863,19 +853,8 @@ export async function POST(req: NextRequest) {
             toText(enrichedOfficial.image_url),
         );
 
-        console.log("[DEBUG] ML Extract - Official result:", {
-          hasPayload: Boolean(officialPayload),
-          status: officialPayload?.status,
-          hasCoreFields: officialHasCoreFields,
-          title: officialPayload?.title,
-          price: officialPayload?.price,
-          image: Boolean(officialPayload?.image_url),
-          error: officialError
-        });
-
         // If official extraction failed or doesn't have core fields, try Zenscrape immediately
         if (!officialHasCoreFields) {
-          console.log("[DEBUG] ML Extract - Official missing core fields or failed, trying Zenscrape fallback");
           try {
             const startedAt = Date.now();
             const ml = await extractMercadoLivreWithZenscrape({
@@ -892,20 +871,13 @@ export async function POST(req: NextRequest) {
               affiliateUrl: ml.affiliateUrl,
               rawData: ml.rawData,
             });
-            console.log("[DEBUG] ML Extract - Zenscrape succeeded:", {
-              title: ml.title,
-              price: ml.price,
-              hasImage: Boolean(ml.imageUrl)
-            });
           } catch (error) {
-            console.log("[DEBUG] ML Extract - Zenscrape fallback failed:", error);
             zenscrapeError = extractErrorMessage(error);
           }
         }
 
         // Only return official result if it has all core fields
         if (enrichedOfficial?.status === "ok" && officialHasCoreFields) {
-          console.log("[DEBUG] ML Extract - Returning official result (has all core fields)");
           return NextResponse.json({
             ...enrichedOfficial,
             retries: 1,
@@ -917,13 +889,6 @@ export async function POST(req: NextRequest) {
           });
         }
 
-        console.log("[DEBUG] ML Extract - Merging payloads:", {
-          hasZensPayload: Boolean(zensPayload),
-          hasOfficialPayload: Boolean(officialPayload),
-          zensError: zenscrapeError,
-          officialError: officialError
-        });
-
         const responsePayload = mergeMercadoLivrePayloads(
           zensPayload,
           officialPayload,
@@ -931,14 +896,6 @@ export async function POST(req: NextRequest) {
         const enrichedPayload = responsePayload
           ? enrichResponseWithCoupon(responsePayload, couponCode, couponDiscountPct)
           : enrichedOfficial;
-
-        console.log("[DEBUG] ML Extract - Final result:", {
-          hasEnrichedPayload: Boolean(enrichedPayload),
-          status: enrichedPayload?.status,
-          title: enrichedPayload?.title,
-          price: enrichedPayload?.price,
-          engine: enrichedPayload?.engine
-        });
 
         if (enrichedPayload) {
           return NextResponse.json({

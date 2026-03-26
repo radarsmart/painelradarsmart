@@ -57,3 +57,28 @@ export const normalizeMlProducts = (
     };
   });
 };
+
+export function normalizeMercadoLivreAffiliateUrl(
+  rawUrl?: string | null,
+  source = "radarsmart",
+): string {
+  const url = String(rawUrl ?? "").trim();
+  if (!url) return "";
+
+  try {
+    const parsed = new URL(url);
+    parsed.hash = "";
+
+    if (!parsed.searchParams.has("source")) {
+      parsed.searchParams.set("source", source);
+    }
+
+    if (!parsed.searchParams.has("matt_tool")) {
+      parsed.searchParams.set("matt_tool", "radarsmart");
+    }
+
+    return parsed.toString();
+  } catch {
+    return url;
+  }
+}

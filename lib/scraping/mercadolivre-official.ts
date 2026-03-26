@@ -1,3 +1,5 @@
+import { normalizeMercadoLivreAffiliateUrl } from "@/lib/mercadolivre";
+
 type MercadoLivreOfficialInput = {
   url: string;
   affiliateUrl?: string | null;
@@ -311,7 +313,9 @@ export async function extractMercadoLivreOfficial(
   const imageUrl = pickImageFromItemPayload(itemPayload);
   const permalink = toText(itemPayload.permalink) || sourceUrl;
   const productUrl = permalink;
-  const affiliateUrl = toText(input.affiliateUrl) || productUrl;
+  const affiliateUrl = normalizeMercadoLivreAffiliateUrl(
+    toText(input.affiliateUrl) || productUrl,
+  );
 
   return {
     itemId,

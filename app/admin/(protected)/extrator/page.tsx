@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 
 import { sanitizeMarketplaceUrl } from "@/lib/amazon";
+import { normalizeMercadoLivreAffiliateUrl } from "@/lib/mercadolivre";
 import { formatBRL } from "@/lib/formatters";
 import { computeProfitPotential } from "@/lib/radar-sniper";
 import { supabase } from "@/lib/supabase";
@@ -152,7 +153,13 @@ function detectMarketplace(url: string): RouteMarketplace {
 }
 
 function buildAffiliateUrl(url: string, marketplace: SupportedMarketplace) {
-  return sanitizeMarketplaceUrl(url, marketplace, { fallbackUrl: url });
+  const normalizedUrl = sanitizeMarketplaceUrl(url, marketplace, { fallbackUrl: url });
+
+  if (marketplace === "mercadolivre") {
+    return normalizeMercadoLivreAffiliateUrl(normalizedUrl);
+  }
+
+  return normalizedUrl;
 }
 
 function buildPreview(
@@ -778,12 +785,27 @@ export default function ExtratorManualPage() {
                     <p className="mt-1 text-lg font-black text-emerald-600">{momentumScore}</p>
                   </div>
 
-                  <div className="rounded-2xl bg-gray-50 p-3">
+                  <div className="rounded-2xl bg-gray-50 p-3 space-y-2">
                     <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">
                       Link Afinado
                     </p>
-                    <p className="mt-1 truncate text-xs font-semibold text-gray-700">
-                      {preview.affiliate_url}
+                    <input
+                      type="text"
+                      value={preview.affiliate_url}
+                      onChange={(event) =>
+                        setPreview((current) =>
+                          current
+                            ? {
+                                ...current,
+                                affiliate_url: event.target.value,
+                              }
+                            : current,
+                        )
+                      }
+                      className="w-full rounded-lg border border-gray-200 px-2 py-1 text-xs text-gray-700 outline-none focus:border-indigo-500"
+                    />
+                    <p className="text-[10px] text-gray-500">
+                      Edite o link de afiliado antes do despacho.
                     </p>
                   </div>
                 </div>

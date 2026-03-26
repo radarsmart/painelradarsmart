@@ -1,4 +1,5 @@
 import { load } from "cheerio";
+import { normalizeMercadoLivreAffiliateUrl } from "@/lib/mercadolivre";
 import { fetchHtmlWithRotation } from "@/lib/scraping/http-fetch-rotator";
 
 type Availability = "in_stock" | "out_of_stock" | "unknown";
@@ -737,7 +738,9 @@ export async function extractMercadoLivreOffer(input: {
     marketplace: "mercadolivre",
     sourceUrl: normalizedUrl,
     productUrl,
-    affiliateUrl: input.affiliateUrl?.trim() || normalizedUrl,
+    affiliateUrl: normalizeMercadoLivreAffiliateUrl(
+      input.affiliateUrl?.trim() || normalizedUrl,
+    ),
     itemId,
     title,
     imageUrl,

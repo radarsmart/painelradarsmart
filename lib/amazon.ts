@@ -171,11 +171,20 @@ export function sanitizeAmazonUrl(
     parsed.hash = "";
     const host = parsed.hostname.toLowerCase();
 
+    // Suporte para redirecionamentos curtos (amzn.to) e normalização em tag
     if (host.includes("amzn.to")) {
+      const asin = extractAmazonAsinFromPath(parsed.pathname);
+      if (asin) {
+        const clean = new URL(`https://www.amazon.com.br/dp/${asin}`);
+        clean.searchParams.set("tag", tag || DEFAULT_AMAZON_TAG);
+        return clean.toString();
+      }
+      parsed.searchParams.set("tag", tag || DEFAULT_AMAZON_TAG);
       return parsed.toString();
     }
 
     if (!host.includes("amazon.")) {
+      parsed.searchParams.set("tag", tag || DEFAULT_AMAZON_TAG);
       return parsed.toString();
     }
 

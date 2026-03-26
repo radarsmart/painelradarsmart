@@ -91,6 +91,24 @@ function toCleanText(value: unknown): string {
   return String(value ?? "").trim();
 }
 
+function detectMarketplaceFromUrl(url: string): Marketplace | null {
+  const normalized = url.toLowerCase();
+
+  if (
+    normalized.includes("mercadolivre.") ||
+    normalized.includes("mercadolibre.") ||
+    normalized.includes("meli.la")
+  ) {
+    return "mercadolivre";
+  }
+
+  if (normalized.includes("amazon.") || normalized.includes("amzn.to")) {
+    return "amazon";
+  }
+
+  return null;
+}
+
 async function parseApiResponse<T>(response: Response): Promise<T> {
   const raw = await response.text();
   try {
@@ -312,9 +330,18 @@ export default function AdminNovaOfertaPage() {
   const handleExtract = async () => {
     const url = sourceUrl.trim();
     const manualAffiliate = affiliateUrl.trim();
+    const detectedMarketplace = detectMarketplaceFromUrl(url);
 
     if (!url) {
       setFeedback({ type: "error", text: "Informe a URL da oferta para extracao." });
+      return;
+    }
+
+    if (!detectedMarketplace) {
+      setFeedback({
+        type: "error",
+        text: "URL invalida. Use um link valido de Amazon ou Mercado Livre.",
+      });
       return;
     }
 
@@ -333,6 +360,7 @@ export default function AdminNovaOfertaPage() {
 
     try {
       const accessToken = await getAccessToken();
+      setMarketplace(detectedMarketplace);
       const response = await fetch("/api/admin/extract", {
         method: "POST",
         headers: {
@@ -342,7 +370,7 @@ export default function AdminNovaOfertaPage() {
         body: JSON.stringify({
           url,
           affiliate_url: manualAffiliate,
-          marketplace,
+          marketplace: detectedMarketplace,
           persist: false,
         }),
       });
@@ -394,8 +422,8 @@ export default function AdminNovaOfertaPage() {
         type: result.status === "partial_failure" ? "info" : "success",
         text:
           result.status === "partial_failure"
-            ? `Extracao parcial (${MARKETPLACE_LABEL[marketplace]}). Revise os campos antes de publicar.`
-            : `Extracao concluida (${MARKETPLACE_LABEL[marketplace]}). Revise o preview antes de publicar.`,
+            ? `Extracao parcial (${MARKETPLACE_LABEL[detectedMarketplace]}). Revise os campos antes de publicar.`
+            : `Extracao concluida (${MARKETPLACE_LABEL[detectedMarketplace]}). Revise o preview antes de publicar.`,
       });
     } catch (error) {
       setExtractDebug(

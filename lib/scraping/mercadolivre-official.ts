@@ -39,6 +39,8 @@ const ML_BROWSER_HEADERS: Record<string, string> = {
   "sec-fetch-site": "none",
 };
 
+const ML_API_TIMEOUT_MS = 4000;
+
 function toText(value: unknown): string {
   return String(value ?? "").trim();
 }
@@ -186,65 +188,85 @@ async function fetchItemById(
   itemId: string,
   headers: HeadersInit,
 ): Promise<Record<string, unknown>> {
-  const response = await fetch(`https://api.mercadolibre.com/items/${itemId}`, {
-    method: "GET",
-    headers,
-    cache: "no-store",
-  });
-  const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
-  if (!response.ok) {
-    const reason =
-      toText(payload.message) || toText(payload.error) || `HTTP ${response.status}`;
-    throw new Error(`Mercado Livre items API falhou: ${reason}`);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), ML_API_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(`https://api.mercadolibre.com/items/${itemId}`, {
+      method: "GET",
+      headers,
+      cache: "no-store",
+      signal: controller.signal,
+    });
+    const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!response.ok) {
+      const reason =
+        toText(payload.message) || toText(payload.error) || `HTTP ${response.status}`;
+      throw new Error(`Mercado Livre items API falhou: ${reason}`);
+    }
+    return payload;
+  } finally {
+    clearTimeout(timeout);
   }
-  return payload;
 }
 
 async function resolveItemFromProductId(
   productId: string,
   headers: HeadersInit,
 ): Promise<string | null> {
-  const response = await fetch(`https://api.mercadolibre.com/products/${productId}`, {
-    method: "GET",
-    headers,
-    cache: "no-store",
-  });
-  const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
-  if (!response.ok) return null;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), ML_API_TIMEOUT_MS);
 
-  const winnerRaw = payload.buy_box_winner;
-  const winner =
-    findMlbCandidate(toText(winnerRaw)) ||
-    findMlbCandidate(toText((winnerRaw as Record<string, unknown> | null)?.id));
-  if (winner) return winner;
+  try {
+    const response = await fetch(`https://api.mercadolibre.com/products/${productId}`, {
+      method: "GET",
+      headers,
+      cache: "no-store",
+      signal: controller.signal,
+    });
+    const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!response.ok) return null;
 
-  const items = Array.isArray(payload.items)
-    ? (payload.items as Array<Record<string, unknown>>)
-    : [];
-  for (const item of items) {
-    const candidate =
-      findMlbCandidate(toText(item.id)) || findMlbCandidate(toText(item.item_id));
-    if (candidate) return candidate;
+    const winnerRaw = payload.buy_box_winner;
+    const winner =
+      findMlbCandidate(toText(winnerRaw)) ||
+      findMlbCandidate(toText((winnerRaw as Record<string, unknown> | null)?.id));
+    if (winner) return winner;
+
+    const items = Array.isArray(payload.items)
+      ? (payload.items as Array<Record<string, unknown>>)
+      : [];
+    for (const item of items) {
+      const candidate =
+        findMlbCandidate(toText(item.id)) || findMlbCandidate(toText(item.item_id));
+      if (candidate) return candidate;
+    }
+
+    return null;
+  } finally {
+    clearTimeout(timeout);
   }
-
-  return null;
 }
 
 async function resolveItemBySearchSlug(
   sourceUrl: string,
   headers: HeadersInit,
 ): Promise<string | null> {
+  let timeout: ReturnType<typeof setTimeout> | null = null;
   try {
     const parsed = new URL(sourceUrl);
     const slug = parsed.pathname.split("/").filter(Boolean)[0]?.replace(/-/g, " ").trim();
     if (!slug || slug.length < 3) return null;
 
+    const controller = new AbortController();
+    timeout = setTimeout(() => controller.abort(), ML_API_TIMEOUT_MS);
     const response = await fetch(
       `https://api.mercadolibre.com/sites/MLB/search?q=${encodeURIComponent(slug)}&limit=5`,
       {
         method: "GET",
         headers,
         cache: "no-store",
+        signal: controller.signal,
       },
     );
     const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
@@ -260,6 +282,8 @@ async function resolveItemBySearchSlug(
     return null;
   } catch {
     return null;
+  } finally {
+    if (timeout) clearTimeout(timeout);
   }
 }
 

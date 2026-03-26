@@ -276,6 +276,7 @@ export async function extractMercadoLivreWithZenscrape(
   const response = await fetch(endpointUrl, {
     method: "GET",
     cache: "no-store",
+    signal: AbortSignal.timeout(6500),
     headers: {
       ...ML_BROWSER_HEADERS,
       accept: "application/json,text/html;q=0.9,*/*;q=0.8",

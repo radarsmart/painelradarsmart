@@ -249,11 +249,6 @@ function normalizeAmazonProductData(
 }
 
 function detectMarketplace(url: string, hint?: string): Marketplace | null {
-  const hintNormalized = String(hint ?? "").toLowerCase().trim();
-  if (hintNormalized === "mercadolivre" || hintNormalized === "amazon") {
-    return hintNormalized;
-  }
-
   const normalized = url.toLowerCase();
   if (
     normalized.includes("mercadolivre.") ||
@@ -265,6 +260,12 @@ function detectMarketplace(url: string, hint?: string): Marketplace | null {
   if (normalized.includes("amazon.") || normalized.includes("amzn.to")) {
     return "amazon";
   }
+
+  const hintNormalized = String(hint ?? "").toLowerCase().trim();
+  if (hintNormalized === "mercadolivre" || hintNormalized === "amazon") {
+    return hintNormalized;
+  }
+
   return null;
 }
 
@@ -552,6 +553,13 @@ function mergeMercadoLivrePayloads(
   };
 }
 
+function resolveMercadoLivreLayer(payload: SuccessResponse): DebugLayer {
+  if (payload.engine === "ml-merged-v1") return "merged";
+  if (payload.engine === "ml-official-v2") return "official";
+  if (payload.engine === "zenscrape-v1") return "zenscrape";
+  return "container";
+}
+
 function buildFromMercadoLivreZenscrape(input: {
   elapsedMs: number;
   title: string;
@@ -801,28 +809,8 @@ export async function POST(req: NextRequest) {
 
     try {
       if (marketplace === "mercadolivre") {
-        let zensPayload: SuccessResponse | null = null;
         let officialPayload: SuccessResponse | null = null;
-
-        try {
-          const startedAt = Date.now();
-          const ml = await extractMercadoLivreWithZenscrape({
-            url: sourceUrl,
-            affiliateUrl,
-          });
-          zensPayload = buildFromMercadoLivreZenscrape({
-            elapsedMs: Date.now() - startedAt,
-            title: ml.title,
-            price: ml.price,
-            oldPrice: ml.oldPrice,
-            imageUrl: ml.imageUrl,
-            productUrl: ml.productUrl,
-            affiliateUrl: ml.affiliateUrl,
-            rawData: ml.rawData,
-          });
-        } catch (error) {
-          zenscrapeError = extractErrorMessage(error);
-        }
+        let zensPayload: SuccessResponse | null = null;
 
         try {
           const startedAt = Date.now();
@@ -854,31 +842,75 @@ export async function POST(req: NextRequest) {
           officialError = extractErrorMessage(error);
         }
 
+        const enrichedOfficial = officialPayload
+          ? enrichResponseWithCoupon(officialPayload, couponCode, couponDiscountPct)
+          : null;
+        const officialHasCoreFields = Boolean(
+          enrichedOfficial &&
+            enrichedOfficial.status === "ok" &&
+            toText(enrichedOfficial.title) &&
+            isPositivePrice(enrichedOfficial.price) &&
+            toText(enrichedOfficial.image_url),
+        );
+
+        if (enrichedOfficial?.status === "ok") {
+          return NextResponse.json({
+            ...enrichedOfficial,
+            retries: 1,
+            debug_info: {
+              layer_used: "official",
+              missing_fields: enrichedOfficial.missing_fields,
+              latency_ms: enrichedOfficial.elapsed_ms,
+            },
+          });
+        }
+
+        if (!officialHasCoreFields) {
+          try {
+            const startedAt = Date.now();
+            const ml = await extractMercadoLivreWithZenscrape({
+              url: sourceUrl,
+              affiliateUrl,
+            });
+            zensPayload = buildFromMercadoLivreZenscrape({
+              elapsedMs: Date.now() - startedAt,
+              title: ml.title,
+              price: ml.price,
+              oldPrice: ml.oldPrice,
+              imageUrl: ml.imageUrl,
+              productUrl: ml.productUrl,
+              affiliateUrl: ml.affiliateUrl,
+              rawData: ml.rawData,
+            });
+          } catch (error) {
+            zenscrapeError = extractErrorMessage(error);
+          }
+        }
+
         const responsePayload = mergeMercadoLivrePayloads(
           zensPayload,
           officialPayload,
         );
         const enrichedPayload = responsePayload
           ? enrichResponseWithCoupon(responsePayload, couponCode, couponDiscountPct)
-          : null;
+          : enrichedOfficial;
 
-        if (enrichedPayload?.status === "ok") {
+        if (enrichedPayload) {
           return NextResponse.json({
             ...enrichedPayload,
+            status: enrichedPayload.status === "ok" ? "ok" : "partial_failure",
             retries: 1,
             debug_info: {
-              layer_used:
-                enrichedPayload.engine === "ml-merged-v1"
-                  ? "merged"
-                  : enrichedPayload.engine === "ml-official-v2"
-                    ? "official"
-                    : "zenscrape",
+              layer_used: resolveMercadoLivreLayer(enrichedPayload),
               missing_fields: enrichedPayload.missing_fields,
               latency_ms: enrichedPayload.elapsed_ms,
             },
+            error:
+              enrichedPayload.status === "ok"
+                ? undefined
+                : officialError || zenscrapeError || "Extracao parcial do Mercado Livre.",
           });
         }
-        partialFallback = enrichedPayload;
       } else {
         const startedAt = Date.now();
         const amazon = await extractAmazonWithRainforest({

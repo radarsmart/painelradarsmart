@@ -15,6 +15,7 @@ import { salvarOferta, supabaseAdmin } from "@/lib/supabase";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 type Marketplace = "amazon" | "mercadolivre";
 

@@ -12,8 +12,15 @@ export function InstallPrompt() {
   const pathname = usePathname();
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [showBanner, setShowBanner] = useState(false);
+  const isPromptDisabledRoute = pathname.startsWith("/admin") || pathname === "/links";
 
   useEffect(() => {
+    if (isPromptDisabledRoute) {
+      setShowBanner(false);
+      setDeferredPrompt(null);
+      return;
+    }
+
     if (typeof window === "undefined") return;
     if (window.matchMedia("(display-mode: standalone)").matches) return;
 
@@ -51,7 +58,7 @@ export function InstallPrompt() {
         window.clearTimeout(timerId);
       }
     };
-  }, []);
+  }, [isPromptDisabledRoute]);
 
   const handleInstall = async () => {
     if (!deferredPrompt) return;
@@ -66,7 +73,7 @@ export function InstallPrompt() {
     setDeferredPrompt(null);
   };
 
-  if (pathname.startsWith("/admin") || pathname === "/links" || !showBanner) {
+  if (isPromptDisabledRoute || !showBanner) {
     return null;
   }
 

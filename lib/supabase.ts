@@ -1,11 +1,14 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 const supabaseUrl =
-  process.env.NEXT_PUBLIC_SUPABASE_URL ?? "https://example.supabase.co";
+  cleanEnv(process.env.SUPABASE_URL) ||
+  cleanEnv(process.env.NEXT_PUBLIC_SUPABASE_URL) ||
+  "";
 const supabaseAnon =
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "public-anon-key";
-const supabaseService =
-  process.env.SUPABASE_SERVICE_ROLE_KEY ?? "service-role-key";
+  cleanEnv(process.env.SUPABASE_ANON_KEY) ||
+  cleanEnv(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) ||
+  "";
+const supabaseService = cleanEnv(process.env.SUPABASE_SERVICE_ROLE_KEY) || "";
 
 type GlobalWithSupabase = typeof globalThis & {
   __radar_supabase_public__?: SupabaseClient;
@@ -14,8 +17,24 @@ type GlobalWithSupabase = typeof globalThis & {
 
 const globalWithSupabase = globalThis as GlobalWithSupabase;
 
+function warnMissingEnv(name: string) {
+  if (typeof window === "undefined") {
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[supabase] Variavel ${name} ausente. Defina no ambiente (Vercel/.env).`,
+    );
+  }
+}
+
 function createPublicClient() {
-  return createClient(supabaseUrl, supabaseAnon, {
+  if (!supabaseUrl) {
+    warnMissingEnv("SUPABASE_URL ou NEXT_PUBLIC_SUPABASE_URL");
+  }
+  if (!supabaseAnon) {
+    warnMissingEnv("SUPABASE_ANON_KEY ou NEXT_PUBLIC_SUPABASE_ANON_KEY");
+  }
+
+  return createClient(supabaseUrl || "", supabaseAnon || "", {
     auth: {
       autoRefreshToken: true,
       persistSession: true,
@@ -32,14 +51,14 @@ function getPublicSingleton() {
 }
 
 function createAdminClient() {
-  if (!process.env.SUPABASE_SERVICE_ROLE_KEY && typeof window === "undefined") {
-    // eslint-disable-next-line no-console
-    console.warn(
-      "[supabase] SUPABASE_SERVICE_ROLE_KEY ausente; rotas admin podem falhar no servidor.",
-    );
+  if (!supabaseUrl) {
+    warnMissingEnv("SUPABASE_URL ou NEXT_PUBLIC_SUPABASE_URL");
+  }
+  if (!supabaseService) {
+    warnMissingEnv("SUPABASE_SERVICE_ROLE_KEY");
   }
 
-  return createClient(supabaseUrl, supabaseService, {
+  return createClient(supabaseUrl || "", supabaseService || "", {
     auth: {
       autoRefreshToken: false,
       persistSession: false,

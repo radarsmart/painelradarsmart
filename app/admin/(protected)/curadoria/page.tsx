@@ -33,6 +33,13 @@ type HealthStats = {
   broken: number;
 };
 
+type OffersQueryResult = {
+  data: OfferRow[];
+  error: { message?: string | null } | null;
+  supportsSlots: boolean;
+  supportsClicks: boolean;
+};
+
 function toText(value: unknown): string {
   return String(value ?? "").trim();
 }
@@ -68,6 +75,107 @@ function getNextSlot(slot: string | null): OfferSlot {
   if (slot === "flash") return "best";
   if (slot === "best") return "comparator";
   return "hero";
+}
+
+function hasMissingColumnError(error: { message?: string | null } | null, column: string): boolean {
+  const message = toText(error?.message).toLowerCase();
+  return message.includes(column.toLowerCase());
+}
+
+async function fetchCuradoriaOffers(): Promise<OffersQueryResult> {
+  const primaryResponse = await supabaseAdmin
+    .from("offers")
+    .select("id,title,image_url,price,old_price,click_count,slot_type,status")
+    .order("click_count", { ascending: false })
+    .limit(50);
+
+  if (!primaryResponse.error) {
+    return {
+      data: ((primaryResponse.data ?? []) as OfferRow[]) ?? [],
+      error: null,
+      supportsSlots: true,
+      supportsClicks: true,
+    };
+  }
+
+  const supportsClicks = !hasMissingColumnError(primaryResponse.error, "click_count");
+  const supportsSlots = !hasMissingColumnError(primaryResponse.error, "slot_type");
+
+  const fallbackColumns = ["id", "title", "image_url", "price", "old_price", "status"];
+  if (supportsClicks) fallbackColumns.push("click_count");
+  if (supportsSlots) fallbackColumns.push("slot_type");
+
+  let fallbackQuery = supabaseAdmin
+    .from("offers")
+    .select(fallbackColumns.join(","))
+    .limit(50);
+
+  if (supportsClicks) {
+    fallbackQuery = fallbackQuery.order("click_count", { ascending: false });
+  } else {
+    fallbackQuery = fallbackQuery.order("created_at", { ascending: false });
+  }
+
+  const fallbackResponse = await fallbackQuery;
+  if (fallbackResponse.error) {
+    return {
+      data: [],
+      error: fallbackResponse.error,
+      supportsSlots,
+      supportsClicks,
+    };
+  }
+
+  const rows = (fallbackResponse.data ?? []) as unknown as Array<Record<string, unknown>>;
+  const normalized = rows.map(
+    (offer) =>
+      ({
+        id: toText(offer.id),
+        title: toText(offer.title) || null,
+        image_url: toText(offer.image_url) || null,
+        price: offer.price ?? null,
+        old_price: offer.old_price ?? null,
+        click_count: supportsClicks ? toNumber(offer.click_count) : null,
+        slot_type: supportsSlots ? (toText(offer.slot_type) as OfferSlot | "") || null : null,
+        status: toText(offer.status) || null,
+      }) as OfferRow,
+  );
+
+  return {
+    data: normalized,
+    error: null,
+    supportsSlots,
+    supportsClicks,
+  };
+}
+
+async function fetchHealthRows(last24Hours: string): Promise<HealthRow[]> {
+  const primaryResponse = await supabaseAdmin
+    .from("offers")
+    .select("status,curations_status,affiliate_url,product_url")
+    .gte("updated_at", last24Hours)
+    .or("status.eq.archived,curations_status.eq.archived");
+
+  if (!primaryResponse.error) {
+    return ((primaryResponse.data ?? []) as HealthRow[]) ?? [];
+  }
+
+  const fallbackResponse = await supabaseAdmin
+    .from("offers")
+    .select("status")
+    .gte("updated_at", last24Hours)
+    .eq("status", "archived");
+
+  if (fallbackResponse.error) {
+    return [];
+  }
+
+  return (((fallbackResponse.data ?? []) as unknown) as Array<Record<string, unknown>>).map((row) => ({
+    status: toText(row.status) || null,
+    curations_status: null,
+    affiliate_url: null,
+    product_url: null,
+  }));
 }
 
 async function toggleOfferStatus(formData: FormData) {
@@ -135,38 +243,28 @@ function HealthDashboard({ stats }: { stats: HealthStats }) {
 export default async function CuradoriaGeralPage() {
   const last24Hours = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   const [
-    { data: offers, error },
+    offersResponse,
     { count: activeCountExact, error: activeCountError },
-    { data: recentHealthRows, error: recentHealthError },
+    recentHealthRows,
   ] = await Promise.all([
-    supabaseAdmin
-      .from("offers")
-      .select("id,title,image_url,price,old_price,click_count,slot_type,status")
-      .order("click_count", { ascending: false })
-      .limit(50),
+    fetchCuradoriaOffers(),
     supabaseAdmin
       .from("offers")
       .select("id", { count: "exact", head: true })
       .eq("status", "active"),
-    supabaseAdmin
-      .from("offers")
-      .select("status,curations_status,affiliate_url,product_url")
-      .gte("updated_at", last24Hours)
-      .or("status.eq.archived,curations_status.eq.archived"),
+    fetchHealthRows(last24Hours),
   ]);
 
-  if (error) {
+  if (offersResponse.error) {
     return <div className="p-10 text-red-500">Erro ao carregar o banco de dados.</div>;
   }
 
-  const safeOffers = (offers as OfferRow[] | null) ?? [];
-  const safeHealthRows = (recentHealthRows as HealthRow[] | null) ?? [];
-  const cleanedCount = recentHealthError
-    ? 0
-    : safeHealthRows.filter((row) => isArchivedOffer(row)).length;
-  const brokenCount = recentHealthError
-    ? 0
-    : safeHealthRows.filter((row) => isArchivedOffer(row) && isBrokenOffer(row)).length;
+  const safeOffers = offersResponse.data ?? [];
+  const safeHealthRows = recentHealthRows ?? [];
+  const cleanedCount = safeHealthRows.filter((row) => isArchivedOffer(row)).length;
+  const brokenCount = safeHealthRows.filter(
+    (row) => isArchivedOffer(row) && isBrokenOffer(row),
+  ).length;
   const activeCount = activeCountError
     ? safeOffers.filter((offer) => toText(offer.status) === "active").length
     : activeCountExact ?? 0;
@@ -199,9 +297,11 @@ export default async function CuradoriaGeralPage() {
 
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {safeOffers.map((offer) => {
-          const currentSlot = toText(offer.slot_type) || "best";
+          const currentSlot = offersResponse.supportsSlots
+            ? toText(offer.slot_type) || "best"
+            : "best";
           const isActive = toText(offer.status) !== "inactive";
-          const clickCount = toNumber(offer.click_count);
+          const clickCount = offersResponse.supportsClicks ? toNumber(offer.click_count) : 0;
 
           return (
             <div
@@ -273,16 +373,22 @@ export default async function CuradoriaGeralPage() {
                   </form>
                 </div>
 
-                <form action={rotateOfferSlot}>
-                  <input type="hidden" name="id" value={offer.id} />
-                  <input type="hidden" name="current_slot" value={currentSlot} />
-                  <button
-                    type="submit"
-                    className="w-full rounded-xl bg-gray-900 py-2 text-[10px] font-bold text-white transition-all hover:bg-gray-800"
-                  >
-                    ALTERAR BLOCO NO SITE
-                  </button>
-                </form>
+                {offersResponse.supportsSlots ? (
+                  <form action={rotateOfferSlot}>
+                    <input type="hidden" name="id" value={offer.id} />
+                    <input type="hidden" name="current_slot" value={currentSlot} />
+                    <button
+                      type="submit"
+                      className="w-full rounded-xl bg-gray-900 py-2 text-[10px] font-bold text-white transition-all hover:bg-gray-800"
+                    >
+                      ALTERAR BLOCO NO SITE
+                    </button>
+                  </form>
+                ) : (
+                  <div className="w-full rounded-xl bg-gray-100 py-2 text-center text-[10px] font-bold text-gray-500">
+                    BLOCO DO SITE INDISPONIVEL NESTE SCHEMA
+                  </div>
+                )}
 
                 <CuradoriaCopyButton
                   offerId={offer.id}

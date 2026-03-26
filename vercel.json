@@ -8,5 +8,10 @@
       "path": "/api/admin/distribution/elite-flush",
       "schedule": "0 8 * * *"
     }
-  ]
+  ],
+  "functions": {
+    "api/admin/**": {
+      "maxDuration": 60
+    }
+  }
 }

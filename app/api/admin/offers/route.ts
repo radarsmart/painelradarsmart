@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { salvarOferta, supabaseAdmin } from "@/lib/supabase";
 import { classifyOfferCategory } from "@/lib/radar-sniper";
+import { requireAdmin } from "@/lib/admin-auth";
 
 function toNumber(value: unknown): number | null {
   const parsed = Number(value);
@@ -76,6 +77,14 @@ function normalizeOfferPayload(body: Record<string, unknown>) {
 }
 
 export async function POST(req: NextRequest) {
+  const adminGuard = await requireAdmin(req);
+  if (!adminGuard.ok) {
+    return NextResponse.json(
+      { error: adminGuard.error },
+      { status: adminGuard.status },
+    );
+  }
+
   try {
     const body = (await req.json()) as Record<string, unknown>;
     const payload = normalizeOfferPayload(body);
@@ -95,6 +104,14 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
+  const adminGuard = await requireAdmin(req);
+  if (!adminGuard.ok) {
+    return NextResponse.json(
+      { error: adminGuard.error },
+      { status: adminGuard.status },
+    );
+  }
+
   try {
     const { id, ...updates } = (await req.json()) as Record<string, unknown>;
     if (!id) {
@@ -144,6 +161,14 @@ export async function PATCH(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
+  const adminGuard = await requireAdmin(req);
+  if (!adminGuard.ok) {
+    return NextResponse.json(
+      { error: adminGuard.error },
+      { status: adminGuard.status },
+    );
+  }
+
   try {
     const { id } = (await req.json()) as { id?: string };
     if (!id) {

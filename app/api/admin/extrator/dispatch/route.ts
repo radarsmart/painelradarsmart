@@ -65,6 +65,7 @@ export async function POST(req: NextRequest) {
       product_url?: unknown;
       affiliate_url?: unknown;
       marketplace?: unknown;
+      slot_type?: unknown;
       raw_data?: unknown;
       copy_text?: unknown;
       score?: unknown;
@@ -84,6 +85,7 @@ export async function POST(req: NextRequest) {
     const imageUrl = toText(body.image_url);
     const copyText = toText(body.copy_text);
     const channels = normalizeChannels(body.channels);
+    const slotType = toText(body.slot_type);
 
     if (!marketplace) {
       return NextResponse.json(
@@ -145,6 +147,7 @@ export async function POST(req: NextRequest) {
       discount_pct: discountPct,
       discount_percent: discountPct,
       external_offer_id: externalOfferId,
+      slot_type: slotType || null,
       status: "active",
       curations_status: "approved",
       source: "manual_sniper",

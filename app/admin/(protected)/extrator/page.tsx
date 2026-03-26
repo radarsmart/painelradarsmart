@@ -24,6 +24,8 @@ type UnsupportedMarketplace = "shopee";
 type RouteMarketplace = SupportedMarketplace | UnsupportedMarketplace | null;
 type DispatchAction = "telegram" | "whatsapp" | "site";
 
+type SlotType = "flash" | "best" | "hero" | "comparator";
+
 type ExtractPreview = {
   title: string;
   price: number;
@@ -153,7 +155,7 @@ function detectMarketplace(url: string): RouteMarketplace {
 }
 
 function buildAffiliateUrl(url: string, marketplace: SupportedMarketplace) {
-  const normalizedUrl = sanitizeMarketplaceUrl(url, marketplace, { fallbackUrl: url });
+  const normalizedUrl = sanitizeMarketplaceUrl(url, marketplace, { fallbackUrl: url, amazonTag: null });
 
   if (marketplace === "mercadolivre") {
     return normalizeMercadoLivreAffiliateUrl(normalizedUrl);
@@ -327,6 +329,8 @@ export default function ExtratorManualPage() {
   const [preview, setPreview] = useState<ExtractPreview | null>(null);
   const [feedback, setFeedback] = useState<Feedback | null>(null);
   const [priceAlert, setPriceAlert] = useState<PriceAlert | null>(null);
+  const [showSlotModal, setShowSlotModal] = useState(false);
+  const [selectedSlotType, setSelectedSlotType] = useState<SlotType | null>(null);
 
   const canDispatch = Boolean(
     preview && preview.title && preview.price > 0 && preview.product_url && preview.affiliate_url,
@@ -476,7 +480,7 @@ export default function ExtratorManualPage() {
     }
   };
 
-  const handleDispatch = async (action: DispatchAction) => {
+  const handleDispatch = async (action: DispatchAction, slotType?: SlotType) => {
     if (!preview || !canDispatch) {
       setFeedback({
         type: "error",
@@ -504,6 +508,7 @@ export default function ExtratorManualPage() {
           product_url: preview.product_url,
           affiliate_url: preview.affiliate_url,
           marketplace: preview.marketplace,
+          slot_type: slotType,
           raw_data: {
             ...preview.raw_data,
             coupon_code: preview.coupon_code || null,
@@ -854,7 +859,7 @@ export default function ExtratorManualPage() {
 
               <button
                 type="button"
-                onClick={() => handleDispatch("site")}
+                onClick={() => setShowSlotModal(true)}
                 disabled={!canDispatch || dispatching !== null}
                 className="flex w-full items-center justify-center gap-3 rounded-2xl bg-white py-4 font-bold text-black transition-all hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50"
               >
@@ -893,6 +898,78 @@ export default function ExtratorManualPage() {
             </div>
           ) : null}
         </div>
+
+        {showSlotModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+            <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-xl">
+              <h3 className="mb-4 text-lg font-bold text-gray-900">Escolha o bloco de destino</h3>
+              <div className="space-y-3">
+                <button
+                  onClick={() => {
+                    setSelectedSlotType("flash");
+                    setShowSlotModal(false);
+                    handleDispatch("site", "flash");
+                  }}
+                  className="flex w-full items-center gap-3 rounded-2xl bg-orange-100 p-4 text-left hover:bg-orange-200"
+                >
+                  <span className="text-2xl">🔥</span>
+                  <div>
+                    <p className="font-semibold text-orange-900">Oferta Relâmpago</p>
+                    <p className="text-sm text-orange-700">flash</p>
+                  </div>
+                </button>
+                <button
+                  onClick={() => {
+                    setSelectedSlotType("best");
+                    setShowSlotModal(false);
+                    handleDispatch("site", "best");
+                  }}
+                  className="flex w-full items-center gap-3 rounded-2xl bg-blue-100 p-4 text-left hover:bg-blue-200"
+                >
+                  <span className="text-2xl">⭐</span>
+                  <div>
+                    <p className="font-semibold text-blue-900">Melhores Ofertas</p>
+                    <p className="text-sm text-blue-700">best</p>
+                  </div>
+                </button>
+                <button
+                  onClick={() => {
+                    setSelectedSlotType("hero");
+                    setShowSlotModal(false);
+                    handleDispatch("site", "hero");
+                  }}
+                  className="flex w-full items-center gap-3 rounded-2xl bg-purple-100 p-4 text-left hover:bg-purple-200"
+                >
+                  <span className="text-2xl">🏆</span>
+                  <div>
+                    <p className="font-semibold text-purple-900">Destaque Hero</p>
+                    <p className="text-sm text-purple-700">hero</p>
+                  </div>
+                </button>
+                <button
+                  onClick={() => {
+                    setSelectedSlotType("comparator");
+                    setShowSlotModal(false);
+                    handleDispatch("site", "comparator");
+                  }}
+                  className="flex w-full items-center gap-3 rounded-2xl bg-green-100 p-4 text-left hover:bg-green-200"
+                >
+                  <span className="text-2xl">📊</span>
+                  <div>
+                    <p className="font-semibold text-green-900">Comparador</p>
+                    <p className="text-sm text-green-700">comparator</p>
+                  </div>
+                </button>
+              </div>
+              <button
+                onClick={() => setShowSlotModal(false)}
+                className="mt-4 w-full rounded-2xl bg-gray-100 py-3 font-semibold text-gray-700 hover:bg-gray-200"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

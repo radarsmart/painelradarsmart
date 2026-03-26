@@ -1,10 +1,19 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
+import { requireAdmin } from "@/lib/admin-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
+  const adminGuard = await requireAdmin(req);
+  if (!adminGuard.ok) {
+    return NextResponse.json(
+      { error: adminGuard.error },
+      { status: adminGuard.status },
+    );
+  }
+
   try {
     let mode: "older_than_today" | "all" = "older_than_today";
     try {

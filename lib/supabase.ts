@@ -1,4 +1,7 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { checkEnvVars } from "@/lib/env-check";
+
+checkEnvVars();
 
 const supabaseUrl =
   cleanEnv(process.env.SUPABASE_URL) ||

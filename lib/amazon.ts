@@ -161,7 +161,7 @@ function extractAmazonAsinFromPath(pathname: string): string | null {
 
 export function sanitizeAmazonUrl(
   rawUrl?: string | null,
-  tag = DEFAULT_AMAZON_TAG,
+  tag: string | null = DEFAULT_AMAZON_TAG,
 ): string {
   const absolute = ensureAbsoluteUrl(rawUrl);
   if (!absolute) return "";
@@ -176,26 +176,26 @@ export function sanitizeAmazonUrl(
       const asin = extractAmazonAsinFromPath(parsed.pathname);
       if (asin) {
         const clean = new URL(`https://www.amazon.com.br/dp/${asin}`);
-        clean.searchParams.set("tag", tag || DEFAULT_AMAZON_TAG);
+        if (tag) clean.searchParams.set("tag", tag);
         return clean.toString();
       }
-      parsed.searchParams.set("tag", tag || DEFAULT_AMAZON_TAG);
+      if (tag) parsed.searchParams.set("tag", tag);
       return parsed.toString();
     }
 
     if (!host.includes("amazon.")) {
-      parsed.searchParams.set("tag", tag || DEFAULT_AMAZON_TAG);
+      if (tag) parsed.searchParams.set("tag", tag);
       return parsed.toString();
     }
 
     const asin = extractAmazonAsinFromPath(parsed.pathname);
     if (asin) {
       const clean = new URL(`https://www.amazon.com.br/dp/${asin}`);
-      clean.searchParams.set("tag", tag || DEFAULT_AMAZON_TAG);
+      if (tag) clean.searchParams.set("tag", tag);
       return clean.toString();
     }
 
-    parsed.searchParams.set("tag", tag || DEFAULT_AMAZON_TAG);
+    if (tag) parsed.searchParams.set("tag", tag);
     return parsed.toString();
   } catch {
     return absolute;

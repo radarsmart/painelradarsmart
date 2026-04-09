@@ -593,9 +593,9 @@ export default async function CuradoriaGeralPage({
                   </button>
                 </form>
 
-                {offer.product_url && (
+                {(toText(offer.product_url) || toText(offer.affiliate_url)) && (
                   <a
-                    href={toText(offer.product_url)}
+                    href={toText(offer.product_url) || toText(offer.affiliate_url)}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="block w-full rounded-xl bg-yellow-400 py-3 text-center text-sm font-bold text-yellow-900 transition-colors hover:bg-yellow-500"

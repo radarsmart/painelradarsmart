@@ -2,22 +2,31 @@ import Link from "next/link";
 import { revalidatePath } from "next/cache";
 import CuradoriaCopyButton from "@/components/admin/CuradoriaCopyButton";
 import StoryGeneratorButton from "@/components/admin/StoryGeneratorButton";
+import { dispatchLegacyOffer } from "@/lib/distribution/legacy-dispatch";
 import { supabaseAdmin } from "@/lib/supabase";
 import { formatBRL } from "@/lib/formatters";
 
 export const dynamic = "force-dynamic";
 
-type OfferSlot = "hero" | "flash" | "best" | "comparator";
+type OfferSlot = "flash" | "best" | "comparator";
+type MarketplaceFilter = "all" | "amazon" | "mercadolivre" | "shopee" | "awin";
 
 type OfferRow = {
   id: string;
   title: string | null;
+  marketplace: string | null;
   image_url: string | null;
+  affiliate_url?: string | null;
+  product_url?: string | null;
   price: number | string | null;
   old_price: number | string | null;
   click_count: number | null;
+  clicks_count?: number | null;
+  cliques?: number | null;
+  clicks?: number | null;
   slot_type: OfferSlot | null;
   status: string | null;
+  updated_at?: string | null;
 };
 
 type HealthRow = {
@@ -40,6 +49,77 @@ type OffersQueryResult = {
   supportsClicks: boolean;
 };
 
+function pickFirstText(
+  offer: Record<string, unknown>,
+  keys: string[],
+): string | null {
+  for (const key of keys) {
+    const value = toText(offer[key]);
+    if (value) return value;
+  }
+  return null;
+}
+
+function pickFirstNumber(
+  offer: Record<string, unknown>,
+  keys: string[],
+): number | null {
+  for (const key of keys) {
+    const raw = offer[key];
+    const parsed = Number(raw);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+}
+
+function normalizeMarketplaceFilter(value: string | string[] | undefined): MarketplaceFilter {
+  const normalized = String(Array.isArray(value) ? value[0] : value ?? "all")
+    .trim()
+    .toLowerCase();
+  if (normalized === "amazon") return "amazon";
+  if (normalized === "mercadolivre") return "mercadolivre";
+  if (normalized === "shopee") return "shopee";
+  if (normalized === "awin") return "awin";
+  return "all";
+}
+
+function matchesMarketplaceFilter(
+  marketplace: string | null | undefined,
+  filter: MarketplaceFilter,
+) {
+  if (filter === "all") return true;
+  const value = toText(marketplace).toLowerCase();
+  if (filter === "mercadolivre") return value.includes("mercado");
+  return value.includes(filter);
+}
+
+function marketplaceFilterOptions() {
+  return [
+    { value: "all", label: "Todos" },
+    { value: "amazon", label: "Amazon" },
+    { value: "mercadolivre", label: "Mercado Livre" },
+    { value: "shopee", label: "Shopee" },
+    { value: "awin", label: "AWIN" },
+  ] as const;
+}
+
+function getMarketplaceBadge(marketplace: string | null) {
+  const value = toText(marketplace).toLowerCase();
+  if (value.includes("amazon")) {
+    return { label: "🟠 Amazon", className: "bg-orange-50 text-orange-700" };
+  }
+  if (value.includes("mercado")) {
+    return { label: "🟡 ML", className: "bg-yellow-50 text-yellow-700" };
+  }
+  if (value.includes("shopee")) {
+    return { label: "🔴 Shopee", className: "bg-red-50 text-red-700" };
+  }
+  if (value.includes("awin")) {
+    return { label: "🟣 AWIN", className: "bg-violet-50 text-violet-700" };
+  }
+  return { label: marketplace || "Marketplace", className: "bg-slate-100 text-slate-700" };
+}
+
 function toText(value: unknown): string {
   return String(value ?? "").trim();
 }
@@ -47,6 +127,35 @@ function toText(value: unknown): string {
 function toNumber(value: unknown): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function formatSyncTime(value?: string | null): string {
+  if (!value) return "Nunca";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "Nunca";
+  return new Intl.DateTimeFormat("pt-BR", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    day: "2-digit",
+    month: "2-digit",
+  }).format(parsed);
+}
+
+function computeDiscountPct(price: unknown, oldPrice: unknown): number {
+  const current = toNumber(price);
+  const previous = toNumber(oldPrice);
+  if (current <= 0 || previous <= current) return 0;
+  return Math.round(((previous - current) / previous) * 100);
+}
+
+function resolveClicks(offer: OfferRow): number {
+  return (
+    toNumber(offer.click_count) ||
+    toNumber(offer.clicks_count) ||
+    toNumber(offer.cliques) ||
+    toNumber(offer.clicks)
+  );
 }
 
 function isArchivedOffer(row: HealthRow): boolean {
@@ -58,9 +167,6 @@ function isBrokenOffer(row: HealthRow): boolean {
 }
 
 function getSlotBadge(slot: string | null) {
-  if (slot === "hero") {
-    return "bg-purple-600 text-white";
-  }
   if (slot === "flash") {
     return "bg-orange-500 text-white";
   }
@@ -71,81 +177,79 @@ function getSlotBadge(slot: string | null) {
 }
 
 function getNextSlot(slot: string | null): OfferSlot {
-  if (slot === "hero") return "flash";
   if (slot === "flash") return "best";
   if (slot === "best") return "comparator";
-  return "hero";
-}
-
-function hasMissingColumnError(error: { message?: string | null } | null, column: string): boolean {
-  const message = toText(error?.message).toLowerCase();
-  return message.includes(column.toLowerCase());
+  return "flash";
 }
 
 async function fetchCuradoriaOffers(): Promise<OffersQueryResult> {
-  const primaryResponse = await supabaseAdmin
-    .from("offers")
-    .select("id,title,image_url,price,old_price,click_count,slot_type,status")
-    .order("click_count", { ascending: false })
-    .limit(50);
+  const queryPlans = [
+    { orderBy: "updated_at" },
+    { orderBy: "created_at" },
+    { orderBy: null },
+  ] as const;
 
-  if (!primaryResponse.error) {
+  let lastError: { message?: string | null } | null = null;
+
+  for (const plan of queryPlans) {
+    let query = supabaseAdmin.from("offers").select("*").limit(50);
+    if (plan.orderBy) {
+      query = query.order(plan.orderBy, { ascending: false });
+    }
+
+    const response = await query;
+    if (response.error) {
+      lastError = response.error;
+      continue;
+    }
+
+    const rows = (response.data ?? []) as Array<Record<string, unknown>>;
+    const normalized = rows.map(
+      (offer) =>
+        ({
+          id: toText(offer.id),
+          title: pickFirstText(offer, ["title", "titulo", "name"]),
+          marketplace: pickFirstText(offer, ["marketplace", "store", "loja"]),
+          image_url: pickFirstText(offer, ["image_url", "image", "thumbnail", "cover"]),
+          affiliate_url: pickFirstText(offer, ["affiliate_url"]),
+          product_url: pickFirstText(offer, ["product_url"]),
+          price: pickFirstNumber(offer, ["price", "final_price", "preco", "preco_atual"]),
+          old_price: pickFirstNumber(offer, [
+            "old_price",
+            "original_price",
+            "price_old",
+            "preco_original",
+          ]),
+          click_count: pickFirstNumber(offer, ["click_count", "clicks_count", "cliques", "clicks"]),
+          clicks_count: pickFirstNumber(offer, ["clicks_count"]),
+          cliques: pickFirstNumber(offer, ["cliques"]),
+          clicks: pickFirstNumber(offer, ["clicks"]),
+          slot_type:
+            (pickFirstText(offer, ["slot_type"]) as OfferSlot | null) ?? null,
+          status: pickFirstText(offer, ["status", "curations_status"]),
+          updated_at: pickFirstText(offer, ["updated_at", "created_at"]),
+        }) as OfferRow,
+    );
+
     return {
-      data: ((primaryResponse.data ?? []) as OfferRow[]) ?? [],
+      data: normalized.filter((offer) => Boolean(offer.id)),
       error: null,
-      supportsSlots: true,
-      supportsClicks: true,
+      supportsSlots: rows.some((offer) => "slot_type" in offer),
+      supportsClicks: rows.some(
+        (offer) =>
+          "click_count" in offer ||
+          "clicks_count" in offer ||
+          "cliques" in offer ||
+          "clicks" in offer,
+      ),
     };
   }
-
-  const supportsClicks = !hasMissingColumnError(primaryResponse.error, "click_count");
-  const supportsSlots = !hasMissingColumnError(primaryResponse.error, "slot_type");
-
-  const fallbackColumns = ["id", "title", "image_url", "price", "old_price", "status"];
-  if (supportsClicks) fallbackColumns.push("click_count");
-  if (supportsSlots) fallbackColumns.push("slot_type");
-
-  let fallbackQuery = supabaseAdmin
-    .from("offers")
-    .select(fallbackColumns.join(","))
-    .limit(50);
-
-  if (supportsClicks) {
-    fallbackQuery = fallbackQuery.order("click_count", { ascending: false });
-  } else {
-    fallbackQuery = fallbackQuery.order("created_at", { ascending: false });
-  }
-
-  const fallbackResponse = await fallbackQuery;
-  if (fallbackResponse.error) {
-    return {
-      data: [],
-      error: fallbackResponse.error,
-      supportsSlots,
-      supportsClicks,
-    };
-  }
-
-  const rows = (fallbackResponse.data ?? []) as unknown as Array<Record<string, unknown>>;
-  const normalized = rows.map(
-    (offer) =>
-      ({
-        id: toText(offer.id),
-        title: toText(offer.title) || null,
-        image_url: toText(offer.image_url) || null,
-        price: offer.price ?? null,
-        old_price: offer.old_price ?? null,
-        click_count: supportsClicks ? toNumber(offer.click_count) : null,
-        slot_type: supportsSlots ? (toText(offer.slot_type) as OfferSlot | "") || null : null,
-        status: toText(offer.status) || null,
-      }) as OfferRow,
-  );
 
   return {
-    data: normalized,
-    error: null,
-    supportsSlots,
-    supportsClicks,
+    data: [],
+    error: lastError,
+    supportsSlots: false,
+    supportsClicks: false,
   };
 }
 
@@ -204,6 +308,24 @@ async function rotateOfferSlot(formData: FormData) {
   revalidatePath("/admin/curadoria");
 }
 
+async function sendOfferToTelegram(formData: FormData) {
+  "use server";
+
+  const offerId = toText(formData.get("id"));
+  const affiliateUrl = toText(formData.get("affiliate_url"));
+
+  if (!offerId) return;
+
+  await dispatchLegacyOffer({
+    offerId,
+    affiliateUrl: affiliateUrl || undefined,
+    channels: ["telegram"],
+    allowRequeueSameDay: false,
+  });
+
+  revalidatePath("/admin/curadoria");
+}
+
 function HealthDashboard({ stats }: { stats: HealthStats }) {
   return (
     <div className="mb-8 grid grid-cols-1 gap-4 md:grid-cols-3">
@@ -213,7 +335,7 @@ function HealthDashboard({ stats }: { stats: HealthStats }) {
         </span>
         <div className="flex items-end gap-2">
           <span className="text-3xl font-black text-blue-600">{stats.active}</span>
-          <span className="mb-1 text-xs font-bold text-green-500">↑ Saudavel</span>
+          <span className="mb-1 text-xs font-bold text-green-500">↑ Saudável</span>
         </div>
       </div>
 
@@ -223,7 +345,7 @@ function HealthDashboard({ stats }: { stats: HealthStats }) {
         </span>
         <div className="flex items-end gap-2">
           <span className="text-3xl font-black text-orange-500">{stats.cleaned}</span>
-          <span className="mb-1 text-xs font-medium text-gray-400">Automatico</span>
+          <span className="mb-1 text-xs font-medium text-gray-400">Automático</span>
         </div>
       </div>
 
@@ -240,7 +362,12 @@ function HealthDashboard({ stats }: { stats: HealthStats }) {
   );
 }
 
-export default async function CuradoriaGeralPage() {
+export default async function CuradoriaGeralPage({
+  searchParams,
+}: {
+  searchParams?: { marketplace?: string | string[] };
+}) {
+  const selectedMarketplace = normalizeMarketplaceFilter(searchParams?.marketplace);
   const last24Hours = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   const [
     offersResponse,
@@ -256,10 +383,19 @@ export default async function CuradoriaGeralPage() {
   ]);
 
   if (offersResponse.error) {
-    return <div className="p-10 text-red-500">Erro ao carregar o banco de dados.</div>;
+    return (
+      <div className="p-10 text-red-500">
+        Erro ao carregar o banco de dados.
+        <div className="mt-2 text-sm text-red-400">
+          {offersResponse.error.message || "Falha desconhecida na leitura da tabela offers."}
+        </div>
+      </div>
+    );
   }
 
-  const safeOffers = offersResponse.data ?? [];
+  const safeOffers = (offersResponse.data ?? []).filter((offer) =>
+    matchesMarketplaceFilter((offer as OfferRow).marketplace ?? null, selectedMarketplace),
+  );
   const safeHealthRows = recentHealthRows ?? [];
   const cleanedCount = safeHealthRows.filter((row) => isArchivedOffer(row)).length;
   const brokenCount = safeHealthRows.filter(
@@ -273,6 +409,11 @@ export default async function CuradoriaGeralPage() {
     cleaned: cleanedCount,
     broken: brokenCount,
   };
+  const panelSyncedAt = new Date().toISOString();
+  const latestOfferUpdatedAt =
+    safeOffers
+      .map((offer) => toText(offer.updated_at))
+      .find(Boolean) || null;
 
   return (
     <div className="min-h-screen bg-gray-50 p-8">
@@ -282,7 +423,7 @@ export default async function CuradoriaGeralPage() {
             Curadoria Radar Smart 🛰️
           </h1>
           <p className="text-gray-500">
-            Gere o inventario e a distribuicao de ofertas no teu ecossistema.
+            Gere o inventário e a distribuição de ofertas no seu ecossistema.
           </p>
         </div>
 
@@ -290,7 +431,36 @@ export default async function CuradoriaGeralPage() {
           <span className="rounded-full bg-green-100 px-4 py-2 text-sm font-bold text-green-700">
             {activeCount} Ofertas Ativas
           </span>
+          <span className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600">
+            Última atualização: {formatSyncTime(panelSyncedAt)}
+          </span>
+          <span className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600">
+            Última oferta lida: {formatSyncTime(latestOfferUpdatedAt)}
+          </span>
         </div>
+      </div>
+
+      <div className="mb-6 flex flex-wrap items-center gap-2">
+        {marketplaceFilterOptions().map((option) => {
+          const active = selectedMarketplace === option.value;
+          const href =
+            option.value === "all"
+              ? "/admin/curadoria"
+              : `/admin/curadoria?marketplace=${encodeURIComponent(option.value)}`;
+          return (
+            <Link
+              key={option.value}
+              href={href}
+              className={`rounded-full px-4 py-2 text-sm font-semibold transition-all ${
+                active
+                  ? "bg-[#22223B] text-white"
+                  : "border border-slate-200 bg-white text-slate-600 hover:border-[#9E6A18] hover:text-[#9E6A18]"
+              }`}
+            >
+              {option.label}
+            </Link>
+          );
+        })}
       </div>
 
       <HealthDashboard stats={stats} />
@@ -301,7 +471,8 @@ export default async function CuradoriaGeralPage() {
             ? toText(offer.slot_type) || "best"
             : "best";
           const isActive = toText(offer.status) !== "inactive";
-          const clickCount = offersResponse.supportsClicks ? toNumber(offer.click_count) : 0;
+          const clickCount = offersResponse.supportsClicks ? resolveClicks(offer) : 0;
+          const discountPct = computeDiscountPct(offer.price, offer.old_price);
 
           return (
             <div
@@ -324,8 +495,16 @@ export default async function CuradoriaGeralPage() {
                 </div>
               </div>
 
+              <div className="mb-3">
+                <span
+                  className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${getMarketplaceBadge((offer as OfferRow).marketplace ?? null).className}`}
+                >
+                  {getMarketplaceBadge((offer as OfferRow).marketplace ?? null).label}
+                </span>
+              </div>
+
               <h3 className="mb-3 h-10 line-clamp-2 text-sm font-bold text-gray-800 transition-colors group-hover:text-blue-600">
-                {offer.title || "Oferta sem titulo"}
+                {offer.title || "Oferta sem título"}
               </h3>
 
               <div className="mb-4 flex items-center justify-between rounded-2xl bg-gray-50 p-3">
@@ -335,6 +514,9 @@ export default async function CuradoriaGeralPage() {
                   </span>
                   <span className="text-lg font-black text-green-600">
                     {formatBRL(toNumber(offer.price))}
+                  </span>
+                  <span className="mt-1 text-[11px] font-semibold text-[#9E6A18]">
+                    {discountPct > 0 ? `${discountPct}% OFF` : "Sem desconto detectado"}
                   </span>
                 </div>
 
@@ -396,6 +578,32 @@ export default async function CuradoriaGeralPage() {
                   price={toNumber(offer.price)}
                 />
 
+                <form action={sendOfferToTelegram}>
+                  <input type="hidden" name="id" value={offer.id} />
+                  <input
+                    type="hidden"
+                    name="affiliate_url"
+                    value={toText(offer.affiliate_url) || toText(offer.product_url)}
+                  />
+                  <button
+                    type="submit"
+                    className="w-full rounded-xl bg-sky-500 py-3 text-center text-sm font-bold text-white transition-colors hover:bg-sky-600"
+                  >
+                    Enviar para Telegram
+                  </button>
+                </form>
+
+                {offer.product_url && (
+                  <a
+                    href={toText(offer.product_url)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block w-full rounded-xl bg-yellow-400 py-3 text-center text-sm font-bold text-yellow-900 transition-colors hover:bg-yellow-500"
+                  >
+                    🔗 Gerar Link Afiliado ML
+                  </a>
+                )}
+
                 <StoryGeneratorButton
                   title={offer.title || "Oferta Radar Smart"}
                   imageUrl={offer.image_url}
@@ -410,3 +618,6 @@ export default async function CuradoriaGeralPage() {
     </div>
   );
 }
+
+
+

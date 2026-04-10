@@ -1,0 +1,993 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Apostila Radar Smart - Painel Administrativo</title>
+    <style>
+      :root {
+        --bg: #f5f1ed;
+        --paper: #ffffff;
+        --ink: #151515;
+        --muted: #5f6772;
+        --line: #d9dde4;
+        --gold: #ffc300;
+        --gold-dark: #9e6a18;
+        --navy: #1a1a1a;
+      }
+      * { box-sizing: border-box; }
+      html, body {
+        margin: 0;
+        padding: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: Arial, Helvetica, sans-serif;
+        line-height: 1.55;
+      }
+      body { padding: 24px; }
+      .page {
+        max-width: 980px;
+        margin: 0 auto 28px;
+        background: var(--paper);
+        border: 1px solid var(--line);
+        border-radius: 20px;
+        overflow: hidden;
+        box-shadow: 0 18px 48px rgba(15, 23, 42, 0.08);
+      }
+      .page-inner { padding: 40px 44px; }
+      .cover {
+        background: linear-gradient(135deg, #111111, #1f2937 58%, #2c1900);
+        color: #ffffff;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        margin-bottom: 30px;
+      }
+      .brand-mark {
+        width: 48px;
+        height: 48px;
+        border-radius: 14px;
+        background: var(--gold);
+        color: #000000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 28px;
+        font-weight: 700;
+      }
+      .brand-name {
+        font-size: 28px;
+        font-weight: 800;
+        letter-spacing: -0.03em;
+      }
+      .brand-name span { color: var(--gold); }
+      h1, h2, h3, h4 {
+        margin: 0 0 12px;
+        line-height: 1.15;
+        letter-spacing: -0.02em;
+      }
+      h1 { font-size: 36px; }
+      h2 { font-size: 28px; margin-top: 18px; }
+      h3 { font-size: 22px; margin-top: 18px; }
+      h4 { font-size: 18px; margin-top: 16px; }
+      p { margin: 0 0 12px; }
+      .lead {
+        font-size: 18px;
+        color: #e5e7eb;
+        max-width: 780px;
+      }
+      .meta-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 14px;
+        margin-top: 36px;
+      }
+      .meta-card {
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        border-radius: 16px;
+        padding: 16px;
+        background: rgba(255, 255, 255, 0.04);
+      }
+      .meta-card strong {
+        display: block;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.18em;
+        opacity: 0.72;
+        margin-bottom: 8px;
+      }
+      .toc { columns: 2; column-gap: 36px; }
+      .toc ol { margin: 0; padding-left: 18px; }
+      .toc li { margin: 0 0 8px; }
+      .section-note, .warning, .success, .info {
+        border-radius: 14px;
+        padding: 14px 16px;
+        margin: 16px 0;
+      }
+      .section-note { background: #fff7df; border: 1px solid #f8d477; }
+      .warning { background: #fff1f1; border: 1px solid #ffb4b4; }
+      .success { background: #ecfff3; border: 1px solid #8dd9a6; }
+      .info { background: #eef5ff; border: 1px solid #b3cdfd; }
+      .grid-2, .grid-3 { display: grid; gap: 16px; }
+      .grid-2 { grid-template-columns: repeat(2, 1fr); }
+      .grid-3 { grid-template-columns: repeat(3, 1fr); }
+      .card {
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        padding: 18px;
+        background: #fcfcfd;
+      }
+      ul, ol { margin: 0 0 14px; padding-left: 22px; }
+      li { margin: 0 0 8px; }
+      .tag {
+        display: inline-block;
+        padding: 6px 10px;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        margin: 0 8px 8px 0;
+      }
+      .tag.op { background: #fff4c7; color: #7a4d00; }
+      .tag.hub { background: #edf3ff; color: #1858d8; }
+      .tag.seo { background: #eefaf3; color: #0b6b39; }
+      .tag.tool { background: #f4efff; color: #5f2cb7; }
+      .module-title {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 18px;
+        padding-bottom: 12px;
+        margin-bottom: 18px;
+        border-bottom: 1px solid var(--line);
+      }
+      .path {
+        font-family: "Courier New", Courier, monospace;
+        font-size: 13px;
+        color: var(--muted);
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 16px 0;
+        font-size: 14px;
+      }
+      th, td {
+        border: 1px solid var(--line);
+        padding: 10px 12px;
+        text-align: left;
+        vertical-align: top;
+      }
+      th { background: #f8fafc; }
+      .footer-note {
+        color: var(--muted);
+        font-size: 12px;
+        margin-top: 24px;
+      }
+      .pill-row { margin: 12px 0; }
+      .pill {
+        display: inline-block;
+        border-radius: 999px;
+        padding: 5px 9px;
+        margin: 0 8px 8px 0;
+        font-size: 12px;
+        font-weight: 700;
+      }
+      .pill.green { background: #e8fff0; color: #146c43; }
+      .pill.blue { background: #edf4ff; color: #1247b9; }
+      .pill.orange { background: #fff3e8; color: #9a4900; }
+      .pill.red { background: #fff1f2; color: #b42318; }
+      .page-break { page-break-before: always; }
+      @media print {
+        body { background: #ffffff; padding: 0; }
+        .page {
+          box-shadow: none;
+          border: none;
+          border-radius: 0;
+          margin: 0;
+          max-width: none;
+          page-break-after: always;
+        }
+        .page:last-child { page-break-after: auto; }
+        .page-inner { padding: 28px 30px; }
+      }
+    </style>
+  </head>
+  <body>
+    <section class="page cover">
+      <div class="page-inner">
+        <div class="brand">
+          <div class="brand-mark">⚡</div>
+          <div class="brand-name">RADAR <span>SMART</span></div>
+        </div>
+        <h1>Apostila do Painel Administrativo</h1>
+        <p class="lead">
+          Manual operacional completo do projeto Radar Smart, com passo a passo detalhado de cada modulo do painel administrativo,
+          fluxos de curadoria, publicacao, distribuicao e automacao.
+        </p>
+        <div class="meta-grid">
+          <div class="meta-card">
+            <strong>Projeto</strong>
+            Radar Smart
+          </div>
+          <div class="meta-card">
+            <strong>Escopo</strong>
+            Painel Admin e operacao diaria
+          </div>
+          <div class="meta-card">
+            <strong>Data</strong>
+            09/04/2026
+          </div>
+        </div>
+        <p class="footer-note">
+          Documento tecnico-operacional criado para treinar o uso do painel, padronizar a operacao e reduzir erros no fluxo de ofertas,
+          hubs, canais e landing pages.
+        </p>
+      </div>
+    </section>
+
+    <section class="page">
+      <div class="page-inner">
+        <h2>Como usar esta apostila</h2>
+        <div class="info">
+          <strong>Objetivo:</strong> este material explica o que cada tela do admin faz, em que ordem usar cada modulo e quais cuidados
+          tomar para nao travar a operacao nem publicar oferta errada no site ou nos canais.
+        </div>
+        <div class="grid-2">
+          <div class="card">
+            <h4>Perfil indicado</h4>
+            <ul>
+              <li>Administrador operacional do Radar Smart</li>
+              <li>Equipe de curadoria e publicacao de ofertas</li>
+              <li>Responsavel por hubs afiliados e distribuicao</li>
+              <li>Responsavel por landing pages e campanhas pagas</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h4>Leitura recomendada</h4>
+            <ol>
+              <li>Fluxo geral de operacao</li>
+              <li>Central de Oferta</li>
+              <li>Curadoria Geral</li>
+              <li>Ofertas Publicadas</li>
+              <li>Painel de Envios</li>
+              <li>Marketplace Hubs</li>
+              <li>Landing Pages</li>
+            </ol>
+          </div>
+        </div>
+        <h2>Sumario</h2>
+        <div class="toc">
+          <ol>
+            <li>Visao geral do painel administrativo</li>
+            <li>Fluxo operacional do Radar Smart</li>
+            <li>Dashboard</li>
+            <li>Curadoria Geral</li>
+            <li>Central de Oferta</li>
+            <li>Ofertas Publicadas</li>
+            <li>Painel de Envios</li>
+            <li>Landing Pages</li>
+            <li>Mercado Livre Hub</li>
+            <li>Shopee Hub</li>
+            <li>Lomadee</li>
+            <li>AWIN</li>
+            <li>AWIN Analytics</li>
+            <li>Hub AWIN</li>
+            <li>Automacao AWIN</li>
+            <li>Amazon Hub</li>
+            <li>Tendencias (IA)</li>
+            <li>Produtos & SEO</li>
+            <li>Blog & Reviews</li>
+            <li>Infoprodutos</li>
+            <li>Canais</li>
+            <li>Configuracoes</li>
+            <li>Rotina diaria recomendada</li>
+            <li>Erros comuns e como agir</li>
+            <li>Checklist antes de divulgar o site</li>
+          </ol>
+        </div>
+      </div>
+    </section>
+
+    <section class="page">
+      <div class="page-inner">
+        <h2>1. Visao geral do painel administrativo</h2>
+        <p>
+          O painel administrativo do Radar Smart esta organizado em quatro grupos principais: <strong>Operacao</strong>,
+          <strong>Marketplace Hubs</strong>, <strong>Inteligencia &amp; SEO</strong> e <strong>Ferramentas</strong>.
+        </p>
+        <div class="pill-row">
+          <span class="tag op">Operacao</span>
+          <span class="tag hub">Marketplace Hubs</span>
+          <span class="tag seo">Inteligencia &amp; SEO</span>
+          <span class="tag tool">Ferramentas</span>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>Grupo</th>
+              <th>Objetivo</th>
+              <th>Modulos principais</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Operacao</td>
+              <td>Controlar curadoria, criacao, publicacao e distribuicao de ofertas.</td>
+              <td>Dashboard, Curadoria Geral, Central de Oferta, Ofertas Publicadas, Painel de Envios, Landing Pages</td>
+            </tr>
+            <tr>
+              <td>Marketplace Hubs</td>
+              <td>Pesquisar produtos por marketplace, salvar links afiliados e enviar para site ou canais.</td>
+              <td>Mercado Livre, Shopee, Lomadee, AWIN, AWIN Analytics, Hub AWIN, Automacao AWIN, Amazon Hub</td>
+            </tr>
+            <tr>
+              <td>Inteligencia &amp; SEO</td>
+              <td>Planejamento editorial, conteudo, SEO e visao analitica.</td>
+              <td>Tendencias (IA), Produtos &amp; SEO, Blog &amp; Reviews, Infoprodutos</td>
+            </tr>
+            <tr>
+              <td>Ferramentas</td>
+              <td>Infraestrutura operacional de canais e programas afiliados.</td>
+              <td>Canais, Configuracoes</td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="warning">
+          <strong>Ponto critico:</strong> o admin altera estado real de ofertas, filas, landing pages, links afiliados e automacoes.
+        </div>
+        <h2>2. Fluxo operacional do Radar Smart</h2>
+        <ol>
+          <li>Encontrar produto via hub ou Central de Oferta</li>
+          <li>Garantir que existe link afiliado valido</li>
+          <li>Gerar preview e copy</li>
+          <li>Definir destino: Site, Telegram, WhatsApp ou combinacao</li>
+          <li>Se for site, passar por Curadoria Geral ou aprovacao editorial</li>
+          <li>Conferir a oferta em Ofertas Publicadas</li>
+          <li>Validar fila em Painel de Envios quando houver distribuicao para canais</li>
+          <li>Se a campanha for paga, criar ou vincular uma Landing Page</li>
+        </ol>
+        <div class="success">
+          <strong>Regra operacional:</strong> nenhuma oferta deve ir para o site sem link afiliado valido.
+        </div>
+      </div>
+    </section>
+
+    <section class="page">
+      <div class="page-inner">
+        <div class="module-title">
+          <div>
+            <h2>3. Dashboard</h2>
+            <div class="path">/admin</div>
+          </div>
+          <span class="tag op">Operacao</span>
+        </div>
+        <p>
+          O Dashboard e o centro de monitoramento do projeto. Ele serve para visualizar o estado geral da operacao, gargalos de publicacao,
+          cards de KPI e atalhos para monitoramento do dia.
+        </p>
+        <div class="grid-2">
+          <div class="card">
+            <h4>Quando usar</h4>
+            <ul>
+              <li>No inicio do dia para checar saude operacional</li>
+              <li>Antes de publicar ofertas em lote</li>
+              <li>Depois de sincronizacoes ou atualizacao de preco</li>
+              <li>Para validar se o site esta recebendo o volume esperado</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h4>O que observar</h4>
+            <ul>
+              <li>Volume de ofertas publicadas</li>
+              <li>Fila e falhas de distribuicao</li>
+              <li>Sugestoes de momentum e trafego</li>
+              <li>Ofertas mais recentes ou com risco de stale price</li>
+            </ul>
+          </div>
+        </div>
+        <ol>
+          <li>Abra o Dashboard logo no inicio do expediente.</li>
+          <li>Leia os cards principais e compare com o volume esperado para o dia.</li>
+          <li>Use o botao de atualizacao se suspeitar de dados antigos.</li>
+          <li>Revise a tabela de ofertas publicadas para ver se ha itens com data ou preco desatualizado.</li>
+          <li>Se houver gargalo, va para Curadoria, Ofertas Publicadas ou Painel de Envios conforme o caso.</li>
+        </ol>
+      </div>
+    </section>
+
+    <section class="page">
+      <div class="page-inner">
+        <div class="module-title">
+          <div>
+            <h2>4. Curadoria Geral</h2>
+            <div class="path">/admin/curadoria</div>
+          </div>
+          <span class="tag op">Operacao</span>
+        </div>
+        <p>
+          A Curadoria Geral e o ponto de revisao editorial. Ela recebe ofertas que ainda precisam de avaliacao antes de aparecer no site
+          ou seguirem algum fluxo interno de aprovacao.
+        </p>
+        <ol>
+          <li>Filtre por marketplace quando quiser revisar uma origem especifica.</li>
+          <li>Abra a oferta e revise: titulo, preco, link afiliado, imagem, copy e destino sugerido.</li>
+          <li>Se a oferta estiver adequada, aprove para o site no bloco correto.</li>
+          <li>Se o material estiver ruim, incompleto ou incoerente, deixe em revisao ou descarte.</li>
+        </ol>
+        <div class="section-note">
+          <strong>Importante:</strong> a automacao AWIN deve mandar para curadoria antes da publicacao final.
+        </div>
+        <ul>
+          <li>Conferir se o link afiliado abre corretamente</li>
+          <li>Conferir se o preco ainda faz sentido</li>
+          <li>Conferir se a imagem esta adequada</li>
+          <li>Escolher bloco coerente: flash, best ou comparator</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="page">
+      <div class="page-inner">
+        <div class="module-title">
+          <div>
+            <h2>5. Central de Oferta</h2>
+            <div class="path">/admin/ofertas/nova</div>
+          </div>
+          <span class="tag op">Operacao</span>
+        </div>
+        <p>
+          Este e o modulo mais importante do painel. Nele voce extrai uma oferta por URL, gera preview, ajusta copy, escolhe o destino
+          e publica para site, Telegram e WhatsApp.
+        </p>
+        <div class="pill-row">
+          <span class="pill orange">Mercado Livre</span>
+          <span class="pill blue">Amazon</span>
+          <span class="pill green">AWIN</span>
+        </div>
+        <ol>
+          <li>Escolha o marketplace correto no topo.</li>
+          <li>Preencha a URL do produto.</li>
+          <li>Preencha o link de afiliado obrigatorio.</li>
+          <li>Clique em <strong>Extrair URL</strong> ou <strong>Buscar na API AWIN</strong>.</li>
+          <li>Revise o preview gerado.</li>
+          <li>Ajuste ou troque a copy se necessario.</li>
+          <li>Escolha o bloco do site: Oferta Relampago, Melhores Ofertas ou Comparador.</li>
+          <li>Marque os destinos: Site, Telegram e/ou WhatsApp.</li>
+          <li>Clique em <strong>Publicar selecionados</strong>.</li>
+        </ol>
+        <h4>Mercado Livre</h4>
+        <ol>
+          <li>Use URL do produto e, quando possivel, tambem o link afiliado meli.la.</li>
+          <li>Se a extracao falhar, use nome, preco, preco antigo e URL da imagem manualmente.</li>
+          <li>Gere o preview manual e publique mesmo sem scraping automatico.</li>
+        </ol>
+        <h4>Amazon</h4>
+        <ol>
+          <li>Cole a URL do produto e o link afiliado da Amazon.</li>
+          <li>Tente a extracao automatica.</li>
+          <li>Se algo faltar, complete pelos campos manuais.</li>
+        </ol>
+        <h4>AWIN</h4>
+        <ol>
+          <li>Cole a URL do produto ou um link awin1.com.</li>
+          <li>Use <strong>Buscar na API AWIN</strong>.</li>
+          <li>Se o feed nao preencher tudo, gere o link afiliado AWIN e finalize no manual.</li>
+        </ol>
+        <div class="warning">
+          <strong>Erro comum:</strong> publicar no site sem affiliate_url. O card nao aparece na vitrine publica quando o link afiliado esta vazio.
+        </div>
+      </div>
+    </section>
+
+    <section class="page">
+      <div class="page-inner">
+        <div class="module-title">
+          <div>
+            <h2>6. Ofertas Publicadas</h2>
+            <div class="path">/admin/ofertas</div>
+          </div>
+          <span class="tag op">Operacao</span>
+        </div>
+        <p>
+          Esta tela mostra as ofertas que efetivamente podem ser exibidas no site. Ela e usada para revisar o que ja esta na vitrine,
+          atualizar preco e retirar o que nao deve mais ficar publico.
+        </p>
+        <ul>
+          <li>Confirmar que a oferta entrou no site</li>
+          <li>Revisar bloco, preco atual, preco antigo e data de atualizacao</li>
+          <li>Forcar refresh de precos publicados</li>
+          <li>Editar ou excluir uma oferta do site</li>
+        </ul>
+        <ol>
+          <li>Acesse a lista depois de publicar qualquer oferta importante.</li>
+          <li>Procure pelo produto e confira a coluna do bloco de destino.</li>
+          <li>Se o preco do marketplace mudou, use o refresh quando necessario.</li>
+          <li>Se uma oferta nao deve mais aparecer, desative ou exclua.</li>
+        </ol>
+        <div class="section-note">
+          A home mostra apenas parte das ofertas. Um produto pode estar no site em <strong>/ofertas</strong> e nao estar entre os 8 cards da home.
+        </div>
+      </div>
+    </section>
+
+    <section class="page">
+      <div class="page-inner">
+        <div class="module-title">
+          <div>
+            <h2>7. Painel de Envios</h2>
+            <div class="path">/admin/envios</div>
+          </div>
+          <span class="tag op">Operacao</span>
+        </div>
+        <p>
+          O Painel de Envios e o NOC da distribuicao. Ele mostra a fila real de jobs para Telegram e WhatsApp, incluindo status, horario
+          de agendamento, falhas e ultimo movimento do robo.
+        </p>
+        <ul>
+          <li><strong>Na Fila:</strong> jobs pendentes ou processando</li>
+          <li><strong>Postados Hoje:</strong> envios concluidos no dia</li>
+          <li><strong>Processados Hoje:</strong> jobs que passaram por execucao hoje</li>
+          <li><strong>Erros Criticos:</strong> falhas que nao estao na fila ativa</li>
+        </ul>
+        <ol>
+          <li>Abra esta tela sempre que mandar oferta para canais.</li>
+          <li>Confirme que os jobs mais novos apareceram no topo.</li>
+          <li>Observe o status: agendado, processando, enviado, falha ou ignorado.</li>
+          <li>Se houver falhas, revise a linha e remova somente jobs sem valor operacional.</li>
+          <li>Use a janela de disparo como referencia: 08:00 a 22:00 America/Sao_Paulo.</li>
+        </ol>
+      </div>
+    </section>
+
+    <section class="page page-break">
+      <div class="page-inner">
+        <div class="module-title">
+          <div>
+            <h2>8. Landing Pages</h2>
+            <div class="path">/admin/landing-pages</div>
+          </div>
+          <span class="tag op">Operacao</span>
+        </div>
+        <p>
+          Este modulo cria paginas de conversao focadas em campanhas pagas, produtos campeoes e captacao para grupo e site.
+          O publico final acessa as pages em <code>/lp/[slug]</code>.
+        </p>
+        <ul>
+          <li>CRUD completo de landing page</li>
+          <li>Duplicacao rapida</li>
+          <li>Vinculo opcional com oferta existente</li>
+          <li>Configuracao de hero, CTA, beneficios e prova social</li>
+          <li>Tracking de cliques por CTA</li>
+          <li>Analytics por periodo e campanha</li>
+          <li>Exportacao CSV</li>
+          <li>UTMs padrao por landing</li>
+        </ul>
+        <ol>
+          <li>Escolha uma oferta vinculada, se quiser reaproveitar dados.</li>
+          <li>Preencha titulo, headline, subheadline, hero e CTA.</li>
+          <li>Configure beneficios, detalhes tecnicos e prova social.</li>
+          <li>Defina UTM source, medium, campaign e content.</li>
+          <li>Salve em rascunho, revise e depois publique.</li>
+        </ol>
+        <div class="info">
+          <strong>Uso recomendado:</strong> anuncios pagos nao devem apontar para a home. Devem apontar para uma landing dedicada e rastreada.
+        </div>
+      </div>
+    </section>
+
+    <section class="page">
+      <div class="page-inner">
+        <div class="module-title">
+          <div>
+            <h2>9. Mercado Livre Hub</h2>
+            <div class="path">/admin/mercadolivre</div>
+          </div>
+          <span class="tag hub">Marketplace Hub</span>
+        </div>
+        <p>
+          O Mercado Livre Hub serve para minerar produtos do ML, aplicar filtros de desconto e classificacao, cadastrar link afiliado
+          e despachar a oferta para site, Telegram ou WhatsApp.
+        </p>
+        <ul>
+          <li>Busca por termo</li>
+          <li>Categoria</li>
+          <li>Desconto minimo</li>
+          <li>Classificacao: Melhor Desconto, Mais Vendido, Destaque</li>
+        </ul>
+        <ol>
+          <li>Abra o hub e sincronize o catalogo se quiser puxar ofertas novas.</li>
+          <li>Aplique filtros por categoria, desconto e classificacao.</li>
+          <li>Cadastre o link afiliado manual quando necessario.</li>
+          <li>Clique em Telegram, WhatsApp ou Aprovar no Radar (Site).</li>
+          <li>Se for site, escolha o bloco correto no modal.</li>
+        </ol>
+        <div class="warning">
+          A extracao do Mercado Livre e a mais sensivel da operacao. Se um link nao extrair automaticamente na Central de Oferta, use o fluxo manual.
+        </div>
+      </div>
+    </section>
+
+    <section class="page">
+      <div class="page-inner">
+        <div class="module-title">
+          <div>
+            <h2>10. Shopee Hub</h2>
+            <div class="path">/admin/shopee</div>
+          </div>
+          <span class="tag hub">Marketplace Hub</span>
+        </div>
+        <p>
+          O Shopee Hub organiza produtos por potencial de comissao e destaque. O filtro mais importante aqui e o de comissao.
+        </p>
+        <ol>
+          <li>Sincronize os produtos da Shopee.</li>
+          <li>Filtre por comissao minima aceitavel.</li>
+          <li>Revise o titulo, valor e taxa de comissao.</li>
+          <li>Cadastre o link afiliado caso necessario.</li>
+          <li>Despache para site ou canais.</li>
+        </ol>
+      </div>
+    </section>
+
+    <section class="page">
+      <div class="page-inner">
+        <div class="module-title">
+          <div>
+            <h2>11. Lomadee</h2>
+            <div class="path">/admin/lomadee</div>
+          </div>
+          <span class="tag hub">Marketplace Hub</span>
+        </div>
+        <p>
+          O modulo da Lomadee pesquisa produtos e permite gerar link afiliado encurtado antes de mandar para os destinos.
+        </p>
+        <ol>
+          <li>Pesquise o produto na base da Lomadee.</li>
+          <li>Gere ou revise o link afiliado.</li>
+          <li>Escolha Telegram, WhatsApp ou Site.</li>
+          <li>Se for Site, selecione o bloco correto.</li>
+        </ol>
+      </div>
+    </section>
+
+    <section class="page">
+      <div class="page-inner">
+        <div class="module-title">
+          <div>
+            <h2>12. AWIN</h2>
+            <div class="path">/admin/awin</div>
+          </div>
+          <span class="tag hub">Marketplace Hub</span>
+        </div>
+        <p>
+          Esta e a tela operacional antiga da AWIN. Ela funciona como central de status, gerador de deep link e acesso a feeds e programas.
+        </p>
+        <ul>
+          <li>Status de token, publisher, MasterTag e feed</li>
+          <li>Lista de programas aprovados</li>
+          <li>Busca de produtos por feed</li>
+          <li>Gerador manual de link AWIN</li>
+          <li>Ofertas ativas e lista de feeds</li>
+        </ul>
+        <div class="warning">
+          Esta tela depende de variaveis AWIN especificas. Se faltar a URL da lista de feeds no servidor, parte da interface vai acusar configuracao ausente.
+        </div>
+      </div>
+    </section>
+
+    <section class="page">
+      <div class="page-inner">
+        <div class="module-title">
+          <div>
+            <h2>13. AWIN Analytics</h2>
+            <div class="path">/admin/awin/analytics</div>
+          </div>
+          <span class="tag hub">Marketplace Hub</span>
+        </div>
+        <p>
+          Este painel consolida cliques e oferta AWIN dentro do Radar Smart. Ele nao substitui o painel oficial da AWIN, mas ajuda a medir
+          o que o proprio site e os fluxos internos estao gerando.
+        </p>
+        <ul>
+          <li>Ofertas AWIN cadastradas</li>
+          <li>Cliques totais e recentes</li>
+          <li>Origem dos cliques</li>
+          <li>Ofertas mais clicadas</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="page">
+      <div class="page-inner">
+        <div class="module-title">
+          <div>
+            <h2>14. Hub AWIN</h2>
+            <div class="path">/admin/hub-awin</div>
+          </div>
+          <span class="tag hub">Marketplace Hub</span>
+        </div>
+        <p>
+          Este e o novo fluxo da AWIN. Primeiro voce escolhe o anunciante aprovado, depois abre o feed daquele anunciante e trabalha em cima
+          do grid de produtos.
+        </p>
+        <ol>
+          <li>Abra o Hub AWIN.</li>
+          <li>Escolha o anunciante aprovado.</li>
+          <li>Clique em <strong>Ver Produtos</strong>.</li>
+          <li>Use busca, filtro de categoria e ordenacao.</li>
+          <li>Clique em <strong>Adicionar a Oferta</strong>.</li>
+          <li>Escolha o bloco do site ou distribua para canais.</li>
+        </ol>
+        <div class="section-note">
+          Os produtos da AWIN usam deep link no formato <code>awin1.com/cread.php</code>. O hub ja trabalha com esse link rastreavel.
+        </div>
+      </div>
+    </section>
+
+    <section class="page">
+      <div class="page-inner">
+        <div class="module-title">
+          <div>
+            <h2>15. Automacao AWIN</h2>
+            <div class="path">/admin/hub-awin/automation</div>
+          </div>
+          <span class="tag hub">Marketplace Hub</span>
+        </div>
+        <p>
+          O modulo de automacao AWIN permite configurar criterios para buscar produtos automaticamente. Ele foi desenhado com modo seguro
+          e com passagem pela Curadoria.
+        </p>
+        <ul>
+          <li>Anunciante</li>
+          <li>Categoria</li>
+          <li>Ordenacao</li>
+          <li>Limite de produtos</li>
+          <li>Bloco sugerido</li>
+          <li>Preco minimo e maximo</li>
+          <li>Modo ativo ou seco</li>
+        </ul>
+        <ol>
+          <li>Configure filtros que facam sentido comercialmente.</li>
+          <li>Mantenha o modo seguro enquanto estiver testando.</li>
+          <li>Use <strong>Executar teste agora</strong>.</li>
+          <li>Quando o resultado fizer sentido, ative o envio para curadoria.</li>
+        </ol>
+      </div>
+    </section>
+
+    <section class="page page-break">
+      <div class="page-inner">
+        <div class="module-title">
+          <div>
+            <h2>16. Amazon Hub</h2>
+            <div class="path">/admin/amazon</div>
+          </div>
+          <span class="tag hub">Marketplace Hub</span>
+        </div>
+        <p>
+          O Amazon Hub trabalha com filtros de desconto, Prime e destaque para minerar oportunidades com foco comercial.
+        </p>
+        <ol>
+          <li>Abra o modulo e rode a sincronizacao, se necessario.</li>
+          <li>Filtre por busca, Prime e desconto.</li>
+          <li>Revise o titulo, o preco e a imagem.</li>
+          <li>Cole ou confirme o link afiliado.</li>
+          <li>Despache para Site, Telegram ou WhatsApp.</li>
+        </ol>
+      </div>
+    </section>
+
+    <section class="page">
+      <div class="page-inner">
+        <div class="module-title">
+          <div>
+            <h2>17. Tendencias (IA)</h2>
+            <div class="path">/admin/tendencias</div>
+          </div>
+          <span class="tag seo">Inteligencia &amp; SEO</span>
+        </div>
+        <p>
+          Esta tela e um painel de inteligencia para leitura de momentum e categorias promissoras. Serve como apoio de decisao editorial e
+          nao como local de publicacao direta.
+        </p>
+        <ul>
+          <li>Planejar o que sera minerado no dia</li>
+          <li>Priorizar categorias com mais apelo comercial</li>
+          <li>Alinhar campanhas e conteudo com o que esta mais quente</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="page">
+      <div class="page-inner">
+        <div class="module-title">
+          <div>
+            <h2>18. Produtos &amp; SEO</h2>
+            <div class="path">/admin/produtos</div>
+          </div>
+          <span class="tag seo">Inteligencia &amp; SEO</span>
+        </div>
+        <p>
+          Este modulo auxilia na camada SEO dos produtos e conteudos. Ele ajuda a organizar titulo, slug, meta e leitura de saude de SEO.
+        </p>
+        <ul>
+          <li>Analise de titulos</li>
+          <li>Sugestao de meta e slug</li>
+          <li>Keywords</li>
+          <li>Apoio a geracao de SEO via IA</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="page">
+      <div class="page-inner">
+        <div class="module-title">
+          <div>
+            <h2>19. Blog &amp; Reviews</h2>
+            <div class="path">/admin/blog</div>
+          </div>
+          <span class="tag seo">Inteligencia &amp; SEO</span>
+        </div>
+        <p>
+          Este modulo gera guias, reviews e paginas editoriais a partir de ofertas e produtos selecionados.
+        </p>
+        <ol>
+          <li>Pesquise uma oferta base.</li>
+          <li>Selecione uma oferta principal e, se quiser, secundarias.</li>
+          <li>Gere o conteudo do review ou guia.</li>
+          <li>Revise antes de publicar.</li>
+          <li>Publique ou despublique conforme a estrategia editorial.</li>
+        </ol>
+      </div>
+    </section>
+
+    <section class="page">
+      <div class="page-inner">
+        <div class="module-title">
+          <div>
+            <h2>20. Infoprodutos</h2>
+            <div class="path">/admin/infoprodutos</div>
+          </div>
+          <span class="tag seo">Inteligencia &amp; SEO</span>
+        </div>
+        <p>
+          O modulo de infoprodutos organiza ofertas de plataformas como Hotmart, Kiwify, Monetizze, Eduzz e afins.
+        </p>
+        <ol>
+          <li>Cadastre o titulo do infoproduto.</li>
+          <li>Escolha a plataforma.</li>
+          <li>Adicione o link afiliado.</li>
+          <li>Preencha preco, comissao e nicho.</li>
+          <li>Ative ou pause conforme a estrategia.</li>
+        </ol>
+      </div>
+    </section>
+
+    <section class="page">
+      <div class="page-inner">
+        <div class="module-title">
+          <div>
+            <h2>21. Canais</h2>
+            <div class="path">/admin/canais</div>
+          </div>
+          <span class="tag tool">Ferramentas</span>
+        </div>
+        <p>
+          O modulo de Canais controla a saude operacional do WhatsApp e do Telegram usados na distribuicao de ofertas.
+        </p>
+        <ul>
+          <li>WhatsApp: conectar, reconectar e gerar novo QR</li>
+          <li>Telegram: healthcheck do bot e teste manual por chat_id</li>
+          <li>Leitura de status, ultimo check e mensagens operacionais</li>
+        </ul>
+        <ol>
+          <li>Abra a tela e clique em <strong>Atualizar status</strong>.</li>
+          <li>Se o WhatsApp estiver offline, tente <strong>Reconectar</strong>.</li>
+          <li>Se continuar offline, gere novo QR e escaneie com o celular.</li>
+          <li>Use o teste do Telegram para validar destino real antes de disparos importantes.</li>
+        </ol>
+      </div>
+    </section>
+
+    <section class="page">
+      <div class="page-inner">
+        <div class="module-title">
+          <div>
+            <h2>22. Configuracoes</h2>
+            <div class="path">/admin/configuracoes</div>
+          </div>
+          <span class="tag tool">Ferramentas</span>
+        </div>
+        <p>
+          Esta tela lista programas afiliados cadastrados, tracking tags e se cada marketplace esta ativo.
+        </p>
+        <ul>
+          <li>Use para conferencias operacionais</li>
+          <li>Valide se o tracking tag esperado esta presente</li>
+          <li>Confirme se o programa esta ativo ou desativado</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="page">
+      <div class="page-inner">
+        <h2>23. Rotina diaria recomendada</h2>
+        <ol>
+          <li>Abrir Dashboard e validar saude geral.</li>
+          <li>Checar Canais para garantir WhatsApp e Telegram operacionais.</li>
+          <li>Minerar produtos nos hubs principais do dia.</li>
+          <li>Usar a Central de Oferta para publicar os melhores itens.</li>
+          <li>Validar as entradas em Ofertas Publicadas.</li>
+          <li>Conferir Painel de Envios.</li>
+          <li>Se houver campanha paga, abrir ou criar landing page correspondente.</li>
+          <li>No fim do dia, revisar precos, cliques e gargalos.</li>
+        </ol>
+        <h2>24. Erros comuns e como agir</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Problema</th>
+              <th>Causa mais comum</th>
+              <th>Acao recomendada</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Oferta nao aparece no site</td>
+              <td>Sem affiliate_url, sem aprovacao ou bloco incorreto</td>
+              <td>Revisar Central de Oferta, Curadoria e Ofertas Publicadas</td>
+            </tr>
+            <tr>
+              <td>Oferta nao aparece na home</td>
+              <td>Bloco cheio ou regra de limite na vitrine</td>
+              <td>Conferir pagina /ofertas e a ordem do bloco</td>
+            </tr>
+            <tr>
+              <td>Envio nao apareceu no painel</td>
+              <td>Dispatch nao entrou na fila ou job foi pulado</td>
+              <td>Revisar feedback da Central e depois o Painel de Envios</td>
+            </tr>
+            <tr>
+              <td>Mercado Livre nao extrai</td>
+              <td>Link dificil, bloqueio externo ou item_id nao identificado</td>
+              <td>Usar link afiliado meli.la e, se precisar, preview manual</td>
+            </tr>
+            <tr>
+              <td>WhatsApp desconectado</td>
+              <td>Sessao caiu</td>
+              <td>Ir em Canais, tentar Reconectar e gerar novo QR se necessario</td>
+            </tr>
+            <tr>
+              <td>Produto AWIN sem dados</td>
+              <td>Feed nao encontrou ou link veio incompleto</td>
+              <td>Gerar deep link AWIN e usar preview manual</td>
+            </tr>
+          </tbody>
+        </table>
+        <h2>25. Checklist antes de divulgar o site</h2>
+        <ul>
+          <li>Home responsiva no celular, tablet e desktop</li>
+          <li>Footer com logo e links corretos</li>
+          <li>Ofertas com preco atual, preco antigo e desconto</li>
+          <li>Canais ativos</li>
+          <li>Ofertas principais revisadas</li>
+          <li>Landing page de campanha publicada, se houver trafego pago</li>
+          <li>Links afiliados testados em aba anonima</li>
+          <li>Grupo e redes com CTA funcionando</li>
+        </ul>
+        <div class="success">
+          <strong>Conclusao:</strong> o painel administrativo do Radar Smart ja cobre operacao, curadoria, publicacao, distribuicao,
+          landing pages e hubs afiliados. O resultado depende de usar os modulos na ordem correta e validar sempre link afiliado,
+          status de canal e visibilidade final no site.
+        </div>
+        <p class="footer-note">
+          Radar Smart - Apostila de operacao do painel administrativo. Documento de uso interno.
+        </p>
+      </div>
+    </section>
+  </body>
+</html>

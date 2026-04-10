@@ -1,232 +1,160 @@
-import type { Metadata } from "next";
+﻿import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
-import { Calendar, Info, Share2, Tag } from "lucide-react";
 import { notFound } from "next/navigation";
 
-import BlogProductCard from "@/components/blog/BlogProductCard";
-import Footer from "@/components/layout/Footer";
-import Header from "@/components/layout/Header";
-import BotaoAfiliado from "@/components/ui/BotaoAfiliado";
-import { formatBRL } from "@/lib/formatters";
 import { supabaseAdmin } from "@/lib/supabase";
-
-type BlogPostRow = {
-  id: number | string;
-  slug: string | null;
-  title: string | null;
-  excerpt: string | null;
-  content: string | null;
-  content_md: string | null;
-  published_at: string | null;
-  status: string | null;
-  is_published: boolean | null;
-};
-
-type ContentBlock =
-  | { type: "html"; value: string }
-  | { type: "product"; offerId: string };
-
-type OfferRow = {
-  id: string;
-  title: string | null;
-  image_url: string | null;
-  affiliate_url: string | null;
-  product_url: string | null;
-  marketplace: string | null;
-  price: number | string | null;
-  old_price: number | string | null;
-  original_price: number | string | null;
-  price_old: number | string | null;
-  status: string | null;
-};
 
 export const dynamic = "force-dynamic";
 
-function toText(value: unknown): string {
-  return String(value ?? "").trim();
-}
+type FaqItem = { question: string; answer: string };
 
-function toNumber(value: unknown): number | null {
-  if (typeof value === "number") return Number.isFinite(value) ? value : null;
-  if (typeof value === "string") {
-    const normalized = value
-      .replace(/\./g, "")
-      .replace(",", ".")
-      .replace(/[^\d.-]/g, "");
-    const parsed = Number(normalized);
-    return Number.isFinite(parsed) ? parsed : null;
-  }
-  return null;
-}
+type RelatedOffer = {
+  id: string | number;
+  title: string | null;
+  price: number | string | null;
+  image_url: string | null;
+  affiliate_url: string | null;
+  discount_pct: number | string | null;
+  discount_percent: number | string | null;
+  marketplace?: string | null;
+};
 
-function formatPublishedDate(value: string | null): string {
-  if (!value) return "Data nao informada";
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return "Data nao informada";
+type FixedOfferLink = {
+  offer_id: string;
+  is_primary: boolean;
+  sort_order: number;
+};
 
-  return new Intl.DateTimeFormat("pt-BR", {
-    day: "2-digit",
-    month: "long",
-    year: "numeric",
-  }).format(parsed);
-}
+type BlogPost = {
+  id: string;
+  title: string;
+  slug: string;
+  excerpt: string | null;
+  content: string | null;
+  content_md?: string | null;
+  cover_image: string | null;
+  featured_image: string | null;
+  meta_title: string | null;
+  meta_description: string | null;
+  faq: FaqItem[] | null;
+  schema_org: Record<string, unknown> | null;
+  published_at: string | null;
+  created_at: string;
+  status: string | null;
+  is_published: boolean | null;
+  offer_id?: string | null;
+};
 
-function estimateReadingTime(content: string): number {
-  const words = content.split(/\s+/).filter(Boolean).length;
-  return Math.max(1, Math.ceil(words / 200));
-}
+async function getPost(slug: string): Promise<BlogPost | null> {
+  const selectCandidates = [
+    "id,title,slug,excerpt,content,content_md,cover_image,featured_image,meta_title,meta_description,faq,schema_org,published_at,created_at,status,is_published,offer_id",
+    "id,title,slug,excerpt,content,cover_image,featured_image,meta_title,meta_description,faq,schema_org,published_at,created_at,status,is_published,offer_id",
+    "id,title,slug,excerpt,content,featured_image,meta_title,meta_description,faq,schema_org,published_at,created_at,status,is_published,offer_id",
+    "id,title,slug,excerpt,content,featured_image,faq,schema_org,published_at,created_at,status,is_published,offer_id",
+    "id,title,slug,excerpt,content,featured_image,published_at,created_at,status,is_published,offer_id",
+    "id,title,slug,excerpt,content,featured_image,published_at,created_at,status,is_published",
+  ];
 
-function resolveBaseUrl(): string {
-  return (
-    process.env.NEXT_PUBLIC_SITE_URL ||
-    process.env.NEXT_PUBLIC_VERCEL_PROJECT_PRODUCTION_URL ||
-    "https://radar-smart.vercel.app"
-  ).replace(/\/$/, "");
-}
+  let data: Record<string, unknown> | null = null;
 
-function resolveShareUrl(slug: string, title: string): string {
-  const articleUrl = `${resolveBaseUrl()}/blog/${slug}`;
-  const params = new URLSearchParams({
-    url: articleUrl,
-    text: title,
-  });
+  for (const select of selectCandidates) {
+    const query = await supabaseAdmin
+      .from("blog_posts")
+      .select(select)
+      .eq("slug", slug)
+      .or("status.eq.published,is_published.eq.true")
+      .maybeSingle();
 
-  return `https://twitter.com/intent/tweet?${params.toString()}`;
-}
-
-function inferCategory(title: string): string {
-  const normalized = title.toLowerCase();
-  if (
-    normalized.includes("iphone") ||
-    normalized.includes("notebook") ||
-    normalized.includes("smartphone") ||
-    normalized.includes("tecnologia")
-  ) {
-    return "Reviews & Tecnologia";
-  }
-
-  return "Guia de Compras";
-}
-
-function resolveOfferPricing(offer: OfferRow) {
-  const price = toNumber(offer.price) ?? 0;
-  const oldRaw =
-    toNumber(offer.old_price) ??
-    toNumber(offer.original_price) ??
-    toNumber(offer.price_old);
-  const oldPrice = oldRaw !== null && oldRaw > price ? oldRaw : null;
-
-  return { price, oldPrice };
-}
-
-function splitContentWithProducts(rawContent: string): ContentBlock[] {
-  const blocks: ContentBlock[] = [];
-  const regex = /\[\[product:([a-zA-Z0-9-]+)\]\]/g;
-
-  let cursor = 0;
-  let match: RegExpExecArray | null = regex.exec(rawContent);
-  while (match) {
-    const index = match.index;
-    const token = match[0];
-    const offerId = match[1];
-
-    if (index > cursor) {
-      const htmlChunk = rawContent.slice(cursor, index).trim();
-      if (htmlChunk) blocks.push({ type: "html", value: htmlChunk });
+    if (!query.error && query.data) {
+      data = query.data as unknown as Record<string, unknown>;
+      break;
     }
-
-    blocks.push({ type: "product", offerId });
-    cursor = index + token.length;
-    match = regex.exec(rawContent);
   }
 
-  const tail = rawContent.slice(cursor).trim();
-  if (tail) blocks.push({ type: "html", value: tail });
-
-  if (blocks.length === 0 && rawContent.trim()) {
-    blocks.push({ type: "html", value: rawContent.trim() });
+  if (!data) {
+    return null;
   }
 
-  return blocks;
+  return {
+    ...data,
+    content:
+      data.content ??
+      data.content_md ??
+      null,
+    cover_image: data.cover_image ?? null,
+    meta_title: data.meta_title ?? null,
+    meta_description: data.meta_description ?? null,
+    faq: (data.faq as FaqItem[] | null) ?? null,
+    schema_org: (data.schema_org as Record<string, unknown> | null) ?? null,
+    offer_id: (data.offer_id as string | null) ?? null,
+  } as BlogPost;
 }
 
-function formatInlineMarkdown(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-    .replace(/\*(.+?)\*/g, "<em>$1</em>");
-}
+async function getSelectedOffer(offerId?: string | null) {
+  if (!offerId) return null;
 
-function markdownToHtml(markdown: string): string {
-  const sections = markdown
-    .split(/\n\s*\n/)
-    .map((block) => block.trim())
-    .filter(Boolean);
-
-  return sections
-    .map((block) => {
-      const lines = block
-        .split("\n")
-        .map((line) => line.trim())
-        .filter(Boolean);
-
-      if (!lines.length) return "";
-
-      if (lines.every((line) => line.startsWith("- "))) {
-        return `<ul>${lines
-          .map((line) => `<li>${formatInlineMarkdown(line.slice(2))}</li>`)
-          .join("")}</ul>`;
-      }
-
-      const firstLine = lines[0];
-      if (firstLine.startsWith("### ")) {
-        return `<h3>${formatInlineMarkdown(firstLine.slice(4))}</h3>`;
-      }
-      if (firstLine.startsWith("## ")) {
-        return `<h2>${formatInlineMarkdown(firstLine.slice(3))}</h2>`;
-      }
-      if (firstLine.startsWith("# ")) {
-        return `<h1>${formatInlineMarkdown(firstLine.slice(2))}</h1>`;
-      }
-
-      return `<p>${formatInlineMarkdown(lines.join(" "))}</p>`;
-    })
-    .join("");
-}
-
-function formatContentToHtml(value: string): string {
-  const normalized = value.trim();
-  if (!normalized) return "";
-  if (/<[a-z][\s\S]*>/i.test(normalized)) {
-    return normalized;
-  }
-  return markdownToHtml(normalized);
-}
-
-async function getPost(slug: string): Promise<BlogPostRow | null> {
   const { data } = await supabaseAdmin
-    .from("blog_posts")
-    .select("id,slug,title,excerpt,content,content_md,published_at,status,is_published")
-    .eq("slug", slug)
-    .maybeSingle();
-
-  return (data as BlogPostRow | null) ?? null;
-}
-
-async function getOffer(offerId: string): Promise<OfferRow | null> {
-  const { data, error } = await supabaseAdmin
     .from("offers")
-    .select(
-      "id,title,image_url,affiliate_url,product_url,marketplace,price,old_price,original_price,price_old,status",
-    )
+    .select("id,title,price,image_url,affiliate_url,discount_pct,discount_percent,marketplace")
+    .eq("status", "active")
     .eq("id", offerId)
     .maybeSingle();
 
-  if (error || !data) return null;
-  return data as OfferRow;
+  return (data as RelatedOffer | null) ?? null;
+}
+
+async function getFixedOfferLinks(postId: string) {
+  const { data, error } = await supabaseAdmin
+    .from("blog_post_offers")
+    .select("offer_id,is_primary,sort_order")
+    .eq("post_id", postId)
+    .order("is_primary", { ascending: false })
+    .order("sort_order", { ascending: true });
+
+  if (error) {
+    return [] as FixedOfferLink[];
+  }
+
+  return (data ?? []) as FixedOfferLink[];
+}
+
+async function getOffersByIds(ids: string[]) {
+  if (!ids.length) return [] as RelatedOffer[];
+
+  const { data, error } = await supabaseAdmin
+    .from("offers")
+    .select("id,title,price,image_url,affiliate_url,discount_pct,discount_percent,marketplace")
+    .eq("status", "active")
+    .in("id", ids);
+
+  if (error) {
+    return [] as RelatedOffer[];
+  }
+
+  const byId = new Map<string, RelatedOffer>();
+  for (const item of (data ?? []) as RelatedOffer[]) {
+    byId.set(String(item.id), item);
+  }
+
+  return ids.map((id) => byId.get(id)).filter((item): item is RelatedOffer => Boolean(item));
+}
+
+async function getRelatedOffers(title: string, excludeIds: string[] = []) {
+  const keyword = title.split(" ").slice(0, 2).join(" ");
+  let query = supabaseAdmin
+    .from("offers")
+    .select("id,title,price,image_url,affiliate_url,discount_pct,discount_percent,marketplace")
+    .eq("status", "active")
+    .ilike("title", `%${keyword}%`);
+
+  const uniqueExcludeIds = Array.from(new Set(excludeIds.filter(Boolean)));
+  if (uniqueExcludeIds.length) {
+    query = query.not("id", "in", `(${uniqueExcludeIds.join(",")})`);
+  }
+
+  const { data } = await query.order("updated_at", { ascending: false }).limit(4);
+  return (data ?? []) as RelatedOffer[];
 }
 
 export async function generateMetadata({
@@ -236,194 +164,308 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const post = await getPost(params.slug);
   if (!post) {
-    return {
-      title: "Post nao encontrado | Radar Smart Blog",
-      description: "Este conteudo nao esta disponivel no momento.",
-    };
+    return { title: "Guia não encontrado — Radar Smart" };
   }
 
   return {
-    title: `${post.title ?? "Guia de compra"} | Radar Smart Blog`,
-    description:
-      post.excerpt?.trim() ||
-      "Analise de compra e oportunidade de preco no ecossistema Radar Smart.",
+    title: post.meta_title || post.title,
+    description: post.meta_description || post.excerpt || "",
+    openGraph: {
+      title: post.meta_title || post.title,
+      description: post.meta_description || post.excerpt || "",
+      images: post.cover_image ? [{ url: post.cover_image }] : [],
+      type: "article",
+    },
+    alternates: { canonical: `https://radarsmart.vercel.app/blog/${post.slug}` },
   };
 }
 
-export default async function BlogPostDetailPage({
+const WHATSAPP_URL =
+  process.env.NEXT_PUBLIC_WHATSAPP_GROUP_URL ??
+  "https://chat.whatsapp.com/G5fdVL51Zr94XDoqOexP9d";
+
+const TELEGRAM_URL = (process.env.NEXT_PUBLIC_TELEGRAM_URL ?? "").trim();
+
+function formatBRL(value: number) {
+  return new Intl.NumberFormat("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+  }).format(value);
+}
+
+export default async function BlogPostPage({
   params,
 }: {
   params: { slug: string };
 }) {
   const post = await getPost(params.slug);
-  if (!post || (!post.is_published && post.status !== "published")) {
+
+  if (!post) {
     notFound();
   }
 
-  const title = toText(post.title) || "Guia de compra Radar Smart";
-  const excerpt =
-    toText(post.excerpt) ||
-    "Conteudo editorial com sinais de preco, contexto de compra e oportunidades monitoradas.";
-  const contentRaw = toText(post.content) || toText(post.content_md);
-  const contentBlocks = splitContentWithProducts(contentRaw);
-  const firstProductIndex = contentBlocks.findIndex((block) => block.type === "product");
-  const featuredOfferId =
-    firstProductIndex >= 0 && contentBlocks[firstProductIndex]?.type === "product"
-      ? (contentBlocks[firstProductIndex] as { type: "product"; offerId: string }).offerId
-      : null;
-  const articleBlocks =
-    firstProductIndex >= 0
-      ? contentBlocks.filter((_, index) => index !== firstProductIndex)
-      : contentBlocks;
-  const featuredOffer = featuredOfferId ? await getOffer(featuredOfferId) : null;
-  const readingTime = estimateReadingTime(contentRaw || excerpt);
-  const category = inferCategory(title);
-  const shareUrl = resolveShareUrl(params.slug, title);
-  const pricing = featuredOffer ? resolveOfferPricing(featuredOffer) : null;
-  const featuredHref =
-    featuredOffer?.affiliate_url?.trim() || featuredOffer?.product_url?.trim() || "#";
-  const featuredMarketplace = toText(featuredOffer?.marketplace).toUpperCase() || "OFERTA";
+  const fixedLinks = await getFixedOfferLinks(post.id);
+  const fixedIds = fixedLinks.map((item) => item.offer_id);
+  const primaryOfferId =
+    post.offer_id ?? fixedLinks.find((item) => item.is_primary)?.offer_id ?? null;
+  const [selectedOffer, fixedOffers, relatedOffers] = await Promise.all([
+    getSelectedOffer(primaryOfferId),
+    getOffersByIds(fixedIds),
+    getRelatedOffers(post.title, primaryOfferId ? [primaryOfferId, ...fixedIds] : fixedIds),
+  ]);
+  const additionalFixedOffers = fixedOffers.filter(
+    (item) => String(item.id) !== String(selectedOffer?.id ?? ""),
+  );
+
+  const faq = Array.isArray(post.faq) ? post.faq : [];
+  const publishedDate = post.published_at || post.created_at;
 
   return (
     <>
-      <Header />
-      <article className="min-h-screen bg-white pb-20 pt-24">
-        <header className="mx-auto mb-12 max-w-4xl px-4 sm:px-6">
-          <div className="mb-4 flex flex-wrap items-center gap-2 text-xs font-bold uppercase tracking-widest text-blue-600">
-            <Link href="/blog" className="hover:text-blue-800">
-              Blog
-            </Link>
-            <span className="text-gray-300">/</span>
-            <span>{category}</span>
-          </div>
+      {post.schema_org && (
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(post.schema_org) }}
+        />
+      )}
 
-          <div className="mb-4 flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-blue-600">
-            <Tag size={12} />
-            {category}
-          </div>
+      <main className="mx-auto max-w-3xl px-4 py-12">
+        <nav className="mb-6 flex items-center gap-2 text-xs text-slate-500">
+          <Link href="/" className="hover:underline">
+            Início
+          </Link>
+          <span>/</span>
+          <Link href="/blog" className="hover:underline">
+            Guias de Compra
+          </Link>
+          <span>/</span>
+          <span className="text-slate-700">{post.title}</span>
+        </nav>
 
-          <h1 className="mb-6 text-3xl font-black leading-tight text-[#1A1A1A] md:text-5xl">
-            {title}
+        <header className="mb-8">
+          <h1 className="text-3xl font-black leading-tight text-[#22223B] md:text-4xl">
+            {post.title}
           </h1>
-
-          <div className="flex flex-col gap-4 border-y border-gray-100 py-6 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#FFC300] text-xs font-black">
-                RS
-              </div>
-              <div>
-                <p className="text-xs font-bold text-[#1A1A1A]">Equipe Radar Smart</p>
-                <p className="text-[10px] text-gray-400">
-                  {formatPublishedDate(post.published_at)} • {readingTime} min de leitura
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-4 text-xs text-gray-500">
-              <span className="flex items-center gap-2">
-                <Calendar size={14} />
-                Conteudo fresco para SEO
-              </span>
-              <a
-                href={shareUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="rounded-full bg-gray-50 p-2 text-gray-400 transition-colors hover:text-[#1A1A1A]"
-                aria-label="Compartilhar artigo"
-              >
-                <Share2 size={18} />
-              </a>
-            </div>
-          </div>
+          {post.excerpt ? <p className="mt-4 text-lg text-slate-600">{post.excerpt}</p> : null}
+          <p className="mt-3 text-xs text-slate-400">
+            Atualizado em{" "}
+            {new Date(publishedDate).toLocaleDateString("pt-BR", {
+              day: "2-digit",
+              month: "long",
+              year: "numeric",
+            })}
+          </p>
         </header>
 
-        {featuredOffer && pricing ? (
-          <section className="mx-auto mb-16 max-w-4xl px-4">
-            <div className="flex flex-col items-center gap-8 rounded-[40px] border-2 border-[#FFC300] bg-[#FDFCFB] p-6 shadow-xl shadow-[#FFC300]/5 md:flex-row md:p-8">
-              <div className="h-48 w-48 shrink-0 rounded-3xl bg-white p-4 shadow-sm">
-                <Image
-                  src={featuredOffer.image_url || "/placeholder.svg"}
-                  width={320}
-                  height={320}
-                  alt={featuredOffer.title || "Oferta destaque"}
-                  className="h-full w-full object-contain"
-                />
+        {(post.cover_image || post.featured_image) && (
+          <div className="mb-8 overflow-hidden rounded-2xl">
+            <Image
+              src={post.cover_image || post.featured_image || "/logo.png"}
+              alt={post.title}
+              width={1792}
+              height={1024}
+              className="h-64 w-full object-cover md:h-80"
+              priority
+            />
+          </div>
+        )}
+
+        <a
+          href={WHATSAPP_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mb-8 flex items-center gap-3 rounded-2xl border border-green-200 bg-green-50 p-4 hover:bg-green-100"
+        >
+          <span className="text-2xl">💬</span>
+          <div>
+            <p className="font-bold text-green-800">Receba ofertas no WhatsApp</p>
+            <p className="text-sm text-green-700">
+              Grupo VIP com as melhores oportunidades em tempo real
+            </p>
+          </div>
+          <span className="ml-auto rounded-full bg-green-600 px-4 py-1.5 text-sm font-bold text-white">
+            Entrar grátis
+          </span>
+        </a>
+
+        {post.content ? (
+          <article
+            className="prose prose-slate max-w-none prose-headings:font-black prose-headings:text-[#22223B] prose-a:text-[#9e6a18]"
+            dangerouslySetInnerHTML={{ __html: post.content.replace(/\n/g, "<br/>") }}
+          />
+        ) : null}
+
+        {selectedOffer ? (
+          <section className="mt-12">
+            <h2 className="mb-4 text-2xl font-black text-[#22223B]">
+              Oferta em destaque deste guia
+            </h2>
+            <a
+              href={`/go/${String(selectedOffer.id)}?source=blog_featured_offer`}
+              target="_blank"
+              rel="noopener noreferrer sponsored"
+              className="grid gap-4 rounded-2xl border border-[#9e6a18]/20 bg-white p-4 shadow-sm md:grid-cols-[160px_1fr]"
+            >
+              <div className="relative h-40 overflow-hidden rounded-xl bg-[#F8FAFC]">
+                {selectedOffer.image_url ? (
+                  <Image
+                    src={String(selectedOffer.image_url)}
+                    alt={String(selectedOffer.title)}
+                    fill
+                    className="object-contain"
+                  />
+                ) : null}
               </div>
-
-              <div className="flex-1 space-y-4">
-                <span className="rounded-full bg-emerald-100 px-3 py-1 text-[10px] font-black uppercase tracking-tighter text-emerald-700">
-                  Melhor Preco Detectado
-                </span>
-                <h3 className="text-2xl font-black text-[#1A1A1A]">
-                  {featuredOffer.title || "Oferta em destaque"}
-                </h3>
-
-                <div className="flex items-baseline gap-3">
-                  <span className="text-3xl font-black text-[#1A1A1A]">
-                    {formatBRL(pricing.price)}
+              <div className="flex flex-col justify-between gap-3">
+                <div>
+                  <span className="inline-flex rounded-full bg-[#9e6a18]/10 px-2.5 py-1 text-[10px] font-black uppercase tracking-widest text-[#9e6a18]">
+                    {selectedOffer.marketplace || "Oferta selecionada"}
                   </span>
-                  {pricing.oldPrice ? (
-                    <span className="text-sm text-gray-400 line-through">
-                      {formatBRL(pricing.oldPrice)}
+                  <h3 className="mt-3 text-xl font-bold text-[#22223B]">
+                    {selectedOffer.title}
+                  </h3>
+                  <p className="mt-3 text-2xl font-black text-emerald-600">
+                    {formatBRL(Number(selectedOffer.price))}
+                  </p>
+                  {(Number(selectedOffer.discount_pct) || Number(selectedOffer.discount_percent)) > 0 ? (
+                    <span className="mt-2 inline-block rounded-full bg-[#9e6a18]/10 px-2 py-0.5 text-xs font-bold text-[#9e6a18]">
+                      {Number(selectedOffer.discount_pct) || Number(selectedOffer.discount_percent)}% OFF
                     </span>
                   ) : null}
                 </div>
-
-                <BotaoAfiliado
-                  offerId={featuredOffer.id}
-                  href={featuredHref}
-                  source="blog_featured_offer"
-                  label={`VER OFERTA NA ${featuredMarketplace}`}
-                  className="flex w-full items-center justify-center gap-3 rounded-2xl bg-[#1A1A1A] px-8 py-4 text-sm font-black text-white transition-all hover:scale-105 hover:bg-black md:w-auto"
-                />
+                <span className="inline-flex w-fit rounded-xl bg-[#22223B] px-4 py-2 text-sm font-bold text-white">
+                  Ver oferta
+                </span>
               </div>
+            </a>
+          </section>
+        ) : null}
+
+        {additionalFixedOffers.length > 0 ? (
+          <section className="mt-12">
+            <h2 className="mb-4 text-2xl font-black text-[#22223B]">
+              Ofertas selecionadas para este guia
+            </h2>
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+              {additionalFixedOffers.map((offer) => (
+                <a
+                  key={`fixed-${String(offer.id)}`}
+                  href={`/go/${String(offer.id)}?source=blog_fixed_offer`}
+                  target="_blank"
+                  rel="noopener noreferrer sponsored"
+                  className="rounded-xl border border-slate-200 bg-white p-3 text-center hover:border-[#9e6a18]"
+                >
+                  {offer.image_url ? (
+                    <Image
+                      src={String(offer.image_url)}
+                      alt={String(offer.title)}
+                      width={160}
+                      height={160}
+                      className="mx-auto mb-2 h-20 w-20 object-contain"
+                    />
+                  ) : null}
+                  <p className="line-clamp-2 text-xs font-semibold text-slate-700">
+                    {String(offer.title)}
+                  </p>
+                  <p className="mt-1 font-bold text-[#22223B]">
+                    {formatBRL(Number(offer.price))}
+                  </p>
+                  {(Number(offer.discount_pct) || Number(offer.discount_percent)) > 0 && (
+                    <span className="mt-1 inline-block rounded-full bg-[#9e6a18]/10 px-2 py-0.5 text-[10px] font-bold text-[#9e6a18]">
+                      {Number(offer.discount_pct) || Number(offer.discount_percent)}% OFF
+                    </span>
+                  )}
+                </a>
+              ))}
             </div>
           </section>
         ) : null}
 
-        <main className="mx-auto max-w-3xl px-4">
-          <div className="mb-10 rounded-3xl border border-blue-100 bg-blue-50/60 p-4 text-sm text-blue-900">
-            <div className="flex items-start gap-3">
-              <div className="rounded-full bg-white p-2">
-                <Info className="h-4 w-4" />
-              </div>
-              <p className="leading-relaxed">
-                Este review combina contexto editorial, sinais de preco e links de afiliado para
-                acelerar sua decisao de compra com transparencia.
-              </p>
+        {relatedOffers.length > 0 && (
+          <section className="mt-12">
+            <h2 className="mb-4 text-2xl font-black text-[#22223B]">Ofertas relacionadas</h2>
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+              {relatedOffers.map((offer) => (
+                <a
+                  key={String(offer.id)}
+                  href={`/go/${String(offer.id)}?source=blog_related`}
+                  target="_blank"
+                  rel="noopener noreferrer sponsored"
+                  className="rounded-xl border border-slate-200 bg-white p-3 text-center hover:border-[#9e6a18]"
+                >
+                  {offer.image_url ? (
+                    <Image
+                      src={String(offer.image_url)}
+                      alt={String(offer.title)}
+                      width={160}
+                      height={160}
+                      className="mx-auto mb-2 h-20 w-20 object-contain"
+                    />
+                  ) : null}
+                  <p className="line-clamp-2 text-xs font-semibold text-slate-700">
+                    {String(offer.title)}
+                  </p>
+                  <p className="mt-1 font-bold text-[#22223B]">
+                    {formatBRL(Number(offer.price))}
+                  </p>
+                  {(Number(offer.discount_pct) || Number(offer.discount_percent)) > 0 && (
+                    <span className="mt-1 inline-block rounded-full bg-[#9e6a18]/10 px-2 py-0.5 text-[10px] font-bold text-[#9e6a18]">
+                      {Number(offer.discount_pct) || Number(offer.discount_percent)}% OFF
+                    </span>
+                  )}
+                </a>
+              ))}
             </div>
-          </div>
+          </section>
+        )}
 
-          <div className="prose prose-slate max-w-none prose-headings:font-black prose-p:leading-relaxed prose-img:rounded-3xl">
-            <p className="text-xl leading-relaxed text-gray-700">{excerpt}</p>
-          </div>
+        {faq.length > 0 && (
+          <section className="mt-12">
+            <h2 className="mb-6 text-2xl font-black text-[#22223B]">Perguntas frequentes</h2>
+            <div className="space-y-4">
+              {faq.map((item, i) => (
+                <details key={i} className="rounded-2xl border border-slate-200 bg-white p-5">
+                  <summary className="cursor-pointer font-bold text-[#22223B]">
+                    {item.question}
+                  </summary>
+                  <p className="mt-3 text-sm leading-relaxed text-slate-600">{item.answer}</p>
+                </details>
+              ))}
+            </div>
+          </section>
+        )}
 
-          <div className="mt-8 space-y-6">
-            {articleBlocks.length > 0 ? (
-              articleBlocks.map((block, index) => {
-                if (block.type === "product") {
-                  return (
-                    <BlogProductCard key={`product-${block.offerId}-${index}`} offerId={block.offerId} />
-                  );
-                }
-
-                return (
-                  <section
-                    key={`html-${index}`}
-                    className="prose prose-slate max-w-none prose-headings:font-black prose-p:leading-relaxed prose-img:rounded-3xl"
-                    dangerouslySetInnerHTML={{ __html: formatContentToHtml(block.value) }}
-                  />
-                );
-              })
-            ) : (
-              <section className="prose prose-slate max-w-none prose-headings:font-black prose-p:leading-relaxed">
-                <p>Este conteudo ainda nao foi publicado.</p>
-              </section>
-            )}
-          </div>
-        </main>
-      </article>
-      <Footer />
+        <section
+          className={`mt-12 grid gap-4 rounded-2xl bg-[#22223B] p-6 text-white ${TELEGRAM_URL ? "md:grid-cols-2" : "md:grid-cols-1"}`}
+        >
+          <a
+            href={WHATSAPP_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-3 rounded-xl bg-green-500 p-4 hover:bg-green-600"
+          >
+            <span className="text-2xl">💬</span>
+            <div>
+              <p className="font-bold">Grupo WhatsApp VIP</p>
+              <p className="text-sm opacity-80">Ofertas em tempo real</p>
+            </div>
+          </a>
+          {TELEGRAM_URL ? (
+            <a
+              href={TELEGRAM_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-3 rounded-xl bg-sky-500 p-4 hover:bg-sky-600"
+            >
+              <span className="text-2xl">✈️</span>
+              <div>
+                <p className="font-bold">Canal Telegram</p>
+                <p className="text-sm opacity-80">Alertas instantâneos</p>
+              </div>
+            </a>
+          ) : null}
+        </section>
+      </main>
     </>
   );
 }

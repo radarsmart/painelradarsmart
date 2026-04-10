@@ -21,6 +21,8 @@ type OfferRow = {
   discount_pct: number | string | null;
   discount_percent: number | string | null;
   status: string | null;
+  expires_at?: string | null;
+  marketplace?: string | null;
 };
 
 function toNumber(value: unknown): number | null {
@@ -59,7 +61,7 @@ async function getOffer(offerId: string): Promise<OfferRow | null> {
   const { data, error } = await supabaseAdmin
     .from("offers")
     .select(
-      "id,title,image_url,affiliate_url,product_url,price,old_price,original_price,price_old,discount_pct,discount_percent,status",
+      "id,title,image_url,affiliate_url,product_url,price,old_price,original_price,price_old,discount_pct,discount_percent,status,expires_at,marketplace",
     )
     .eq("id", offerId)
     .maybeSingle();
@@ -68,18 +70,36 @@ async function getOffer(offerId: string): Promise<OfferRow | null> {
   return data as OfferRow;
 }
 
+function isOfferVisible(offer: OfferRow | null): boolean {
+  if (!offer || offer.status !== "active") return false;
+  if (!String(offer.affiliate_url ?? "").trim()) return false;
+  const expiresAt = String(offer.expires_at ?? "").trim();
+  if (!expiresAt) return true;
+
+  const expiresDate = new Date(expiresAt);
+  if (Number.isNaN(expiresDate.getTime())) return true;
+
+  return expiresDate.getTime() > Date.now();
+}
+
 export default async function BlogProductCard({ offerId }: BlogProductCardProps) {
   const offer = await getOffer(offerId);
-  if (!offer || offer.status !== "active") {
+  if (!isOfferVisible(offer)) {
     return (
       <aside className="my-8 rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-500">
-        Produto relacionado indisponivel no momento.
+        Produto relacionado indisponível no momento.
       </aside>
     );
   }
 
-  const { price, oldPrice, discountPct } = resolveOfferPricing(offer);
-  const href = offer.affiliate_url || offer.product_url || "#";
+  if (!offer) {
+    return null;
+  }
+
+  const visibleOffer: OfferRow = offer;
+  const { price, oldPrice, discountPct } = resolveOfferPricing(visibleOffer);
+  const href = visibleOffer.affiliate_url || "#";
+  const marketplace = String(visibleOffer.marketplace ?? "").trim() || "Oferta verificada";
 
   return (
     <aside className="my-8 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -90,8 +110,8 @@ export default async function BlogProductCard({ offerId }: BlogProductCardProps)
       <div className="grid gap-4 sm:grid-cols-[140px_1fr] sm:items-center">
         <Link href={`/ofertas/${offer.id}`} className="block">
           <Image
-            src={offer.image_url || "/next.svg"}
-            alt={offer.title || "Produto recomendado"}
+            src={visibleOffer.image_url || "/logo.png"}
+            alt={visibleOffer.title || "Produto recomendado"}
             width={280}
             height={220}
             className="h-28 w-full rounded-xl border border-slate-200 object-cover"
@@ -99,14 +119,17 @@ export default async function BlogProductCard({ offerId }: BlogProductCardProps)
         </Link>
 
         <div>
+          <p className="mb-1 text-[10px] font-black uppercase tracking-widest text-[#9e6a18]">
+            {marketplace}
+          </p>
           <h3 className="line-clamp-2 text-sm font-bold text-[#22223B]">
-            {offer.title || "Produto sem titulo"}
+            {visibleOffer.title || "Produto sem título"}
           </h3>
           <div className="mt-2">
             <div className="mb-2 flex items-center gap-1.5">
               <div className="h-1.5 w-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)]" />
               <span className="text-[9px] font-black uppercase tracking-widest text-emerald-600">
-                Menor preco dos ultimos 30 dias
+                Menor preço dos últimos 30 dias
               </span>
             </div>
             {oldPrice ? (
@@ -125,7 +148,7 @@ export default async function BlogProductCard({ offerId }: BlogProductCardProps)
           </div>
 
           <BotaoAfiliado
-            offerId={offer.id}
+            offerId={visibleOffer.id}
             href={href}
             source="blog_product_card"
             label="Ver Oferta Agora"

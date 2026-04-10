@@ -1,4 +1,4 @@
-import Image from "next/image";
+﻿import Image from "next/image";
 import Link from "next/link";
 import { ArrowRight, Search, Zap } from "lucide-react";
 
@@ -80,39 +80,72 @@ function inferCategory(title: string): string {
     normalized.includes("iphone") ||
     normalized.includes("notebook") ||
     normalized.includes("monitor") ||
-    normalized.includes("smartphone")
+    normalized.includes("smartphone") ||
+    normalized.includes("ssd") ||
+    normalized.includes("tv") ||
+    normalized.includes("tablet") ||
+    normalized.includes("alexa")
   ) {
-    return "Eletronicos";
+    return "Eletrônicos";
   }
 
   if (
     normalized.includes("air fryer") ||
     normalized.includes("cafeteira") ||
-    normalized.includes("cozinha")
+    normalized.includes("cozinha") ||
+    normalized.includes("panela") ||
+    normalized.includes("aspirador") ||
+    normalized.includes("micro-ondas")
   ) {
     return "Casa & Cozinha";
   }
 
+  if (
+    normalized.includes("tenis") ||
+    normalized.includes("tênis") ||
+    normalized.includes("corrida") ||
+    normalized.includes("bike") ||
+    normalized.includes("academia") ||
+    normalized.includes("esporte")
+  ) {
+    return "Esporte & Bem-estar";
+  }
+
   return "Guia de Compras";
+}
+
+function buildExcerptFallback(title: string, category: string): string {
+  if (category === "Eletrônicos") {
+    return `Análise prática de ${title} com foco em desempenho, preço histórico e custo-benefício real.`;
+  }
+
+  if (category === "Casa & Cozinha") {
+    return `Veja se ${title} entrega bom desempenho no dia a dia e se o preço atual realmente vale a compra.`;
+  }
+
+  if (category === "Esporte & Bem-estar") {
+    return `Entenda se ${title} compensa pela qualidade, conforto e preço atual dentro da categoria.`;
+  }
+
+  return `Guia objetivo sobre ${title}, com contexto de compra, preço e leitura rápida de oportunidade.`;
 }
 
 function normalizePosts(rows: BlogPostRow[]): NormalizedBlogPost[] {
   return rows
     .map((post) => {
       const title = post.title?.trim() || "Guia de compra Radar Smart";
+      const category = inferCategory(title);
 
       return {
         id: String(post.id),
         slug: post.slug?.trim() || "",
         title,
-        excerpt:
-          post.excerpt?.trim() ||
-          "Analises profundas, comparativos reais e alertas de preco para voce comprar melhor.",
+        excerpt: post.excerpt?.trim() || buildExcerptFallback(title, category),
         coverImage:
           post.cover_image?.trim() ||
           "https://images.unsplash.com/photo-1545239351-1141bd82e8a6?w=1200",
         publishedAt: post.published_at || post.created_at,
-        category: inferCategory(title),
+        category,
       };
     })
     .filter((post) => Boolean(post.slug));
@@ -174,7 +207,7 @@ export default async function BlogPortalPage() {
             Guia de Compras <span className="text-[#FFC300]">Inteligente</span>
           </h1>
           <p className="mx-auto max-w-2xl text-lg leading-relaxed text-gray-500">
-            Analises profundas, comparativos reais e o melhor preco detectado pelo nosso Radar.
+            Análises profundas, comparativos reais e o melhor preço detectado pelo nosso Radar.
           </p>
 
           <div className="mx-auto mt-8 flex max-w-xl items-center rounded-2xl border border-gray-100 bg-white px-4 py-3 shadow-sm">
@@ -270,7 +303,7 @@ export default async function BlogPortalPage() {
                   ))
                 ) : (
                   <div className="rounded-xl border border-white/10 bg-white/5 p-3 text-xs text-white/70">
-                    Ainda nao ha ofertas ativas destacadas.
+                    Ainda não há ofertas ativas destacadas.
                   </div>
                 )}
               </div>
@@ -281,7 +314,7 @@ export default async function BlogPortalPage() {
             <div className="rounded-3xl border border-gray-100 bg-white p-6">
               <h3 className="mb-4 font-bold text-[#1A1A1A]">Newsletter VIP</h3>
               <p className="mb-4 text-xs text-gray-500">
-                Receba os erros de preco antes de todo mundo.
+                Receba os erros de preço antes de todo mundo.
               </p>
               <input
                 type="email"
@@ -306,3 +339,4 @@ export default async function BlogPortalPage() {
     </>
   );
 }
+

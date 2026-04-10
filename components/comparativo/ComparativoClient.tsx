@@ -47,14 +47,42 @@ export default function ComparativoClient({ offers }: ComparativoClientProps) {
   if (offers.length === 0) {
     return (
       <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-6 text-sm text-slate-500">
-        Ainda não há ofertas ativas suficientes para comparação.
+        Ainda nao ha ofertas ativas suficientes para comparacao.
       </div>
     );
   }
 
+  const comparisonRows = [
+    {
+      label: "Titulo",
+      left: renderText(left?.title ?? null),
+      right: renderText(right?.title ?? null),
+    },
+    {
+      label: "Preco atual",
+      left: left ? formatBRL(left.price) : "-",
+      right: right ? formatBRL(right.price) : "-",
+    },
+    {
+      label: "Desconto",
+      left: left ? `${left.discountPct}% OFF` : "-",
+      right: right ? `${right.discountPct}% OFF` : "-",
+    },
+    {
+      label: "Marketplace",
+      left: renderText(left?.marketplace ?? null),
+      right: renderText(right?.marketplace ?? null),
+    },
+    {
+      label: "Nota/Rating",
+      left: left?.rating ? left.rating.toFixed(1) : "-",
+      right: right?.rating ? right.rating.toFixed(1) : "-",
+    },
+  ];
+
   return (
     <div className="space-y-6">
-      <section className="grid gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-card md:grid-cols-2">
+      <section className="grid gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-card md:grid-cols-2 md:p-5">
         <ProductSearchCombobox
           label="Produto A"
           placeholder="Digite para buscar produto..."
@@ -76,14 +104,87 @@ export default function ComparativoClient({ offers }: ComparativoClientProps) {
       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-card">
         <div className="flex items-center gap-2 border-b border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700">
           <ArrowRightLeft className="h-4 w-4 text-[#9e6a18]" />
-          Comparação lado a lado
+          Comparacao lado a lado
         </div>
 
-        <div className="overflow-x-auto">
+        <div className="space-y-4 p-4 md:hidden">
+          <div className="grid gap-4">
+            {[left, right].map((offer, index) => (
+              <div
+                key={offer?.id ?? `mobile-product-${index}`}
+                className="rounded-2xl border border-slate-200 p-4"
+              >
+                <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Produto {index === 0 ? "A" : "B"}
+                </p>
+
+                {offer ? (
+                  <>
+                    <div className="mb-4 flex items-start gap-3">
+                      <Image
+                        src={offer.imageUrl || "/next.svg"}
+                        alt={offer.title}
+                        width={160}
+                        height={160}
+                        className="h-20 w-20 rounded-xl border border-slate-200 object-cover"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <p className="line-clamp-3 text-sm font-semibold text-slate-800">
+                          {offer.title}
+                        </p>
+                        <p className="mt-2 font-mono text-xl font-black text-[#22223B]">
+                          {formatBRL(offer.price)}
+                        </p>
+                      </div>
+                    </div>
+
+                    <BotaoAfiliado
+                      offerId={offer.id}
+                      href={offer.affiliateUrl}
+                      source={index === 0 ? "comparativo_cta_a_mobile" : "comparativo_cta_b_mobile"}
+                      label="COMPRAR AGORA"
+                      className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#9e6a18] px-4 py-3 text-sm font-extrabold tracking-wide text-white transition hover:brightness-110"
+                    />
+                  </>
+                ) : (
+                  <div className="rounded-xl bg-slate-50 px-4 py-6 text-sm text-slate-400">
+                    Selecione um produto.
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+
+          <div className="grid gap-3">
+            {comparisonRows.map((row) => (
+              <div key={row.label} className="rounded-2xl border border-slate-200 p-4">
+                <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  {row.label}
+                </p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="rounded-xl bg-slate-50 p-3">
+                    <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                      Produto A
+                    </p>
+                    <p className="text-sm font-medium text-slate-800">{row.left}</p>
+                  </div>
+                  <div className="rounded-xl bg-slate-50 p-3">
+                    <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                      Produto B
+                    </p>
+                    <p className="text-sm font-medium text-slate-800">{row.right}</p>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="hidden overflow-x-auto md:block">
           <table className="w-full min-w-[760px] text-left text-sm">
             <thead>
               <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
-                <th className="px-4 py-3">Critério</th>
+                <th className="px-4 py-3">Criterio</th>
                 <th className="px-4 py-3">Produto A</th>
                 <th className="px-4 py-3">Produto B</th>
               </tr>
@@ -120,7 +221,7 @@ export default function ComparativoClient({ offers }: ComparativoClientProps) {
               </tr>
 
               <tr className="border-b border-slate-100">
-                <td className="px-4 py-3 font-semibold text-slate-600">Título</td>
+                <td className="px-4 py-3 font-semibold text-slate-600">Titulo</td>
                 <td className="px-4 py-3 font-medium text-slate-800">
                   {renderText(left?.title ?? null)}
                 </td>
@@ -130,7 +231,7 @@ export default function ComparativoClient({ offers }: ComparativoClientProps) {
               </tr>
 
               <tr className="border-b border-slate-100">
-                <td className="px-4 py-3 font-semibold text-slate-600">Preço atual</td>
+                <td className="px-4 py-3 font-semibold text-slate-600">Preco atual</td>
                 <td className="px-4 py-3 font-mono text-lg font-bold text-[#22223B]">
                   {left ? formatBRL(left.price) : "-"}
                 </td>
@@ -244,8 +345,8 @@ export default function ComparativoClient({ offers }: ComparativoClientProps) {
       </section>
 
       <p className="text-xs text-slate-500">
-        Os preços podem variar por região e método de pagamento. Sempre confirme
-        as condições na loja oficial antes de finalizar.
+        Os precos podem variar por regiao e metodo de pagamento. Sempre confirme as
+        condicoes na loja oficial antes de finalizar.
       </p>
     </div>
   );

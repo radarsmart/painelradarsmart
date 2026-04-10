@@ -15,8 +15,8 @@ import OfferTicker, { type TickerOffer } from "@/components/layout/OfferTicker";
 import Header from "@/components/layout/Header";
 import Footer from "@/components/layout/Footer";
 import CountdownTimer from "@/components/vitrine/CountdownTimer";
-import { PushSubscription } from "@/components/PushSubscription";
 import { formatBRL } from "@/lib/formatters";
+import { isOfferVisibleOnSite } from "@/lib/offers/site-visibility";
 import { supabase } from "@/lib/supabase";
 
 type OfferRow = {
@@ -35,7 +35,13 @@ type OfferRow = {
   rating: number | string | null;
   review_count: number | string | null;
   reviews_count: number | string | null;
+  slot_type?: string | null;
+  curations_status?: string | null;
   created_at: string;
+  updated_at?: string | null;
+  published_at?: string | null;
+  expires_at?: string | null;
+  manual_copy?: unknown;
   status: string | null;
 };
 
@@ -97,6 +103,15 @@ const reveal = {
 const WHATSAPP_GROUP_URL =
   process.env.NEXT_PUBLIC_WHATSAPP_GROUP_URL ??
   "https://chat.whatsapp.com/G5fdVL51Zr94XDoqOexP9d";
+
+function EmptyOffersState({ message }: { message: string }) {
+  return (
+    <div className="rounded-2xl border border-dashed border-slate-300 bg-white/70 px-6 py-10 text-center text-sm font-semibold text-slate-500">
+      {message}
+    </div>
+  );
+}
+
 const fallbackGuides: HomePost[] = [
   {
     id: "guide-1",
@@ -144,6 +159,9 @@ function toNumber(value: unknown): number | null {
 }
 
 function normalizeOffer(row: OfferRow): HomeOffer | null {
+  const affiliateUrl = String(row.affiliate_url ?? "").trim();
+  if (!affiliateUrl) return null;
+
   const parsedPrice = toNumber(row.price);
   const price = parsedPrice !== null && parsedPrice > 0 ? parsedPrice : 0;
 
@@ -169,7 +187,7 @@ function normalizeOffer(row: OfferRow): HomeOffer | null {
     oldPrice,
     discount,
     imageUrl: row.image_url,
-    affiliateUrl: row.affiliate_url || row.product_url || "#",
+    affiliateUrl,
     rating: toNumber(row.rating),
     reviews: toNumber(row.review_count) ?? toNumber(row.reviews_count),
   };
@@ -189,7 +207,6 @@ function normalizePost(row: BlogPostRow): HomePost {
 }
 
 export default function HomePage() {
-  const [heroOffers, setHeroOffers] = useState<HomeOffer[]>([]);
   const [flashOffers, setFlashOffers] = useState<HomeOffer[]>([]);
   const [bestOffers, setBestOffers] = useState<HomeOffer[]>([]);
   const [comparatorOffers, setComparatorOffers] = useState<HomeOffer[]>([]);
@@ -221,10 +238,9 @@ export default function HomePage() {
       setLoading(true);
 
       const offerSelect =
-        "id,title,price,old_price,original_price,price_old,discount_pct,discount_percent,image_url,affiliate_url,product_url,marketplace,rating,review_count,reviews_count,created_at,status";
+        "id,title,price,old_price,original_price,price_old,discount_pct,discount_percent,image_url,affiliate_url,product_url,marketplace,rating,review_count,reviews_count,slot_type,curations_status,created_at,updated_at,published_at,expires_at,manual_copy,status";
 
       const [
-        { data: heroRows },
         { data: flashRows },
         { data: bestRows },
         { data: comparatorRows },
@@ -234,34 +250,23 @@ export default function HomePage() {
           .from("offers")
           .select(offerSelect)
           .eq("status", "active")
-          .eq("curations_status", "approved")
-          .eq("slot_type", "hero")
-          .order("created_at", { ascending: false })
-          .limit(3),
-        supabase
-          .from("offers")
-          .select(offerSelect)
-          .eq("status", "active")
-          .eq("curations_status", "approved")
           .eq("slot_type", "flash")
-          .order("created_at", { ascending: false })
-          .limit(8),
+          .order("updated_at", { ascending: false })
+          .limit(40),
         supabase
           .from("offers")
           .select(offerSelect)
           .eq("status", "active")
-          .eq("curations_status", "approved")
           .eq("slot_type", "best")
-          .order("created_at", { ascending: false })
-          .limit(20),
+          .order("updated_at", { ascending: false })
+          .limit(120),
         supabase
           .from("offers")
           .select(offerSelect)
           .eq("status", "active")
-          .eq("curations_status", "approved")
           .eq("slot_type", "comparator")
           .order("click_count", { ascending: false })
-          .limit(12),
+          .limit(40),
         supabase
           .from("blog_posts")
           .select(
@@ -272,16 +277,16 @@ export default function HomePage() {
           .limit(4),
       ]);
 
-      const normalizedHeroOffers = ((heroRows ?? []) as OfferRow[])
-        .map(normalizeOffer)
-        .filter((offer): offer is HomeOffer => Boolean(offer));
       const normalizedFlashOffers = ((flashRows ?? []) as OfferRow[])
+        .filter((row) => isOfferVisibleOnSite(row))
         .map(normalizeOffer)
         .filter((offer): offer is HomeOffer => Boolean(offer));
       const normalizedBestOffers = ((bestRows ?? []) as OfferRow[])
+        .filter((row) => isOfferVisibleOnSite(row))
         .map(normalizeOffer)
         .filter((offer): offer is HomeOffer => Boolean(offer));
       const normalizedComparatorOffers = ((comparatorRows ?? []) as OfferRow[])
+        .filter((row) => isOfferVisibleOnSite(row))
         .map(normalizeOffer)
         .filter((offer): offer is HomeOffer => Boolean(offer));
 
@@ -289,7 +294,6 @@ export default function HomePage() {
         .map(normalizePost)
         .slice(0, 4);
 
-      setHeroOffers(normalizedHeroOffers);
       setFlashOffers(normalizedFlashOffers);
       setBestOffers(normalizedBestOffers);
       setComparatorOffers(normalizedComparatorOffers);
@@ -301,8 +305,8 @@ export default function HomePage() {
   }, []);
 
   const offers = useMemo(
-    () => dedupeOffers([...heroOffers, ...flashOffers, ...bestOffers, ...comparatorOffers]),
-    [heroOffers, flashOffers, bestOffers, comparatorOffers],
+    () => dedupeOffers([...flashOffers, ...bestOffers, ...comparatorOffers]),
+    [flashOffers, bestOffers, comparatorOffers],
   );
 
   const tickerOffers: TickerOffer[] = useMemo(
@@ -318,37 +322,32 @@ export default function HomePage() {
     [offers],
   );
 
-  const spotlightOffers = useMemo(
-    () => (heroOffers.length ? heroOffers.slice(0, 3) : bestOffers.slice(0, 3)),
-    [heroOffers, bestOffers],
-  );
-
   const relampagoOffers = useMemo(
-    () => (flashOffers.length ? flashOffers.slice(0, 4) : bestOffers.slice(0, 4)),
-    [flashOffers, bestOffers],
+    () => flashOffers.slice(0, 4),
+    [flashOffers],
   );
 
   const dayOffers = useMemo(
-    () => (bestOffers.length ? bestOffers.slice(0, 4) : offers.slice(0, 4)),
-    [bestOffers, offers],
+    () => bestOffers.slice(0, 8),
+    [bestOffers],
   );
 
   const compareOffers = useMemo(() => {
-    const base = comparatorOffers.length ? comparatorOffers : bestOffers.slice(0, 6);
+    const base = comparatorOffers;
     const sorted = [...base].sort((a, b) => {
       if (compareMode === "price") return a.price - b.price;
       if (compareMode === "discount") return b.discount - a.discount;
       return (b.rating ?? 0) - (a.rating ?? 0);
     });
     return sorted.slice(0, 4);
-  }, [comparatorOffers, bestOffers, compareMode]);
+  }, [comparatorOffers, compareMode]);
 
   return (
     <div className="bg-[#F3F6F9] text-navy">
       <OfferTicker offers={tickerOffers} />
       <Header withTickerOffset />
 
-      <main className="mx-auto max-w-7xl space-y-14 px-4 pb-24 pt-24 md:pb-16">
+      <main className="mx-auto max-w-7xl space-y-10 px-4 pb-24 pt-24 sm:space-y-14 md:pb-16">
         <motion.section
           variants={reveal}
           initial="hidden"
@@ -367,66 +366,45 @@ export default function HomePage() {
             <source src="https://radarsmart.vercel.app/design-sem-nome-6.mp4" type="video/mp4" />
             <source src="/radar-smart.mp4" type="video/mp4" />
           </video>
-          <div className="absolute inset-0 z-10 bg-gradient-to-b from-[#22223B]/70 via-[#22223B]/65 to-[#22223B]/70" />
+          <div className="absolute inset-0 z-10 bg-[radial-gradient(circle_at_center,rgba(158,106,24,0.26),transparent_34%),linear-gradient(135deg,rgba(34,34,59,0.88),rgba(34,34,59,0.72)_45%,rgba(9,12,24,0.9))]" />
 
-          <div className="relative z-20 grid gap-8 p-7 md:grid-cols-[1.2fr_0.8fr] md:p-12">
-            <div>
-              <span className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-1 text-xs uppercase tracking-wide">
+          <div className="relative z-20 flex min-h-[360px] items-center justify-center px-5 py-10 text-center sm:min-h-[430px] sm:px-7 sm:py-14 md:min-h-[520px] md:px-12 lg:px-16">
+            <div className="mx-auto max-w-6xl">
+              <span className="inline-flex items-center justify-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-100 sm:px-4 sm:text-[11px] sm:tracking-[0.22em]">
                 <Sparkles className="h-3.5 w-3.5 text-[#9e6a18]" />
                 Curadoria inteligente em tempo real
               </span>
-              <h1 className="mt-4 font-display text-4xl font-black leading-[1.1] md:text-5xl">
-                Economize com inteligência e compre no momento certo.
+              <h1 className="mx-auto mt-5 max-w-6xl font-hero text-[2.2rem] font-extrabold leading-[0.98] tracking-[-0.04em] sm:mt-6 sm:text-[2.65rem] md:text-[4.45rem] lg:text-[4.8rem] xl:text-[5rem]">
+                <span className="block text-white">Seu radar para</span>
+                <span className="block text-[#D39B32] md:whitespace-nowrap">comprar melhor.</span>
               </h1>
-              <p className="mt-4 max-w-xl text-sm text-slate-200 md:text-base">
-                A Radar Smart rastreia ofertas, compara preços e entrega oportunidades prontas para decisão.
+              <p className="mx-auto mt-5 max-w-2xl text-sm leading-6 text-slate-200 sm:mt-6 sm:text-base sm:leading-7 md:text-lg md:leading-8">
+                As melhores ofertas do dia,{" "}
+                <span className="font-semibold text-white">já filtradas.</span>
+                <br />
+                Você só decide qual comprar.
               </p>
-
-              <div className="mt-6 flex flex-wrap gap-3">
+              <div className="mt-7 flex flex-col justify-center gap-3 sm:mt-8 sm:flex-row sm:flex-wrap">
                 <motion.a
                   href={WHATSAPP_GROUP_URL}
                   target="_blank"
                   rel="noopener noreferrer"
                   whileHover={{ scale: 1.04 }}
                   whileTap={{ scale: 0.98 }}
-                  className="rounded-full bg-[#9e6a18] px-6 py-3 text-sm font-bold uppercase tracking-wide text-white shadow-[0_0_20px_rgba(158,106,24,0.4)] hover:brightness-110"
+                  className="rounded-full bg-[#9e6a18] px-6 py-3 text-sm font-bold uppercase tracking-wide text-white shadow-[0_0_20px_rgba(158,106,24,0.4)] hover:brightness-110 sm:min-w-[220px]"
                 >
                   Entrar no Grupo VIP
                 </motion.a>
                 <Link
                   href="/ofertas"
-                  className="rounded-full border border-white/30 px-6 py-3 text-sm font-semibold text-white hover:bg-white/10"
+                  className="rounded-full border border-white/30 px-6 py-3 text-sm font-semibold text-white hover:bg-white/10 sm:min-w-[220px]"
                 >
                   Ver Ofertas
                 </Link>
               </div>
-
-              {spotlightOffers.length ? (
-                <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  {spotlightOffers.map((offer) => (
-                    <a
-                      key={`hero-${offer.id}`}
-                      href={buildTrackedOfferUrl(offer.id, "home_hero")}
-                      target="_blank"
-                      rel="noopener noreferrer sponsored"
-                      className="rounded-2xl border border-white/10 bg-white/10 p-3 transition hover:bg-white/15"
-                    >
-                      <p className="line-clamp-2 text-sm font-semibold">{offer.title}</p>
-                      <div className="mt-2 flex items-center justify-between">
-                        <span className="font-mono text-sm font-bold text-[#F6C453]">
-                          {formatOfferPrice(offer.price)}
-                        </span>
-                        <span className="rounded-full bg-white/10 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-slate-100">
-                          Hero
-                        </span>
-                      </div>
-                    </a>
-                  ))}
-                </div>
-              ) : null}
             </div>
 
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 md:grid-cols-1">
+            <div className="hidden">
               <div className="rounded-2xl border border-white/10 bg-white/10 p-4">
                 <p className="text-xs uppercase text-slate-200">Ofertas monitoradas</p>
                 <p className="mt-1 text-2xl font-bold">{offers.length || 0}</p>
@@ -462,13 +440,14 @@ export default function HomePage() {
             <h2 className="font-display text-2xl font-bold text-navy">Ofertas Relâmpago</h2>
             <Flame className="h-5 w-5 text-[#9e6a18]" />
           </div>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:gap-6 lg:grid-cols-3 xl:grid-cols-4">
-            {relampagoOffers.map((offer, index) => (
+          {relampagoOffers.length ? (
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:gap-6 lg:grid-cols-3 xl:grid-cols-4">
+              {relampagoOffers.map((offer, index) => (
               <article
                 key={`flash-${offer.id}`}
                 className="rounded-2xl border border-slate-200 bg-white p-4 shadow-card"
               >
-                <div className="flex h-52 items-center justify-center overflow-hidden rounded-t-xl border border-slate-100 bg-white">
+                <div className="flex h-44 items-center justify-center overflow-hidden rounded-t-xl border border-slate-100 bg-white sm:h-52">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={offer.imageUrl || "/next.svg"}
@@ -476,9 +455,9 @@ export default function HomePage() {
                     className="h-full w-full object-contain"
                   />
                 </div>
-                <p className="mt-3 line-clamp-2 text-sm font-semibold">{offer.title}</p>
-                <div className="mt-2 flex items-center gap-2">
-                  <p className="font-mono text-xl font-bold text-[#22223B]">
+                <p className="mt-3 line-clamp-2 text-sm font-semibold sm:text-[15px]">{offer.title}</p>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <p className="font-mono text-lg font-bold text-[#22223B] sm:text-xl">
                     {formatOfferPrice(offer.price)}
                   </p>
                   {offer.oldPrice ? (
@@ -499,13 +478,16 @@ export default function HomePage() {
                   href={buildTrackedOfferUrl(offer.id, "home_flash")}
                   target="_blank"
                   rel="noopener noreferrer sponsored"
-                  className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#22223B] px-3 py-2 text-sm font-semibold text-white hover:bg-[#2f2f4d]"
+                  className="mt-3 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#22223B] px-3 py-2 text-sm font-semibold text-white hover:bg-[#2f2f4d]"
                 >
                   Comprar agora <ArrowUpRight className="h-4 w-4" />
                 </a>
-              </article>
-            ))}
-          </div>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <EmptyOffersState message="Nenhuma oferta relampago publicada no momento." />
+          )}
         </motion.section>
 
         <motion.section
@@ -522,13 +504,14 @@ export default function HomePage() {
               Ver todas
             </Link>
           </div>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:gap-6 lg:grid-cols-3 xl:grid-cols-4">
-            {dayOffers.map((offer) => (
+          {dayOffers.length ? (
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:gap-6 lg:grid-cols-3 xl:grid-cols-4">
+              {dayOffers.map((offer) => (
               <article
                 key={`day-${offer.id}`}
                 className="group rounded-2xl border border-slate-200 bg-white p-4 shadow-card transition hover:-translate-y-0.5"
               >
-                <div className="flex h-52 items-center justify-center overflow-hidden rounded-t-xl border border-slate-100 bg-white">
+                <div className="flex h-44 items-center justify-center overflow-hidden rounded-t-xl border border-slate-100 bg-white sm:h-52">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={offer.imageUrl || "/next.svg"}
@@ -539,21 +522,36 @@ export default function HomePage() {
                 <p className="mt-3 text-xs uppercase tracking-wide text-slate-500">
                   {offer.marketplace}
                 </p>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  {offer.discount > 0 ? (
+                    <span className="rounded-full bg-emerald-50 px-2 py-1 text-[11px] font-bold text-emerald-700">
+                      {offer.discount}% OFF
+                    </span>
+                  ) : null}
+                  {offer.oldPrice ? (
+                    <span className="text-xs text-slate-400 line-through">
+                      {formatBRL(offer.oldPrice)}
+                    </span>
+                  ) : null}
+                </div>
                 <h3 className="mt-1 line-clamp-2 text-sm font-semibold">{offer.title}</h3>
-                <p className="mt-2 font-mono text-xl font-bold text-[#22223B]">
+                <p className="mt-2 font-mono text-lg font-bold text-[#22223B] sm:text-xl">
                   {formatOfferPrice(offer.price)}
                 </p>
                 <a
                   href={buildTrackedOfferUrl(offer.id, "home_best")}
                   target="_blank"
                   rel="noopener noreferrer sponsored"
-                  className="mt-3 inline-flex w-full items-center justify-center rounded-xl border border-[#9e6a18] px-3 py-2 text-sm font-semibold text-[#9e6a18] transition group-hover:bg-[#9e6a18] group-hover:text-white"
+                  className="mt-3 inline-flex min-h-11 w-full items-center justify-center rounded-xl border border-[#9e6a18] px-3 py-2 text-sm font-semibold text-[#9e6a18] transition group-hover:bg-[#9e6a18] group-hover:text-white"
                 >
                   Ver oferta
                 </a>
-              </article>
-            ))}
-          </div>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <EmptyOffersState message="Nenhuma oferta publicada no momento." />
+          )}
         </motion.section>
 
         <motion.section
@@ -588,7 +586,59 @@ export default function HomePage() {
             </div>
           </div>
 
-          <div className="mt-4 overflow-x-auto">
+          {compareOffers.length ? (
+            <>
+            <div className="mt-4 grid gap-3 md:hidden">
+              {compareOffers.map((offer, index) => (
+                <article
+                  key={`cmp-mobile-${offer.id}`}
+                  className={`rounded-2xl border p-4 ${
+                    index === 0 ? "border-amber-200 bg-amber-50/60" : "border-slate-200 bg-white"
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        {index === 0 ? "Melhor escolha" : `Ranking #${index + 1}`}
+                      </p>
+                      <p className="mt-1 line-clamp-2 text-sm font-semibold text-navy">
+                        {offer.title}
+                      </p>
+                    </div>
+                    <span className="rounded-full bg-[#9e6a18]/15 px-2 py-1 text-xs font-bold text-[#9e6a18]">
+                      {offer.discount}% OFF
+                    </span>
+                  </div>
+                  <div className="mt-3 grid grid-cols-2 gap-3 rounded-xl bg-slate-50 p-3 text-sm">
+                    <div>
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                        Preco
+                      </p>
+                      <p className="mt-1 font-mono font-bold text-[#22223B]">
+                        {formatOfferPrice(offer.price)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                        Avaliacao
+                      </p>
+                      <p className="mt-1 font-medium text-[#22223B]">
+                        {offer.rating ? offer.rating.toFixed(1) : "-"}
+                      </p>
+                    </div>
+                  </div>
+                  <a
+                    href={buildTrackedOfferUrl(offer.id, "home_compare_mobile")}
+                    target="_blank"
+                    rel="noopener noreferrer sponsored"
+                    className="mt-3 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold hover:border-[#9e6a18] hover:text-[#9e6a18]"
+                  >
+                    Ver oferta <TrendingUp className="h-3.5 w-3.5" />
+                  </a>
+                </article>
+              ))}
+            </div>
+            <div className="mt-4 hidden overflow-x-auto md:block">
             <table className="w-full min-w-[680px] text-left text-sm">
               <thead>
                 <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
@@ -636,8 +686,14 @@ export default function HomePage() {
                   </tr>
                 ))}
               </tbody>
-            </table>
-          </div>
+              </table>
+            </div>
+            </>
+          ) : (
+            <div className="mt-4">
+              <EmptyOffersState message="Nenhuma oferta disponivel para comparar no momento." />
+            </div>
+          )}
         </motion.section>
 
         <motion.section
@@ -686,8 +742,6 @@ export default function HomePage() {
       </main>
 
       <Footer />
-
-      <PushSubscription />
 
       {loading ? (
         <div className="pointer-events-none fixed bottom-24 right-4 z-[80] rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-600 shadow md:bottom-4">

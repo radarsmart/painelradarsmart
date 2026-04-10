@@ -1,9 +1,10 @@
-import type { Metadata } from "next";
+﻿import type { Metadata } from "next";
 import Header from "@/components/layout/Header";
 import Footer from "@/components/layout/Footer";
 import ComparativoClient, {
   type CompareOffer,
 } from "@/components/comparativo/ComparativoClient";
+import { isOfferVisibleOnSite } from "@/lib/offers/site-visibility";
 import { supabaseAdmin } from "@/lib/supabase";
 
 type OfferRow = {
@@ -22,7 +23,13 @@ type OfferRow = {
   affiliate_url: string | null;
   product_url: string | null;
   status: string | null;
+  curations_status?: string | null;
   created_at: string | null;
+  updated_at?: string | null;
+  published_at?: string | null;
+  expires_at?: string | null;
+  slot_type?: string | null;
+  manual_copy?: unknown;
 };
 
 export const metadata: Metadata = {
@@ -47,6 +54,9 @@ function toNumber(value: unknown): number | null {
 }
 
 function normalizeOffer(row: OfferRow): CompareOffer | null {
+  const affiliateUrl = String(row.affiliate_url ?? "").trim();
+  if (!affiliateUrl) return null;
+
   const price = toNumber(row.price);
   if (price === null || price <= 0) return null;
 
@@ -74,7 +84,7 @@ function normalizeOffer(row: OfferRow): CompareOffer | null {
     discountPct,
     rating: toNumber(row.rating),
     imageUrl: row.image_url,
-    affiliateUrl: row.affiliate_url || row.product_url || "#",
+    affiliateUrl,
     category: row.category,
   };
 }
@@ -83,15 +93,16 @@ async function getActiveOffers(): Promise<CompareOffer[]> {
   const { data, error } = await supabaseAdmin
     .from("offers")
     .select(
-      "id,title,marketplace,category,price,old_price,original_price,price_old,discount_pct,discount_percent,rating,image_url,affiliate_url,product_url,status,created_at",
+      "id,title,marketplace,category,price,old_price,original_price,price_old,discount_pct,discount_percent,rating,image_url,affiliate_url,product_url,status,curations_status,created_at,updated_at,published_at,expires_at,slot_type,manual_copy",
     )
     .eq("status", "active")
-    .order("created_at", { ascending: false })
+    .order("updated_at", { ascending: false })
     .limit(120);
 
   if (error || !data) return [];
 
   return (data as OfferRow[])
+    .filter((row) => isOfferVisibleOnSite(row))
     .map(normalizeOffer)
     .filter((offer): offer is CompareOffer => Boolean(offer));
 }
@@ -119,4 +130,5 @@ export default async function ComparativoPage() {
     </>
   );
 }
+
 

@@ -1,4 +1,4 @@
-import Image from "next/image";
+﻿import Image from "next/image";
 import Link from "next/link";
 import { Suspense } from "react";
 import type { Metadata } from "next";
@@ -13,6 +13,7 @@ import Header from "@/components/layout/Header";
 import Footer from "@/components/layout/Footer";
 import BotaoAfiliado from "@/components/ui/BotaoAfiliado";
 import { formatBRL } from "@/lib/formatters";
+import { isOfferVisibleOnSite } from "@/lib/offers/site-visibility";
 import { formatMonthYearPtBr, toAbsoluteSiteUrl } from "@/lib/site";
 import { supabaseAdmin } from "@/lib/supabase";
 
@@ -41,6 +42,13 @@ type OfferRow = {
   reviews_count: number | string | null;
   raw_data: unknown;
   status: string | null;
+  curations_status?: string | null;
+  expires_at?: string | null;
+  published_at?: string | null;
+  updated_at?: string | null;
+  created_at?: string | null;
+  slot_type?: string | null;
+  manual_copy?: unknown;
 };
 
 type OfferSummary = {
@@ -60,7 +68,6 @@ type ProductSpec = {
 };
 
 export const revalidate = 120;
-
 function buildSupportWhatsAppUrl(message: string): string {
   const supportNumber = (
     process.env.NEXT_PUBLIC_SUPPORT_WHATSAPP ?? "5547992890613"
@@ -120,6 +127,9 @@ function resolveDiscount(row: OfferRow, currentPrice: number, oldPrice: number |
 }
 
 function toSummary(row: OfferRow): OfferSummary | null {
+  const affiliateUrl = String(row.affiliate_url ?? "").trim();
+  if (!affiliateUrl) return null;
+
   const price = toNumber(row.price);
   if (price === null || price <= 0) return null;
 
@@ -130,7 +140,7 @@ function toSummary(row: OfferRow): OfferSummary | null {
     id: row.id,
     title: row.title?.trim() || "Oferta sem título",
     imageUrl: row.image_url,
-    affiliateUrl: row.affiliate_url || row.product_url || "#",
+    affiliateUrl,
     price,
     oldPrice,
     discountPct,
@@ -248,8 +258,15 @@ async function getOfferById(id: string): Promise<OfferRow | null> {
         "rating",
         "review_count",
         "reviews_count",
+        "slot_type",
+        "manual_copy",
         "raw_data",
         "status",
+        "curations_status",
+        "expires_at",
+        "published_at",
+        "updated_at",
+        "created_at",
       ].join(","),
     )
     .eq("id", id)
@@ -263,7 +280,7 @@ async function getRelatedOffers(source: OfferRow): Promise<OfferSummary[]> {
   let query = supabaseAdmin
     .from("offers")
     .select(
-      "id,title,image_url,affiliate_url,product_url,price,old_price,original_price,price_old,discount_pct,discount_percent,marketplace,status",
+      "id,title,image_url,affiliate_url,product_url,price,old_price,original_price,price_old,discount_pct,discount_percent,marketplace,status,curations_status,expires_at,published_at,updated_at,created_at,slot_type,manual_copy",
     )
     .eq("status", "active")
     .neq("id", source.id)
@@ -277,6 +294,7 @@ async function getRelatedOffers(source: OfferRow): Promise<OfferSummary[]> {
 
   const { data } = await query;
   const normalized = ((data ?? []) as OfferRow[])
+    .filter((row) => isOfferVisibleOnSite(row))
     .map(toSummary)
     .filter((offer): offer is OfferSummary => Boolean(offer));
   return normalized.slice(0, 4);
@@ -395,7 +413,7 @@ function OfferPageSkeleton() {
 
 async function OfferDetailContent({ id }: { id: string }) {
   const offer = await getOfferById(id);
-  if (!offer || offer.status !== "active") {
+  if (!offer || !isOfferVisibleOnSite(offer)) {
     notFound();
   }
 
@@ -647,7 +665,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
     };
   }
 
-  if (offer.status !== "active") {
+  if (!isOfferVisibleOnSite(offer)) {
     return {
       ...fallbackMetadata,
       robots: {
@@ -713,3 +731,4 @@ export default function OfertaDetailPage({ params }: PageProps) {
     </>
   );
 }
+

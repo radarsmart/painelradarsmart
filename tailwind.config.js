@@ -16,6 +16,7 @@ module.exports = {
         },
       },
       fontFamily: {
+        hero: ["Bricolage Grotesque", "Syne", "Inter", "sans-serif"],
         display: ["Syne", "Inter", "sans-serif"],
         body: ["DM Sans", "Inter", "sans-serif"],
         mono: ["JetBrains Mono", "monospace"],

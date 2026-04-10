@@ -4,7 +4,7 @@ type Categoria = {
   id?: string;
   name?: string;
   slug?: string;
-  icon?: string;
+  icon?: string | null;
 };
 
 export default function CategoriasScroll({

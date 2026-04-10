@@ -51,7 +51,7 @@ export default function OfferTicker({ offers }: OfferTickerProps) {
           {tickerItems.map((offer, index) => {
             const href = offer.id
               ? `/go/${offer.id}?source=ticker`
-              : offer.affiliate_url || offer.product_url || "#";
+              : offer.affiliate_url || "#";
             const discount = Math.max(0, Math.round(toValidNumber(offer.discount_pct)));
 
             return (
@@ -60,13 +60,13 @@ export default function OfferTicker({ offers }: OfferTickerProps) {
                 href={href}
                 target="_blank"
                 rel="noopener noreferrer sponsored"
-                className="group flex min-w-[330px] items-center gap-2 rounded-full border border-white/10 bg-white/5 px-2 py-1 transition hover:bg-white/10"
+                className="group flex min-w-[260px] items-center gap-2 rounded-full border border-white/10 bg-white/5 px-2 py-1 transition hover:bg-white/10 sm:min-w-[330px]"
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={offer.image_url || "/next.svg"}
                   alt={offer.title}
-                  className="h-8 w-8 rounded-full border border-white/10 object-cover"
+                  className="h-7 w-7 rounded-full border border-white/10 object-cover sm:h-8 sm:w-8"
                   loading="lazy"
                 />
                 <span className="line-clamp-1 flex-1 text-xs font-medium text-slate-100">

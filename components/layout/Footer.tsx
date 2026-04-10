@@ -2,6 +2,8 @@
 
 import Image from "next/image";
 import Link from "next/link";
+import { Instagram } from "lucide-react";
+import BrandWordmark from "@/components/layout/BrandWordmark";
 
 const GROUP_URL =
   process.env.NEXT_PUBLIC_WHATSAPP_GROUP_URL ??
@@ -20,21 +22,19 @@ export default function Footer() {
                 width={44}
                 height={44}
                 priority
-                className="h-11 w-11 object-contain brightness-0 invert transition-transform group-hover:scale-105"
+                className="h-11 w-11 object-contain transition-transform duration-200 group-hover:scale-105"
               />
-              <span className="text-xl font-black tracking-wider transition-colors group-hover:text-[#9e6a18]">
-                RADAR <span className="text-[#9e6a18]">SMART</span>
-              </span>
+              <BrandWordmark variant="footer" />
             </Link>
             <p className="max-w-xs text-sm leading-relaxed text-slate-400">
-              Curadoria premium de ofertas para comprar melhor, mais rápido e com
-              segurança.
+              Curadoria premium de ofertas para comprar melhor, mais rapido e com
+              seguranca.
             </p>
           </div>
 
           <div>
             <h3 className="mb-4 text-xs font-bold uppercase tracking-widest text-slate-500">
-              Páginas
+              Paginas
             </h3>
             <nav className="flex flex-col gap-3 text-sm font-medium text-slate-300">
               <Link href="/ofertas" className="transition-all hover:text-[#9e6a18]">
@@ -58,7 +58,7 @@ export default function Footer() {
                 href={GROUP_URL}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="rounded-full bg-[#25D366] p-2.5 transition-all hover:scale-110 shadow-lg shadow-green-900/20"
+                className="rounded-full bg-[#25D366] p-2.5 shadow-lg shadow-green-900/20 transition-all hover:scale-110"
                 aria-label="WhatsApp"
               >
                 <svg className="h-5 w-5 fill-white" viewBox="0 0 24 24" aria-hidden="true">
@@ -68,17 +68,15 @@ export default function Footer() {
 
               <a
                 href="#"
-                className="rounded-full bg-[#E4405F] p-2.5 transition-all hover:scale-110 shadow-lg shadow-pink-900/20"
+                className="rounded-full bg-[linear-gradient(135deg,#f58529_0%,#feda77_18%,#dd2a7b_50%,#8134af_78%,#515bd4_100%)] p-2.5 shadow-lg shadow-pink-900/20 transition-all hover:scale-110"
                 aria-label="Instagram"
               >
-                <svg className="h-5 w-5 fill-white" viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M12 2.163c3.204 0 3.584.012 4.85.07 1.17.054 1.805.249 2.227.412.56.216.96.474 1.38.894.42.42.678.82.894 1.38.163.422.358 1.057.412 2.227.058 1.266.07 1.646.07 4.85s-.012 3.584-.07 4.85c-.054 1.17-.249 1.805-.412 2.227-.216.56-.474.96-.894 1.38-.42.42-.82.678-1.38.894-.422.163-1.057.358-2.227.412-1.266.058-1.646.07-4.85.07s-3.584-.012-4.85-.07c-1.17-.054-1.805-.249-2.227-.412-.56-.216-.96-.474-1.38-.894-.42-.42-.678-.82-.894-1.38-.163-.422-.358-1.057-.412-2.227-.058-1.266-.07-1.646-.07-4.85s.012-3.584.07-4.85c.054-1.17.249-1.805.412-2.227.216-.56.474-.96.894-1.38.42-.42.82-.678 1.38-.894.422-.163 1.057-.358 2.227-.412 1.266-.058 1.646-.07 4.85-.07zm0-2.163c-3.259 0-3.667.014-4.947.072-1.277.057-2.148.258-2.911.554-.788.306-1.457.715-2.122 1.38s-1.074 1.334-1.38 2.122c-.296.763-.497 1.634-.554 2.911-.058 1.28-.072 1.688-.072 4.947s.014 3.667.072 4.947c.057 1.277.258 2.148.554 2.911.306.788.715 1.457 1.38 2.122s1.334 1.074 2.122 1.38c.763.296 1.634.497 2.911.554 1.28.058 1.688.072 4.947.072s3.667-.014 4.947-.072c1.277-.057 2.148-.258 2.911-.554.788-.306 1.457-.715 2.122-1.38s1.074-1.334 1.38-2.122c.296-.763.497-1.634.554-2.911.058-1.28.072-1.688.072-4.947s-.014-3.667-.072-4.947c-.057-1.277-.258-2.148-.554-2.911-.306-.788-.715-1.457-1.38-2.122s-1.334-1.074-2.122-1.38c-.763-.296-1.634-.497-2.911-.554-1.28-.058-1.688-.072-4.947-.072z" />
-                </svg>
+                <Instagram className="h-5 w-5 text-white" strokeWidth={2.25} aria-hidden="true" />
               </a>
 
               <a
                 href="#"
-                className="rounded-full bg-[#1877F2] p-2.5 transition-all hover:scale-110 shadow-lg shadow-blue-900/20"
+                className="rounded-full bg-[#1877F2] p-2.5 shadow-lg shadow-blue-900/20 transition-all hover:scale-110"
                 aria-label="Facebook"
               >
                 <svg className="h-5 w-5 fill-white" viewBox="0 0 24 24" aria-hidden="true">
@@ -88,7 +86,7 @@ export default function Footer() {
 
               <a
                 href="#"
-                className="rounded-full border border-white/10 bg-black p-2.5 transition-all hover:scale-110 shadow-lg shadow-black/40"
+                className="rounded-full border border-white/10 bg-black p-2.5 shadow-lg shadow-black/40 transition-all hover:scale-110"
                 aria-label="TikTok"
               >
                 <svg className="h-5 w-5 fill-white" viewBox="0 0 24 24" aria-hidden="true">
@@ -98,7 +96,7 @@ export default function Footer() {
 
               <a
                 href="#"
-                className="rounded-full border border-white/10 bg-black p-2.5 transition-all hover:scale-110 shadow-lg shadow-black/40"
+                className="rounded-full border border-white/10 bg-black p-2.5 shadow-lg shadow-black/40 transition-all hover:scale-110"
                 aria-label="X"
               >
                 <svg className="h-5 w-5 fill-white" viewBox="0 0 24 24" aria-hidden="true">
@@ -110,7 +108,7 @@ export default function Footer() {
         </div>
 
         <div className="mt-12 border-t border-white/5 pt-8 text-center text-[10px] uppercase tracking-widest text-slate-500">
-          <p>© 2026 Radar Smart - Inteligência de Ofertas. Itapema/SC.</p>
+          <p>&copy; 2026 Radar Smart - Inteligencia de Ofertas. Itapema/SC.</p>
         </div>
       </div>
     </footer>

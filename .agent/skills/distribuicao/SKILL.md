@@ -28,11 +28,14 @@ rastreia entradas no grupo
 ## Criacao de Conteudo UGC (Fase 2)
 
 O sistema gera videos curtiveis automaticamente para distribuicao social:
-- **Modelo C (Screen Simulation)**: Simula navegacao humana no `radarsmart.com.br` via Playwright.
-- **Localizacao**: `lib/ugc/model-c-screen.ts`.
-- **Scripts**: Gerados por GPT-4o (`OPENAI_API_KEY`) com tom casual e natural.
+- **Modelo C (Screen Simulation)**: Simula navegacao humana no `radarsmart.com.br` via Playwright ou usa fluxos combinados (FFmpeg) de vídeo mobile pré-gravado com locução ElevenLabs gerada automaticamente.
+- **Localizacao**: `lib/ugc/` contém o core (`script-generator.ts`, `model-c-screen.ts`). Scripts avulsos em `scripts/` (ex: `generate-audio-only.ts`, `merge-video-audio.ts`).
+- **Scripts**: Gerados por GPT-4o (`OPENAI_API_KEY`) com extração de dados reais via Firecrawl. Tom casual e gago proposital.
 - **Voz**: ElevenLabs (`ELEVENLABS_API_KEY`). Voz oficial: **Mateus Moretti** (`id: F7823wtD50WK1gnmgBk5`).
-- **Como rodar (Local)**: `npx tsx scripts/generate-ugc.ts --voice=mateus`.
+- **Como rodar (Local)**: 
+  - Fluxo completo Playwright: `npx tsx scripts/generate-ugc.ts --voice=mateus`
+  - Apenas Áudio (Sem simulação Playwright): `npx tsx scripts/generate-audio-only.ts`
+  - Merge Vídeo + Áudio Manual: `npx tsx scripts/merge-video-audio.ts`
 
 O CTA e obrigatorio e sempre direciona para: *"Corre lá, entra no Radar Smart pelo link na bio e garante antes de esgotar!"*.
 

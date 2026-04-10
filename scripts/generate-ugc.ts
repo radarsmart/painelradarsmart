@@ -5,7 +5,7 @@ import { UGC_VOICES, VoiceKey } from "../lib/ugc/voices";
 // Carrega variáveis de ambiente do .env.local
 dotenv.config({ path: path.join(process.cwd(), ".env.local") });
 
-import { generateModelCVideo } from "../lib/ugc/model-c-screen";
+import { generateModelCVideo, extractProductData } from "../lib/ugc/model-c-screen";
 import { UGCOfferContext } from "../lib/ugc/types";
 
 async function main() {
@@ -16,14 +16,20 @@ async function main() {
   const selectedVoiceKey: VoiceKey = voiceArg && UGC_VOICES[voiceArg] ? voiceArg : "mateus";
   const selectedVoice = UGC_VOICES[selectedVoiceKey];
 
+  const productUrl = "https://www.mercadolivre.com.br/social/re20251205180122";
+  
+  console.log(`🔍 Identificando produto via Firecrawl...`);
+  const productData = await extractProductData(productUrl);
+
   const sampleOffer: UGCOfferContext = {
-    title: "Console PlayStation 5 + Marvel's Spider-Man 2",
-    price: 3499.00,
+    title: productData.title,
+    price: productData.price,
     discountPct: 15,
     marketplace: "Mercado Livre",
-    productUrl: "https://radarsmart.com.br/ofertas"
+    productUrl: productUrl
   };
 
+  console.log(`✅ Produto: ${sampleOffer.title} - R$ ${sampleOffer.price}`);
   console.log(`🚀 Iniciando geração de UGC Modelo C...`);
   console.log(`🎙️ Voz selecionada: ${selectedVoice.name} (${selectedVoice.style})`);
   

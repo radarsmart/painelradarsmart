@@ -70,8 +70,19 @@ function extractTokenFromSupabaseCookies(req: NextRequest): string | null {
   return extractTokenFromCookieValue(supabaseCookie.value);
 }
 
-export async function requireAdmin(req: NextRequest): Promise<AdminGuardResult> {
-  const token = extractBearerToken(req) || extractTokenFromSupabaseCookies(req);
+function extractTokenFromCookieEntries(
+  entries: Array<{ name: string; value: string }>,
+): string | null {
+  const supabaseCookie = entries.find(
+    (cookie) =>
+      cookie.name.startsWith("sb-") && cookie.name.includes("auth-token"),
+  );
+
+  if (!supabaseCookie?.value) return null;
+  return extractTokenFromCookieValue(supabaseCookie.value);
+}
+
+async function validateAdminToken(token: string): Promise<AdminGuardResult> {
   if (!token) {
     return { ok: false, status: 401, error: "Nao autorizado" };
   }
@@ -122,4 +133,16 @@ export async function requireAdmin(req: NextRequest): Promise<AdminGuardResult> 
   }
 
   return { ok: false, status: 403, error: "Nao autorizado" };
+}
+
+export async function requireAdmin(req: NextRequest): Promise<AdminGuardResult> {
+  const token = extractBearerToken(req) || extractTokenFromSupabaseCookies(req);
+  return validateAdminToken(token ?? "");
+}
+
+export async function requireAdminFromCookies(
+  entries: Array<{ name: string; value: string }>,
+): Promise<AdminGuardResult> {
+  const token = extractTokenFromCookieEntries(entries);
+  return validateAdminToken(token ?? "");
 }

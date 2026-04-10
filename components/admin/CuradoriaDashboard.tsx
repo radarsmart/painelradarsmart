@@ -249,37 +249,38 @@ export default function CuradoriaDashboard() {
 
     setPublishing(true);
     try {
-      const payload = {
-        title: product.title,
-        price: product.price,
-        old_price: product.old_price,
-        image_url: product.image_url,
-        category,
-        store: marketplaceStoreLabel(product.marketplace),
-        product_url: product.product_url,
-        affiliate_url: affiliate,
-        marketplace: product.marketplace,
-        platform: product.marketplace,
-        status: "active",
-        source: "curadoria_dashboard",
-        currency: "BRL",
-        external_offer_id: `${product.marketplace}:${product.product_url}`,
-      };
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      const accessToken = sessionData.session?.access_token;
+      if (sessionError || !accessToken) {
+        throw new Error("Sessao expirada. Faca login novamente.");
+      }
 
-      const { error } = await supabase
-        .from("offers")
-        .insert(payload);
+      const response = await fetch("/api/admin/extrator/dispatch", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          title: product.title,
+          price: product.price,
+          old_price: product.old_price,
+          image_url: product.image_url,
+          product_url: product.product_url,
+          affiliate_url: affiliate,
+          marketplace: product.marketplace,
+          slot_type: "best",
+          channels: [],
+          raw_data: {
+            category,
+            source: "curadoria_dashboard",
+          },
+        }),
+      });
 
-      if (error) {
-        const response = await fetch("/api/admin/offers", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-        const body = (await response.json()) as { error?: string };
-        if (!response.ok) {
-          throw new Error(body.error ?? error.message);
-        }
+      const payload = (await response.json()) as { success?: boolean; error?: string; message?: string };
+      if (!response.ok || payload.success === false) {
+        throw new Error(payload.error ?? payload.message ?? "Falha ao publicar oferta.");
       }
 
       showToast({ type: "success", text: "🚀 Oferta publicada no Radar Smart!" });

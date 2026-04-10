@@ -1,12 +1,14 @@
 "use client";
 
+import StoryGeneratorButton from "@/components/admin/StoryGeneratorButton";
 import { useEffect, useMemo, useState } from "react";
-import { CheckCircle2, Copy, Link2, Loader2 } from "lucide-react";
+import { CheckCircle2, Copy, Link2, Loader2, MessageSquare, Save, Send, Trash2 } from "lucide-react";
 import { formatBRL } from "@/lib/formatters";
 import { supabase } from "@/lib/supabase";
+import { useRouter, useSearchParams } from "next/navigation";
 
-type Marketplace = "mercadolivre" | "amazon";
-type OfferSlot = "hero" | "flash" | "best" | "comparator";
+type Marketplace = "mercadolivre" | "amazon" | "awin";
+type OfferSlot = "flash" | "best" | "comparator";
 
 type ExtractPreview = {
   title: string;
@@ -42,7 +44,7 @@ type ExtractResponse = {
   preview?: Partial<ExtractPreview>;
   extracted?: Record<string, unknown>;
   debug_info?: {
-    layer_used?: "rainforest" | "zenscrape" | "official" | "container";
+    layer_used?: "rainforest" | "zenscrape" | "official" | "container" | "merged" | "html" | "apify";
     missing_fields?: string[];
     latency_ms?: number;
   };
@@ -63,6 +65,54 @@ type PublishResponse = {
   error?: string;
 };
 
+type AwinFeedProduct = {
+  id: string;
+  productName: string;
+  merchantProductId?: string;
+  merchantImageUrl?: string;
+  awDeepLink: string;
+  merchantDeepLink?: string;
+  searchPrice: number;
+  currency: string;
+  originalSearchPrice?: number;
+  originalCurrency?: string;
+  merchantName?: string;
+  categoryName?: string;
+};
+
+type AwinFeedResponse = {
+  products?: AwinFeedProduct[];
+  error?: string;
+};
+
+type AdminOfferRecord = {
+  id: string;
+  title?: string | null;
+  product_url?: string | null;
+  affiliate_url?: string | null;
+  image_url?: string | null;
+  marketplace?: string | null;
+  price?: number | string | null;
+  old_price?: number | string | null;
+  original_price?: number | string | null;
+  discount_pct?: number | string | null;
+  slot_type?: OfferSlot | string | null;
+  status?: string | null;
+  curations_status?: string | null;
+  seller_name?: string | null;
+  rating?: number | string | null;
+  review_count?: number | string | null;
+  raw_data?: Record<string, unknown> | null;
+};
+
+type DispatchAction = "telegram" | "whatsapp" | "site" | "selected";
+
+type PublishDestinations = {
+  site: boolean;
+  telegram: boolean;
+  whatsapp: boolean;
+};
+
 type Feedback = {
   type: "success" | "error" | "info";
   text: string;
@@ -73,11 +123,19 @@ type CopyTemplateKey = "aida" | "urgencia" | "social" | "tecnico";
 const MARKETPLACE_LABEL: Record<Marketplace, string> = {
   mercadolivre: "Mercado Livre",
   amazon: "Amazon",
+  awin: "AWIN",
+};
+
+const DEFAULT_AWIN_ADVERTISER_ID = "18879";
+const DEFAULT_AWIN_PUBLISHER_ID = "2843910";
+const DEFAULT_DESTINATIONS: PublishDestinations = {
+  site: true,
+  telegram: false,
+  whatsapp: false,
 };
 
 const SLOT_OPTIONS: Array<{ id: OfferSlot; label: string; icon: string }> = [
-  { id: "hero", label: "Banner Video (Hero)", icon: "🎬" },
-  { id: "flash", label: "Oferta Relampago", icon: "⚡" },
+  { id: "flash", label: "Oferta Relâmpago", icon: "⚡" },
   { id: "best", label: "Melhores Ofertas", icon: "🏆" },
   { id: "comparator", label: "Comparador", icon: "📊" },
 ];
@@ -106,7 +164,111 @@ function detectMarketplaceFromUrl(url: string): Marketplace | null {
     return "amazon";
   }
 
+  if (
+    normalized.includes("awin1.com") ||
+    normalized.includes("awin.com") ||
+    normalized.includes("aliexpress.com") ||
+    normalized.includes("pt.aliexpress.com")
+  ) {
+    return "awin";
+  }
+
   return null;
+}
+
+function parseCurrencyInput(value: string): number {
+  const cleaned = value
+    .replace(/[^\d,.-]/g, "")
+    .replace(/\.(?=\d{3}(?:\D|$))/g, "")
+    .replace(",", ".");
+  const parsed = Number(cleaned);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function normalizeAliExpressBrazilUrl(value: string): string {
+  const raw = toCleanText(value);
+  if (!raw) return "";
+
+  try {
+    const parsed = new URL(raw);
+    const embedded = parsed.searchParams.get("ued");
+    if (parsed.hostname.toLowerCase().endsWith("awin1.com") && embedded) {
+      return normalizeAliExpressBrazilUrl(embedded);
+    }
+    if (parsed.hostname.toLowerCase().endsWith("aliexpress.com")) {
+      const targetUrl = parsed.searchParams.get("dl_target_url");
+      if (parsed.pathname.toLowerCase().includes("deep_link") && targetUrl) {
+        return normalizeAliExpressBrazilUrl(targetUrl);
+      }
+      parsed.protocol = "https:";
+      parsed.hostname = "pt.aliexpress.com";
+      return parsed.toString();
+    }
+  } catch {
+    return raw.replace(/https?:\/\/(?:www\.)?aliexpress\.com/gi, "https://pt.aliexpress.com");
+  }
+
+  return raw.replace(/https?:\/\/(?:www\.)?aliexpress\.com/gi, "https://pt.aliexpress.com");
+}
+
+function isAwinTrackingUrl(value: string): boolean {
+  const raw = toCleanText(value).toLowerCase();
+  return raw.includes("awin1.com/cread.php");
+}
+
+function resolveAwinUrls(value: string) {
+  const raw = toCleanText(value);
+  const normalizedProductUrl = normalizeAliExpressBrazilUrl(raw);
+  const affiliateUrl = isAwinTrackingUrl(raw) ? raw : buildManualAwinAffiliateUrl(normalizedProductUrl);
+
+  return {
+    productUrl: normalizedProductUrl,
+    affiliateUrl,
+  };
+}
+
+function buildManualAwinAffiliateUrl(destinationUrl: string): string {
+  const normalizedUrl = normalizeAliExpressBrazilUrl(destinationUrl);
+  if (!normalizedUrl) return "";
+
+  return `https://www.awin1.com/cread.php?awinmid=${encodeURIComponent(
+    DEFAULT_AWIN_ADVERTISER_ID,
+  )}&awinaffid=${encodeURIComponent(DEFAULT_AWIN_PUBLISHER_ID)}&ued=${encodeURIComponent(normalizedUrl)}`;
+}
+
+function extractAliExpressItemId(value: string): string {
+  let decoded = value;
+  for (let index = 0; index < 3; index += 1) {
+    try {
+      const next = decodeURIComponent(decoded);
+      if (next === decoded) break;
+      decoded = next;
+    } catch {
+      break;
+    }
+  }
+
+  return (
+    decoded.match(/\/item\/(\d{8,})/i)?.[1] ||
+    decoded.match(/[?&](?:productid|itemid|item_id)=([0-9]{8,})/i)?.[1] ||
+    decoded.match(/\b(1005\d{8,})\b/i)?.[1] ||
+    ""
+  );
+}
+
+function extractAliExpressPriceFromUrl(value: string): number {
+  try {
+    const parsed = new URL(value);
+    const pdp = parsed.searchParams.get("pdp_npi") ?? "";
+    const decoded = decodeURIComponent(pdp);
+    const brlPrices = Array.from(decoded.matchAll(/R\$\s*([\d.]+,\d{2}|\d+(?:[.,]\d{1,2})?)/gi))
+      .map((match) => parseCurrencyInput(match[1]))
+      .filter((price) => price > 0);
+    if (brlPrices.length > 0) return Math.min(...brlPrices);
+  } catch {
+    return 0;
+  }
+  return 0;
 }
 
 async function parseApiResponse<T>(response: Response): Promise<T> {
@@ -114,6 +276,15 @@ async function parseApiResponse<T>(response: Response): Promise<T> {
   try {
     return JSON.parse(raw) as T;
   } catch {
+    if (
+      raw.includes("FUNCTION_INVOCATION_TIMEOUT") ||
+      raw.includes("An error occurred with your deployment") ||
+      raw.includes("504: GATEWAY_TIMEOUT")
+    ) {
+      throw new Error(
+        "A extração demorou demais no servidor. Tente novamente em alguns segundos. Se persistir, revise os campos manualmente e publique depois do preview.",
+      );
+    }
     throw new Error(raw || `Resposta invalida do servidor (HTTP ${response.status}).`);
   }
 }
@@ -180,19 +351,18 @@ function buildAidaCopy(
   const discountLine = discount > 0 ? ` (${Math.round(discount)}% de DESCONTO!)` : "";
 
   return [
-    "🚨 *ALERTA DE OFERTA IMPERDIVEL!* 🚨",
+    "🚨 *ALERTA DE OFERTA IMPERDÍVEL!* 🚨",
     preview.title,
     "",
     `${oldLine}\n✅ *Por apenas: ${formatBRL(price)}*${discountLine}`.trim(),
     "",
-    "🔥 *Por que voce precisa disso agora?*",
-    "Essa e uma daquelas oportunidades que esgotam em minutos. Qualidade premium pelo menor preco dos ultimos meses.",
+    "🔥 *Por que você precisa disso agora?*",
+    "Essa é uma daquelas oportunidades que esgotam em minutos. Qualidade premium pelo menor preço dos últimos meses.",
     "",
     "👉 *Garanta o seu antes que acabe:*",
     affiliateUrl || preview.affiliate_url || preview.product_url,
   ].join("\n");
 }
-
 function getOfferUrl(preview: ExtractPreview | null, affiliateUrl: string): string {
   return affiliateUrl || preview?.affiliate_url || preview?.product_url || "";
 }
@@ -215,7 +385,7 @@ const copyTemplates: Record<
       "",
       `🔥 Por apenas: *${formatBRL(toNumber(preview.price))}*`,
       "",
-      "O preço caiu agora e pode subir a qualquer momento! Aproveite antes que esgote.",
+      "O preço caiu agora e pode subir a qualquer momento. Aproveite antes que esgote.",
       "",
       `👉 Link: ${getOfferUrl(preview, affiliateUrl)}`,
     ].join("\n");
@@ -257,7 +427,6 @@ const copyTemplates: Record<
       .join("\n");
   },
 };
-
 function buildCopyByTemplate(
   template: CopyTemplateKey,
   preview: ExtractPreview | null,
@@ -283,19 +452,33 @@ function getPriceScore(price: number, oldPrice: number) {
 }
 
 export default function AdminNovaOfertaPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const editingOfferId = toCleanText(searchParams.get("id"));
+  const isEditing = Boolean(editingOfferId);
   const [marketplace, setMarketplace] = useState<Marketplace>("mercadolivre");
   const [selectedSlot, setSelectedSlot] = useState<OfferSlot>("best");
   const [sourceUrl, setSourceUrl] = useState("");
   const [affiliateUrl, setAffiliateUrl] = useState("");
   const [imageUrl, setImageUrl] = useState("");
+  const [manualTitle, setManualTitle] = useState("");
+  const [manualPrice, setManualPrice] = useState("");
+  const [manualOldPrice, setManualOldPrice] = useState("");
   const [extracting, setExtracting] = useState(false);
-  const [publishing, setPublishing] = useState(false);
+  const [publishing, setPublishing] = useState<DispatchAction | null>(null);
+  const [selectedDestinations, setSelectedDestinations] =
+    useState<PublishDestinations>(DEFAULT_DESTINATIONS);
   const [preview, setPreview] = useState<ExtractPreview | null>(null);
   const [copyText, setCopyText] = useState("");
   const [selectedTemplate, setSelectedTemplate] = useState<CopyTemplateKey>("aida");
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<Feedback | null>(null);
   const [extractDebug, setExtractDebug] = useState<string>("");
+  const [loadingExisting, setLoadingExisting] = useState(false);
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [deletingOffer, setDeletingOffer] = useState(false);
+  const [currentStatus, setCurrentStatus] = useState("active");
+  const [currentCurationsStatus, setCurrentCurationsStatus] = useState("approved");
 
   const discountPct = useMemo(() => {
     if (!preview) return 0;
@@ -313,6 +496,81 @@ export default function AdminNovaOfertaPage() {
     setCopyText(buildCopyByTemplate(selectedTemplate, preview, affiliateUrl.trim()));
   }, [preview, affiliateUrl, selectedTemplate]);
 
+  useEffect(() => {
+    const loadExistingOffer = async () => {
+      if (!editingOfferId) return;
+
+      setLoadingExisting(true);
+      setFeedback(null);
+      try {
+        const accessToken = await getAccessToken();
+        const response = await fetch(`/api/admin/offers?id=${encodeURIComponent(editingOfferId)}`, {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+          cache: "no-store",
+        });
+
+        const payload = await parseApiResponse<{ offer?: AdminOfferRecord; error?: string }>(response);
+        if (!response.ok || !payload.offer) {
+          throw new Error(payload.error ?? "Falha ao carregar oferta para edição.");
+        }
+
+        const offer = payload.offer;
+        const nextMarketplace =
+          detectMarketplaceFromUrl(
+            toCleanText(offer.product_url) || toCleanText(offer.affiliate_url),
+          ) ||
+          (String(offer.marketplace ?? "").toLowerCase().includes("amazon")
+            ? "amazon"
+            : String(offer.marketplace ?? "").toLowerCase().includes("awin")
+              ? "awin"
+              : "mercadolivre");
+
+        setMarketplace(nextMarketplace);
+        setSelectedSlot(
+          ["flash", "best", "comparator"].includes(String(offer.slot_type ?? ""))
+            ? (offer.slot_type as OfferSlot)
+            : "best",
+        );
+        setSourceUrl(toCleanText(offer.product_url));
+        setAffiliateUrl(toCleanText(offer.affiliate_url));
+        setImageUrl(toCleanText(offer.image_url));
+        setManualTitle(toCleanText(offer.title));
+        setManualPrice(toNumber(offer.price) ? String(toNumber(offer.price)) : "");
+        setManualOldPrice(
+          toNumber(offer.old_price ?? offer.original_price)
+            ? String(toNumber(offer.old_price ?? offer.original_price))
+            : "",
+        );
+        setCurrentStatus(toCleanText(offer.status) || "active");
+        setCurrentCurationsStatus(toCleanText(offer.curations_status) || "approved");
+        setPreview({
+          title: toCleanText(offer.title),
+          price: toNumber(offer.price),
+          old_price: toNumber(offer.old_price ?? offer.original_price),
+          original_price: toNumber(offer.original_price ?? offer.old_price),
+          discount_pct: toNumber(offer.discount_pct),
+          image_url: toCleanText(offer.image_url),
+          product_url: toCleanText(offer.product_url),
+          affiliate_url: toCleanText(offer.affiliate_url),
+          rating: toNumber(offer.rating),
+          reviews: toNumber(offer.review_count),
+        });
+        setExtractDebug(`Editando oferta #${offer.id}`);
+      } catch (error) {
+        setFeedback({
+          type: "error",
+          text: error instanceof Error ? error.message : "Falha ao abrir oferta para edição.",
+        });
+      } finally {
+        setLoadingExisting(false);
+      }
+    };
+
+    void loadExistingOffer();
+  }, [editingOfferId]);
+
   const priceScore = useMemo(
     () => getPriceScore(toNumber(preview?.price), getOldPrice(preview)),
     [preview],
@@ -322,25 +580,173 @@ export default function AdminNovaOfertaPage() {
     const { data, error } = await supabase.auth.getSession();
     const token = data.session?.access_token;
     if (error || !token) {
-      throw new Error("Sessao expirada. Faca login novamente.");
+      throw new Error("Sessão expirada. Faça login novamente.");
     }
     return token;
   };
 
-  const handleExtract = async () => {
-    const url = sourceUrl.trim();
-    const manualAffiliate = affiliateUrl.trim();
-    const detectedMarketplace = detectMarketplaceFromUrl(url);
-
-    if (!url) {
-      setFeedback({ type: "error", text: "Informe a URL da oferta para extracao." });
+  const handleSaveEdit = async () => {
+    if (!isEditing || !editingOfferId || !preview) {
+      setFeedback({ type: "error", text: "Nenhuma oferta carregada para edição." });
       return;
     }
 
-    if (!detectedMarketplace) {
+    const url = sourceUrl.trim();
+    const manualAffiliate = affiliateUrl.trim();
+    if (!url || !manualAffiliate) {
       setFeedback({
         type: "error",
-        text: "URL invalida. Use um link valido de Amazon ou Mercado Livre.",
+        text: "URL do produto e Link de Afiliado são obrigatórios.",
+      });
+      return;
+    }
+
+    setSavingEdit(true);
+    setFeedback(null);
+    try {
+      const accessToken = await getAccessToken();
+      const response = await fetch("/api/admin/offers", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          id: editingOfferId,
+          title: preview.title,
+          product_url: url,
+          affiliate_url: manualAffiliate,
+          image_url: toCleanText(imageUrl) || preview.image_url || "",
+          marketplace,
+          price: toNumber(preview.price),
+          old_price: toNumber(preview.original_price ?? preview.old_price ?? 0) || null,
+          discount_pct: discountPct,
+          slot_type: selectedSlot,
+          status: currentStatus || "active",
+          curations_status: currentCurationsStatus || "approved",
+        }),
+      });
+
+      const payload = await parseApiResponse<{ offer?: AdminOfferRecord; error?: string }>(response);
+      if (!response.ok) {
+        throw new Error(payload.error ?? "Falha ao salvar alterações.");
+      }
+
+      setFeedback({
+        type: "success",
+        text: "Oferta atualizada com sucesso.",
+      });
+      router.refresh();
+    } catch (error) {
+      setFeedback({
+        type: "error",
+        text: error instanceof Error ? error.message : "Falha ao salvar oferta.",
+      });
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
+  const handleDeleteOffer = async () => {
+    if (!isEditing || !editingOfferId) return;
+
+    const confirmed = window.confirm("Excluir esta oferta do site?");
+    if (!confirmed) return;
+
+    setDeletingOffer(true);
+    setFeedback(null);
+    try {
+      const accessToken = await getAccessToken();
+      const response = await fetch("/api/admin/offers", {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ id: editingOfferId }),
+      });
+
+      const payload = await parseApiResponse<{ success?: boolean; error?: string }>(response);
+      if (!response.ok || payload.success === false) {
+        throw new Error(payload.error ?? "Falha ao excluir oferta.");
+      }
+
+      router.push("/admin/ofertas");
+      router.refresh();
+    } catch (error) {
+      setFeedback({
+        type: "error",
+        text: error instanceof Error ? error.message : "Falha ao excluir oferta.",
+      });
+    } finally {
+      setDeletingOffer(false);
+    }
+  };
+
+  const handleManualAwinPreview = () => {
+    const url = sourceUrl.trim();
+    const resolvedUrls = resolveAwinUrls(url);
+    const manualAffiliate = affiliateUrl.trim() || resolvedUrls.affiliateUrl;
+    const title = manualTitle.trim();
+    const price = parseCurrencyInput(manualPrice);
+    const oldPrice = parseCurrencyInput(manualOldPrice);
+    const img = imageUrl.trim();
+
+    if (!url) {
+      setFeedback({
+        type: "error",
+        text: "Informe a URL completa do produto AWIN.",
+      });
+      return;
+    }
+
+    if (!title || price <= 0) {
+      setFeedback({
+        type: "error",
+        text: "Informe pelo menos nome do produto e preço para criar o preview AWIN.",
+      });
+      return;
+    }
+
+    setMarketplace("awin");
+    setSourceUrl(resolvedUrls.productUrl || url);
+    setAffiliateUrl(manualAffiliate);
+    setPreview({
+      title,
+      price,
+      old_price: oldPrice > price ? oldPrice : 0,
+      original_price: oldPrice > price ? oldPrice : 0,
+      image_url: img,
+      product_url: resolvedUrls.productUrl || url,
+      affiliate_url: manualAffiliate,
+    });
+    setExtractDebug("Engine: manual | Camada: awin_manual | Missing: nenhum | 0ms");
+    setFeedback({
+      type: "success",
+      text: "Preview AWIN criado manualmente. Revise e escolha o destino da oferta.",
+    });
+  };
+
+  const handleManualPreview = () => {
+    if (marketplace === "awin") {
+      handleManualAwinPreview();
+      return;
+    }
+
+    const url = sourceUrl.trim();
+    const manualAffiliate = affiliateUrl.trim();
+    const title = manualTitle.trim();
+    const price = parseCurrencyInput(manualPrice);
+    const oldPrice = parseCurrencyInput(manualOldPrice);
+    const img = imageUrl.trim();
+
+    if (!url) {
+      setFeedback({
+        type: "error",
+        text:
+          marketplace === "amazon"
+            ? "Informe a URL completa do produto Amazon."
+            : "Informe a URL completa do produto Mercado Livre.",
       });
       return;
     }
@@ -348,7 +754,223 @@ export default function AdminNovaOfertaPage() {
     if (!manualAffiliate) {
       setFeedback({
         type: "error",
-        text: "Informe o Seu Link de Afiliado antes de extrair.",
+        text: "Informe o link de afiliado antes de montar o preview manual.",
+      });
+      return;
+    }
+
+    if (!title || price <= 0) {
+      setFeedback({
+        type: "error",
+        text: "Informe pelo menos nome do produto e preço para criar o preview manual.",
+      });
+      return;
+    }
+
+    setPreview({
+      title,
+      price,
+      old_price: oldPrice > price ? oldPrice : 0,
+      original_price: oldPrice > price ? oldPrice : 0,
+      image_url: img,
+      product_url: url,
+      affiliate_url: manualAffiliate,
+    });
+    setExtractDebug(`Engine: manual | Camada: ${marketplace}_manual | Missing: nenhum | 0ms`);
+    setFeedback({
+      type: "success",
+      text: `Preview manual criado (${MARKETPLACE_LABEL[marketplace]}). Revise e escolha o destino da oferta.`,
+    });
+  };
+
+  const handleGenerateAwinAffiliate = () => {
+    const resolvedUrls = resolveAwinUrls(sourceUrl.trim());
+    if (!resolvedUrls.productUrl) {
+      setFeedback({
+        type: "error",
+        text: "Informe primeiro a URL completa do produto AWIN.",
+      });
+      return;
+    }
+
+    const generatedAffiliateUrl = resolvedUrls.affiliateUrl;
+    if (!generatedAffiliateUrl) {
+      setFeedback({
+        type: "error",
+        text: "Nao foi possivel gerar o link afiliado AWIN para essa URL.",
+      });
+      return;
+    }
+
+    const detectedPrice = extractAliExpressPriceFromUrl(resolvedUrls.productUrl);
+
+    setMarketplace("awin");
+    setSourceUrl(resolvedUrls.productUrl);
+    setAffiliateUrl(generatedAffiliateUrl);
+    if (!manualPrice && detectedPrice > 0) {
+      setManualPrice(String(detectedPrice));
+    }
+    setExtractDebug("Engine: awin-linkbuilder | Camada: direct_cread | Missing: nenhum | 0ms");
+    setFeedback({
+      type: "success",
+      text: "Link afiliado AWIN gerado. Agora voce pode buscar no feed ou completar o preview manual.",
+    });
+  };
+
+  const handleAwinApiLookup = async () => {
+    const query = sourceUrl.trim() || manualTitle.trim();
+    if (!query) {
+      setFeedback({
+        type: "error",
+        text: "Informe a URL ou um termo do produto AWIN para buscar no feed.",
+      });
+      return;
+    }
+
+    setExtracting(true);
+    setFeedback(null);
+    setCopyFeedback(null);
+    setExtractDebug("");
+
+    try {
+      const accessToken = await getAccessToken();
+      const response = await fetch(
+        `/api/awin/feed/${DEFAULT_AWIN_ADVERTISER_ID}?search=${encodeURIComponent(query)}&page=1`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+          cache: "no-store",
+        },
+      );
+      const payload = await parseApiResponse<AwinFeedResponse>(response);
+
+      if (!response.ok) {
+        throw new Error(payload.error ?? "Falha ao consultar feed AWIN.");
+      }
+
+      const product = payload.products?.[0];
+      if (!product) {
+        const resolvedUrls = resolveAwinUrls(query);
+        const normalizedUrl = resolvedUrls.productUrl;
+        const affiliate = affiliateUrl.trim() || resolvedUrls.affiliateUrl;
+        const fallbackPrice = extractAliExpressPriceFromUrl(normalizedUrl);
+        const itemId = extractAliExpressItemId(query);
+
+        if (normalizedUrl && affiliate) {
+          setMarketplace("awin");
+          setSourceUrl(normalizedUrl);
+          setAffiliateUrl(affiliate);
+          setManualTitle(itemId ? `Produto AliExpress ${itemId}` : "");
+          setManualPrice(fallbackPrice > 0 ? String(fallbackPrice) : "");
+          setManualOldPrice("");
+          setPreview(
+            fallbackPrice > 0
+              ? {
+                  title: itemId ? `Produto AliExpress ${itemId}` : "Produto AliExpress",
+                  price: fallbackPrice,
+                  old_price: 0,
+                  original_price: 0,
+                  image_url: imageUrl.trim(),
+                  product_url: normalizedUrl,
+                  affiliate_url: affiliate,
+                }
+              : null,
+          );
+          setExtractDebug(
+            `Engine: awin-linkbuilder | Camada: direct_cread | Item: ${itemId || "n/a"} | Feed: nao encontrado`,
+          );
+          setFeedback({
+            type: "info",
+            text:
+              fallbackPrice > 0
+                ? "Produto não encontrado no feed AWIN, mas gerei o link afiliado direto e preenchi o preço encontrado na URL. Revise título e imagem."
+                : "Produto não encontrado no feed AWIN, mas gerei o link afiliado direto. Preencha título, preço e imagem para criar o preview.",
+          });
+          return;
+        }
+
+        setFeedback({
+          type: "info",
+          text: "Produto não encontrado no feed AWIN. Você ainda pode preencher os campos manuais e gerar o preview.",
+        });
+        setExtractDebug("Engine: awin-feed | Camada: awin_api | Missing: produto | 0ms");
+        return;
+      }
+
+      const productUrl = /^https?:\/\//i.test(sourceUrl.trim())
+        ? sourceUrl.trim()
+        : product.merchantDeepLink || product.awDeepLink;
+      const resolvedUrls = resolveAwinUrls(productUrl);
+      const cleanProductUrl = resolvedUrls.productUrl;
+      const finalAffiliateUrl =
+        affiliateUrl.trim() || (isAwinTrackingUrl(sourceUrl.trim()) ? sourceUrl.trim() : product.awDeepLink || resolvedUrls.affiliateUrl);
+      const price = toNumber(product.searchPrice);
+
+      setMarketplace("awin");
+      setSourceUrl(cleanProductUrl || productUrl || product.awDeepLink);
+      setAffiliateUrl(finalAffiliateUrl);
+      setImageUrl(toCleanText(product.merchantImageUrl));
+      setManualTitle(product.productName);
+      setManualPrice(price ? String(price) : "");
+      setManualOldPrice("");
+      setPreview({
+        title: product.productName,
+        price,
+        old_price: 0,
+        original_price: 0,
+        image_url: toCleanText(product.merchantImageUrl),
+        product_url: cleanProductUrl || product.awDeepLink,
+        affiliate_url: finalAffiliateUrl,
+      });
+      setExtractDebug(
+        `Engine: awin-feed | Camada: awin_api | Produto: ${product.id || product.merchantProductId || "n/a"} | Categoria: ${product.categoryName || "n/a"}`,
+      );
+      setFeedback({
+        type: "success",
+        text: "Produto AWIN carregado pelo feed. Link afiliado gerado automaticamente.",
+      });
+    } catch (error) {
+      setExtractDebug(
+        `Engine: awin-feed | Camada: awin_api | Missing: n/a | Erro: ${error instanceof Error ? error.message : "falha desconhecida"}`,
+      );
+      setFeedback({
+        type: "error",
+        text: error instanceof Error ? error.message : "Falha ao buscar produto AWIN.",
+      });
+    } finally {
+      setExtracting(false);
+    }
+  };
+
+  const handleExtract = async () => {
+    const url = sourceUrl.trim();
+    const manualAffiliate = affiliateUrl.trim();
+    const detectedMarketplace =
+      detectMarketplaceFromUrl(url) ?? (marketplace === "awin" ? "awin" : null);
+
+    if (!url) {
+      setFeedback({ type: "error", text: "Informe a URL da oferta para extração." });
+      return;
+    }
+
+    if (!detectedMarketplace) {
+      setFeedback({
+        type: "error",
+        text: "URL inválida. Use um link válido de Amazon, Mercado Livre ou AWIN.",
+      });
+      return;
+    }
+
+    if (detectedMarketplace === "awin") {
+      await handleAwinApiLookup();
+      return;
+    }
+
+    if (!manualAffiliate) {
+      setFeedback({
+        type: "error",
+        text: "Informe o seu Link de Afiliado antes de extrair.",
       });
       return;
     }
@@ -407,6 +1029,7 @@ export default function AdminNovaOfertaPage() {
       const latency =
         Number(result.debug_info?.latency_ms ?? result.elapsed_ms ?? 0) || 0;
       const errorHint = toCleanText(result.error);
+      const shouldShowErrorHint = missingFields !== "nenhum" && Boolean(errorHint);
       const imageWarning =
         result.missing_fields?.includes("image_url") ||
         result.debug_info?.missing_fields?.includes("image_url")
@@ -414,7 +1037,7 @@ export default function AdminNovaOfertaPage() {
           : "";
 
       setExtractDebug(
-        `Engine: ${engineUsed} | Camada: ${layerUsed} | Missing: ${missingFields} | ${latency}ms${imageWarning}${errorHint ? ` | Erro: ${errorHint}` : ""}`,
+        `Engine: ${engineUsed} | Camada: ${layerUsed} | Missing: ${missingFields} | ${latency}ms${imageWarning}${shouldShowErrorHint ? ` | Erro: ${errorHint}` : ""}`,
       );
 
       setPreview(nextPreview);
@@ -422,8 +1045,8 @@ export default function AdminNovaOfertaPage() {
         type: result.status === "partial_failure" ? "info" : "success",
         text:
           result.status === "partial_failure"
-            ? `Extracao parcial (${MARKETPLACE_LABEL[detectedMarketplace]}). Revise os campos antes de publicar.`
-            : `Extracao concluida (${MARKETPLACE_LABEL[detectedMarketplace]}). Revise o preview antes de publicar.`,
+            ? `Extração parcial (${MARKETPLACE_LABEL[detectedMarketplace]}). Revise os campos antes de publicar.`
+            : `Extração concluída (${MARKETPLACE_LABEL[detectedMarketplace]}). Revise o preview antes de publicar.`,
       });
     } catch (error) {
       setExtractDebug(
@@ -444,13 +1067,57 @@ export default function AdminNovaOfertaPage() {
       await navigator.clipboard.writeText(copyText);
       setCopyFeedback("Copy copiada para a area de transferencia.");
     } catch {
-      setCopyFeedback("Nao foi possivel copiar automaticamente.");
+      setCopyFeedback("Não foi possível copiar automaticamente.");
     }
   };
 
-  const handleFinalPublish = async () => {
+  const handleClear = () => {
+    setMarketplace("mercadolivre");
+    setSelectedSlot("best");
+    setSourceUrl("");
+    setAffiliateUrl("");
+    setImageUrl("");
+    setManualTitle("");
+    setManualPrice("");
+    setManualOldPrice("");
+    setExtracting(false);
+    setPublishing(null);
+    setSelectedDestinations(DEFAULT_DESTINATIONS);
+    setPreview(null);
+    setCopyText("");
+    setSelectedTemplate("aida");
+    setCopyFeedback(null);
+    setFeedback(null);
+    setExtractDebug("");
+  };
+
+  const toggleDestination = (destination: keyof PublishDestinations) => {
+    setSelectedDestinations((current) => ({
+      ...current,
+      [destination]: !current[destination],
+    }));
+  };
+
+  const buildDestinationSummary = () => {
+    const labels: string[] = [];
+    if (selectedDestinations.site) {
+      labels.push(
+        selectedSlot === "flash"
+          ? "Ofertas Relampago"
+          : selectedSlot === "best"
+            ? "Melhores Ofertas"
+            : "Comparador",
+      );
+    }
+    if (selectedDestinations.telegram) labels.push("Telegram");
+    if (selectedDestinations.whatsapp) labels.push("WhatsApp");
+    return labels.join(" + ");
+  };
+
+  const handleDispatchAction = async (action: DispatchAction) => {
     const url = sourceUrl.trim();
-    const manualAffiliate = affiliateUrl.trim();
+    const manualAffiliate =
+      affiliateUrl.trim() || (marketplace === "awin" ? buildManualAwinAffiliateUrl(url) : "");
 
     if (!preview) {
       setFeedback({
@@ -463,29 +1130,38 @@ export default function AdminNovaOfertaPage() {
     if (!url || !manualAffiliate) {
       setFeedback({
         type: "error",
-        text: "URL e Link de Afiliado sao obrigatorios para publicar.",
+        text: "URL e Link de Afiliado são obrigatórios para publicar.",
       });
       return;
     }
 
-    setPublishing(true);
+    setPublishing(action);
     setFeedback(null);
 
     try {
       const accessToken = await getAccessToken();
-      const response = await fetch("/api/admin/distribution/publish", {
+      const response = await fetch("/api/admin/extrator/dispatch", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${accessToken}`,
         },
         body: JSON.stringify({
-          marketplace,
-          url,
+          title: preview.title,
+          price: toNumber(preview.price),
+          old_price: toNumber(preview.original_price ?? preview.old_price ?? 0),
+          image_url: toCleanText(imageUrl) || preview.image_url || "",
+          product_url: preview.product_url || url,
           affiliate_url: manualAffiliate,
+          marketplace,
           slot_type: selectedSlot,
-          channels: ["telegram", "whatsapp"],
-          ad_text: copyText,
+          copy_text: copyText,
+          channels:
+            action === "site"
+              ? []
+              : action === "telegram"
+                ? ["telegram"]
+                : ["whatsapp"],
         }),
       });
 
@@ -502,9 +1178,11 @@ export default function AdminNovaOfertaPage() {
       setFeedback({
         type: "success",
         text:
-          queued > 0
-            ? `${baseMessage} Bloco: ${selectedSlot}. Jobs enfileirados: ${queued}${skipped ? ` | Ignorados: ${skipped}` : ""}.`
-            : `${baseMessage} Bloco: ${selectedSlot}.`,
+          action === "site"
+            ? `Enviado para: ${selectedSlot === "flash" ? "Ofertas Relâmpago" : selectedSlot === "best" ? "Melhores Ofertas" : "Comparador"} ✅`
+            : queued > 0
+              ? `${baseMessage} Jobs enfileirados: ${queued}${skipped ? ` | Ignorados: ${skipped}` : ""}. Esta acao nao publica no site; para aparecer na vitrine, clique em "Aprovar no Radar (Site)".`
+              : `${baseMessage} Esta acao nao publica no site; para aparecer na vitrine, clique em "Aprovar no Radar (Site)".`,
       });
     } catch (error) {
       setFeedback({
@@ -515,23 +1193,143 @@ export default function AdminNovaOfertaPage() {
             : "Erro ao publicar e distribuir oferta.",
       });
     } finally {
-      setPublishing(false);
+      setPublishing(null);
+    }
+  };
+
+  const handlePublishSelected = async () => {
+    const url = sourceUrl.trim();
+    const manualAffiliate =
+      affiliateUrl.trim() || (marketplace === "awin" ? buildManualAwinAffiliateUrl(url) : "");
+
+    if (!preview) {
+      setFeedback({
+        type: "error",
+        text: "Extraia ou monte um preview antes de publicar.",
+      });
+      return;
+    }
+
+    if (!selectedDestinations.site && !selectedDestinations.telegram && !selectedDestinations.whatsapp) {
+      setFeedback({
+        type: "error",
+        text: "Selecione pelo menos um destino: Site, Telegram ou WhatsApp.",
+      });
+      return;
+    }
+
+    const selectedCount = [
+      selectedDestinations.site,
+      selectedDestinations.telegram,
+      selectedDestinations.whatsapp,
+    ].filter(Boolean).length;
+
+    if (selectedCount === 1) {
+      if (selectedDestinations.site) {
+        await handleDispatchAction("site");
+        return;
+      }
+      if (selectedDestinations.telegram) {
+        await handleDispatchAction("telegram");
+        return;
+      }
+      if (selectedDestinations.whatsapp) {
+        await handleDispatchAction("whatsapp");
+        return;
+      }
+    }
+
+    if (!url || !manualAffiliate) {
+      setFeedback({
+        type: "error",
+        text: "URL e Link de Afiliado sao obrigatorios para publicar.",
+      });
+      return;
+    }
+
+    setPublishing("selected");
+    setFeedback(null);
+
+    try {
+      const accessToken = await getAccessToken();
+      const channels = [
+        selectedDestinations.telegram ? "telegram" : null,
+        selectedDestinations.whatsapp ? "whatsapp" : null,
+      ].filter(Boolean);
+
+      const response = await fetch("/api/admin/extrator/dispatch", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          title: preview.title,
+          price: toNumber(preview.price),
+          old_price: toNumber(preview.original_price ?? preview.old_price ?? 0),
+          image_url: toCleanText(imageUrl) || preview.image_url || "",
+          product_url: preview.product_url || url,
+          affiliate_url: manualAffiliate,
+          marketplace,
+          slot_type: selectedSlot,
+          copy_text: copyText,
+          channels,
+          publish_to_site: selectedDestinations.site,
+        }),
+      });
+
+      const data = await parseApiResponse<PublishResponse>(response);
+      if (!response.ok) {
+        throw new Error(data.error ?? "Erro ao publicar oferta.");
+      }
+
+      const queued = Number(data.distribution?.queued ?? 0);
+      const skipped = Number(data.distribution?.skipped ?? 0);
+      const destinations = buildDestinationSummary();
+
+      setFeedback({
+        type: "success",
+        text:
+          queued > 0
+            ? `Oferta enviada para ${destinations}. Jobs enfileirados: ${queued}${skipped ? ` | Ignorados: ${skipped}` : ""}.`
+            : `Oferta enviada para ${destinations} com sucesso.`,
+      });
+    } catch (error) {
+      setFeedback({
+        type: "error",
+        text: error instanceof Error ? error.message : "Erro ao publicar oferta.",
+      });
+    } finally {
+      setPublishing(null);
     }
   };
 
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="font-display text-3xl font-bold text-navy">Central de Nova Oferta</h1>
+        <h1 className="font-display text-3xl font-bold text-navy">Central de Oferta</h1>
         <p className="text-sm text-rs-muted">
-          Extraia, valide e publique ofertas com distribuicao para WhatsApp e Telegram.
+          Extraia, valide e publique ofertas com distribuição para WhatsApp e Telegram.
         </p>
+        {isEditing ? (
+          <p className="mt-2 text-sm font-semibold text-[#9e6a18]">
+            Editando uma oferta já aprovada/postada no site.
+          </p>
+        ) : null}
       </div>
 
       <section className="rounded-xl border border-rs-border bg-white p-5">
         <div className="grid gap-3">
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+            <p className="font-semibold">Regra de publicação</p>
+            <p className="mt-1">
+              Toda oferta exibida no site precisa ter <strong>link de afiliado</strong>.
+              Sem <code>affiliate_url</code>, o card não aparece nas vitrines públicas.
+            </p>
+          </div>
+
           <div className="flex flex-wrap gap-2">
-            {(["mercadolivre", "amazon"] as Marketplace[]).map((item) => (
+            {(["mercadolivre", "amazon", "awin"] as Marketplace[]).map((item) => (
               <button
                 key={item}
                 type="button"
@@ -547,57 +1345,210 @@ export default function AdminNovaOfertaPage() {
             ))}
           </div>
 
-          <input
-            value={sourceUrl}
-            onChange={(event) => setSourceUrl(event.target.value)}
-            placeholder={
-              marketplace === "amazon"
-                ? "URL Amazon (https://www.amazon.com.br/dp/ASIN...)"
-                : "URL Mercado Livre (https://www.mercadolivre.com.br/.../p/MLB...)"
-            }
-            className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm outline-none focus:border-orange"
-          />
+          <div className="space-y-1">
+            <label className="text-xs font-semibold uppercase tracking-wide text-slate-600">
+              URL do produto
+            </label>
+            <input
+              value={sourceUrl}
+              onChange={(event) => setSourceUrl(event.target.value)}
+              placeholder={
+                marketplace === "amazon"
+                  ? "URL Amazon (https://www.amazon.com.br/dp/ASIN...)"
+                  : marketplace === "awin"
+                    ? "URL completa do produto ou link AWIN (https://www.awin1.com/cread.php?... ou https://pt.aliexpress.com/...)"
+                  : "URL Mercado Livre (https://www.mercadolivre.com.br/.../p/MLB...)"
+              }
+              className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm outline-none focus:border-orange"
+            />
+            <p className="text-xs text-slate-500">
+              {marketplace === "awin"
+                ? "Na AWIN, esta URL é usada como referência do produto; o link de afiliado abaixo será usado no card e na copy."
+                : "Usada apenas para extrair título, imagem e preço do produto."}
+            </p>
+          </div>
 
-          <input
-            value={affiliateUrl}
-            onChange={(event) => setAffiliateUrl(event.target.value)}
-            placeholder="Seu Link de Afiliado (obrigatorio)"
-            className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm outline-none focus:border-orange"
-          />
+          <div className="space-y-1">
+            <label className="text-xs font-semibold uppercase tracking-wide text-slate-600">
+              Link de afiliado{" "}
+              <span className="text-red-600">
+                {marketplace === "awin" ? "(gerado pela API ou obrigatório no manual)" : "(obrigatório)"}
+              </span>
+            </label>
+            <input
+              value={affiliateUrl}
+              onChange={(event) => setAffiliateUrl(event.target.value)}
+              placeholder={
+                marketplace === "amazon"
+                  ? "Cole aqui seu link afiliado da Amazon"
+                  : marketplace === "awin"
+                    ? "A API AWIN preenche este campo; se for manual, cole aqui o link awin1.com"
+                  : "Cole aqui seu link afiliado do Mercado Livre"
+              }
+              className="h-11 w-full rounded-lg border-2 border-amber-300 bg-amber-50 px-3 text-sm outline-none focus:border-orange"
+            />
+            <p className="text-xs text-slate-500">
+              Esse é o link final usado no card, na copy e nas páginas públicas.
+            </p>
+          </div>
 
-          <input
-            value={imageUrl}
-            onChange={(event) => setImageUrl(event.target.value)}
-            placeholder="URL da imagem (preenchida automaticamente após extração)"
-            className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm outline-none focus:border-orange"
-          />
-
-          <button
-            type="button"
-            onClick={handleExtract}
-            disabled={extracting}
-            className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-navy px-4 text-sm font-semibold text-white disabled:opacity-60 sm:w-fit"
+          <div
+            className={`grid gap-3 rounded-lg p-3 md:grid-cols-3 ${
+              marketplace === "awin"
+                ? "border border-sky-100 bg-sky-50"
+                : "border border-slate-200 bg-slate-50"
+            }`}
           >
-            {extracting ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Link2 className="h-4 w-4" />
-            )}
-            {extracting ? "Extraindo..." : "Extrair URL"}
-          </button>
+              <div className="space-y-1 md:col-span-3">
+                <label className="text-xs font-semibold uppercase tracking-wide text-slate-600">
+                  Nome do produto
+                </label>
+                <input
+                  value={manualTitle}
+                  onChange={(event) => setManualTitle(event.target.value)}
+                  placeholder="Nome completo do produto"
+                  className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm outline-none focus:border-orange"
+                />
+              </div>
 
-          {extractDebug ? (
-            <p className="text-xs text-slate-500">{extractDebug}</p>
-          ) : null}
+              <div className="space-y-1">
+                <label className="text-xs font-semibold uppercase tracking-wide text-slate-600">
+                  Preço atual
+                </label>
+                <input
+                  value={manualPrice}
+                  onChange={(event) => setManualPrice(event.target.value)}
+                  placeholder="Ex: 129,90"
+                  inputMode="decimal"
+                  className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm outline-none focus:border-orange"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-semibold uppercase tracking-wide text-slate-600">
+                  Preço antigo
+                </label>
+                <input
+                  value={manualOldPrice}
+                  onChange={(event) => setManualOldPrice(event.target.value)}
+                  placeholder="Opcional"
+                  inputMode="decimal"
+                  className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm outline-none focus:border-orange"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">
+                  Fluxo manual
+                </p>
+                <p className="rounded-lg bg-white px-3 py-2 text-xs leading-5 text-slate-600">
+                  Primeiro tente <strong>Buscar na API AWIN</strong>. Use estes campos manuais apenas se o produto não for encontrado no feed.
+                </p>
+              </div>
+            </div>
+
+          <div className="space-y-1">
+            <label className="text-xs font-semibold uppercase tracking-wide text-slate-600">
+              URL da imagem
+            </label>
+            <input
+              value={imageUrl}
+              onChange={(event) => setImageUrl(event.target.value)}
+              placeholder={
+                marketplace === "awin"
+                  ? "URL da imagem do produto AWIN"
+                  : "URL da imagem (preenchida automaticamente após extração)"
+              }
+              className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm outline-none focus:border-orange"
+            />
+          </div>
+
+          <div className="flex flex-wrap gap-3">
+            <button
+              type="button"
+              onClick={handleExtract}
+              disabled={extracting || loadingExisting}
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-navy px-4 text-sm font-semibold text-white disabled:opacity-60 sm:w-fit"
+            >
+              {extracting ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Link2 className="h-4 w-4" />
+              )}
+              {extracting ? "Extraindo..." : marketplace === "awin" ? "Buscar na API AWIN" : "Extrair URL"}
+            </button>
+
+            {marketplace === "awin" ? (
+              <>
+                <button
+                  type="button"
+                  onClick={handleGenerateAwinAffiliate}
+                  disabled={extracting || loadingExisting}
+                  className="inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-60 sm:w-fit"
+                >
+                  Gerar link afiliado AWIN
+                </button>
+              </>
+            ) : null}
+
+            <button
+              type="button"
+              onClick={handleManualPreview}
+              disabled={extracting || loadingExisting}
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-60 sm:w-fit"
+            >
+              Gerar preview manual
+            </button>
+
+            <button
+              type="button"
+              onClick={handleClear}
+              disabled={extracting || publishing !== null || savingEdit || deletingOffer}
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-60 sm:w-fit"
+            >
+              Limpar
+            </button>
+          </div>
+
+            {isEditing ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => void handleSaveEdit()}
+                  disabled={extracting || publishing !== null || savingEdit || deletingOffer || loadingExisting}
+                  className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 text-sm font-semibold text-white disabled:opacity-60 sm:w-fit"
+                >
+                  {savingEdit ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                  {savingEdit ? "Salvando..." : "Salvar alterações"}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => void handleDeleteOffer()}
+                  disabled={extracting || publishing !== null || savingEdit || deletingOffer || loadingExisting}
+                  className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-red-600 px-4 text-sm font-semibold text-white disabled:opacity-60 sm:w-fit"
+                >
+                  {deletingOffer ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                  {deletingOffer ? "Excluindo..." : "Excluir oferta"}
+                </button>
+              </>
+            ) : null}
+
+            {extractDebug ? (
+              <p className="text-xs text-slate-500">{extractDebug}</p>
+            ) : null}
+            {loadingExisting ? (
+              <p className="text-xs text-slate-500">Carregando dados da oferta para edição...</p>
+            ) : null}
         </div>
       </section>
 
       <section className="rounded-xl border border-rs-border bg-white p-5">
-        <h2 className="text-lg font-semibold text-navy">Preview de publicacao</h2>
+        <h2 className="text-lg font-semibold text-navy">Preview de publicação</h2>
 
         {!preview ? (
           <p className="mt-3 text-sm text-rs-muted">
-            Use a extracao por URL para carregar foto, titulo, preco e desconto.
+            Use a extração por URL para carregar foto, título, preço e desconto. Para AWIN, preencha os campos manuais e gere o preview.
           </p>
         ) : (
           <div className="mt-4 space-y-4">
@@ -718,6 +1669,10 @@ export default function AdminNovaOfertaPage() {
                 <span aria-hidden="true">🎯</span>
                 Onde essa oferta vai aparecer no Radar Smart?
               </h3>
+              <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                Selecione os destinos abaixo. Agora voce pode enviar a mesma oferta para
+                Site, Telegram e WhatsApp em uma unica acao.
+              </p>
 
               <div className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-4">
                 {SLOT_OPTIONS.map((slot) => (
@@ -741,21 +1696,72 @@ export default function AdminNovaOfertaPage() {
                 ))}
               </div>
 
-              <button
-                type="button"
-                onClick={handleFinalPublish}
-                disabled={publishing}
-                className="flex w-full items-center justify-center gap-2 rounded-lg bg-green-600 py-4 font-bold text-white shadow-lg transition-all hover:bg-green-700 disabled:opacity-60"
-              >
-                {publishing ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
+              <div className="grid gap-3 md:grid-cols-3">
+                <button
+                  type="button"
+                  onClick={() => toggleDestination("site")}
+                  className={`flex items-center justify-center gap-2 rounded-lg border-2 py-4 font-bold transition-all ${
+                    selectedDestinations.site
+                      ? "border-green-600 bg-green-50 text-green-700"
+                      : "border-slate-200 bg-white text-slate-500"
+                  }`}
+                >
                   <CheckCircle2 className="h-4 w-4" />
-                )}
-                {publishing
-                  ? "Publicando no site e enviando canais..."
-                  : `Publicar no Site (${selectedSlot.toUpperCase()}) e Enviar Canais`}
-              </button>
+                  Site
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => toggleDestination("telegram")}
+                  className={`flex items-center justify-center gap-2 rounded-lg border-2 py-4 font-bold transition-all ${
+                    selectedDestinations.telegram
+                      ? "border-sky-500 bg-sky-50 text-sky-700"
+                      : "border-slate-200 bg-white text-slate-500"
+                  }`}
+                >
+                  <Send className="h-4 w-4" />
+                  Telegram
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => toggleDestination("whatsapp")}
+                  className={`flex items-center justify-center gap-2 rounded-lg border-2 py-4 font-bold transition-all ${
+                    selectedDestinations.whatsapp
+                      ? "border-emerald-500 bg-emerald-50 text-emerald-700"
+                      : "border-slate-200 bg-white text-slate-500"
+                  }`}
+                >
+                  <MessageSquare className="h-4 w-4" />
+                  WhatsApp
+                </button>
+              </div>
+
+              <div className="mt-4 flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => void handlePublishSelected()}
+                  disabled={publishing !== null}
+                  className="inline-flex items-center justify-center gap-2 rounded-lg bg-navy px-5 py-3 text-sm font-bold text-white shadow-lg transition-all hover:bg-slate-800 disabled:opacity-60"
+                >
+                  {publishing === "selected" ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <CheckCircle2 className="h-4 w-4" />
+                  )}
+                  {publishing === "selected" ? "Publicando..." : "Publicar selecionados"}
+                </button>
+                <span className="text-sm text-slate-500">
+                  Destinos atuais: {buildDestinationSummary() || "nenhum"}
+                </span>
+              </div>
+
+              <StoryGeneratorButton
+                title={preview.title}
+                imageUrl={toCleanText(imageUrl) || preview.image_url || null}
+                price={toNumber(preview.price)}
+                oldPrice={toNumber(preview.original_price ?? preview.old_price ?? 0) || null}
+              />
             </div>
           </div>
         )}
@@ -777,7 +1783,3 @@ export default function AdminNovaOfertaPage() {
     </div>
   );
 }
-
-
-
-

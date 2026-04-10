@@ -11,7 +11,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 type Marketplace = "mercadolivre" | "amazon";
-type OfferSlot = "hero" | "flash" | "best" | "comparator";
+type OfferSlot = "flash" | "best" | "comparator";
 
 type ExtractSuccessResponse = {
   success: true;
@@ -53,7 +53,6 @@ function normalizeMarketplace(value: unknown): Marketplace | null {
 function normalizeOfferSlot(value: unknown): OfferSlot | null {
   const normalized = String(value ?? "").toLowerCase().trim();
   if (
-    normalized === "hero" ||
     normalized === "flash" ||
     normalized === "best" ||
     normalized === "comparator"
@@ -254,8 +253,8 @@ export async function POST(req: NextRequest) {
     }
 
     const activatePayload: Record<string, unknown> = {
-      status: "active",
-      curations_status: "approved",
+      status: "inactive",
+      curations_status: "channel_ready",
       affiliate_url: affiliateUrl,
       updated_at: new Date().toISOString(),
     };

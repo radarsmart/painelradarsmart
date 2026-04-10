@@ -81,6 +81,23 @@ function parseAmountFromParts(wholeRaw: string | null, centsRaw: string | null):
   return toNumber(`${whole}.${cents}`);
 }
 
+function pickPlausibleOldPrice(
+  currentPrice: number | null,
+  candidates: Array<number | null | undefined>,
+): number | null {
+  const valid = candidates.filter(
+    (value): value is number =>
+      typeof value === "number" &&
+      Number.isFinite(value) &&
+      value > 0 &&
+      (currentPrice === null || value > currentPrice) &&
+      (currentPrice === null || value <= currentPrice * 8),
+  );
+
+  if (!valid.length) return null;
+  return Math.min(...valid);
+}
+
 function readFirstDigits(
   $: ReturnType<typeof load>,
   selectors: string[],
@@ -143,6 +160,8 @@ function readJsonLdProduct($: ReturnType<typeof load>): {
           const offerRecord = Array.isArray(offersValue)
             ? toRecord(offersValue[0])
             : toRecord(offersValue);
+          const priceSpecification = toRecord(offerRecord.priceSpecification);
+          const listPrice = toRecord(offerRecord.list_price);
 
           const imageValue = candidate.image;
           const imageUrl = Array.isArray(imageValue)
@@ -151,12 +170,26 @@ function readJsonLdProduct($: ReturnType<typeof load>): {
 
           const price =
             parseCurrencyLoose(offerRecord.price) ??
+            parseCurrencyLoose(priceSpecification.price) ??
             parseCurrencyLoose(offerRecord.lowPrice) ??
             parseCurrencyLoose(candidate.price);
-          const oldPrice =
-            parseCurrencyLoose(offerRecord.highPrice) ??
-            parseCurrencyLoose(candidate.highPrice) ??
-            null;
+          const oldPrice = pickPlausibleOldPrice(price, [
+            parseCurrencyLoose(offerRecord.original_price),
+            parseCurrencyLoose(offerRecord.originalPrice),
+            parseCurrencyLoose(offerRecord.price_before_discount),
+            parseCurrencyLoose(offerRecord.priceBeforeDiscount),
+            parseCurrencyLoose(offerRecord.regular_amount),
+            parseCurrencyLoose(offerRecord.regularAmount),
+            parseCurrencyLoose(offerRecord.list_price),
+            parseCurrencyLoose(offerRecord.listPrice),
+            parseCurrencyLoose(listPrice.amount),
+            parseCurrencyLoose(offerRecord.highPrice),
+            parseCurrencyLoose(candidate.highPrice),
+            parseCurrencyLoose(priceSpecification.referencePrice),
+            parseCurrencyLoose(priceSpecification.listPrice),
+            parseCurrencyLoose(candidate.original_price),
+            parseCurrencyLoose(candidate.originalPrice),
+          ]);
 
           return {
             title: toText(candidate.name),
@@ -322,9 +355,11 @@ export async function extractMercadoLivreWithZenscrape(
 
   const currentWhole = readFirstDigits($, [
     ".ui-pdp-price__second-line .andes-money-amount__fraction",
+    ".ui-pdp-price__main-container .ui-pdp-price__second-line .andes-money-amount__fraction",
     ".ui-pdp-price__second-line .andes-money-amount--cents-superscript .andes-money-amount__fraction",
-    ".andes-money-amount--cents-superscript .andes-money-amount__fraction",
+    ".ui-pdp-price__main-container .andes-money-amount--cents-superscript .andes-money-amount__fraction",
     ".ui-pdp-price__main-container .andes-money-amount__fraction",
+    ".andes-money-amount--cents-superscript .andes-money-amount__fraction",
     ".price-tag-fraction",
   ]);
 
@@ -337,6 +372,15 @@ export async function extractMercadoLivreWithZenscrape(
     ".ui-pdp-price__main-container .andes-money-amount__decimals",
     ".price-tag-cents",
   ]) || "";
+
+  const genericCurrentWhole = readFirstDigits($, [
+    ".andes-money-amount__fraction",
+  ]);
+  const genericCurrentCents =
+    readFirstDigits($, [
+      ".andes-money-amount__cents",
+      ".andes-money-amount__decimals",
+    ]) || "";
 
   const oldWhole =
     readFirstDigits($, [
@@ -359,18 +403,50 @@ export async function extractMercadoLivreWithZenscrape(
   const metaCurrentPrice = readFirstMetaMoney($, [
     'meta[itemprop="price"]',
     'meta[property="product:price:amount"]',
+    'meta[property="price:amount"]',
     'meta[name="twitter:data1"]',
   ]);
+
+  const currentPriceRegex = parseCurrencyLoose(
+    html.match(/"price"\s*:\s*"?([0-9.,]+)"?/i)?.[1] ??
+      html.match(/"price"\s*:\s*\{[^}]*"amount"\s*:\s*([0-9.]+)/i)?.[1] ??
+      html.match(/"sale_price"\s*:\s*\{[^}]*"amount"\s*:\s*([0-9.]+)/i)?.[1] ??
+      null,
+  );
 
   const price =
     jsonLd.price ??
     parseAmountFromParts(currentWhole, currentCents) ??
     parseCurrencyLoose(currentWhole) ??
-    metaCurrentPrice;
+    metaCurrentPrice ??
+    currentPriceRegex;
+
+  const oldPriceRegex = parseCurrencyLoose(
+    html.match(/"original_price"\s*:\s*"?([0-9.,]+)"?/i)?.[1] ??
+      html.match(/"price_before_discount"\s*:\s*"?([0-9.,]+)"?/i)?.[1] ??
+      html.match(/"regular_amount"\s*:\s*([0-9.]+)/i)?.[1] ??
+      html.match(/"original_value"\s*:\s*([0-9.]+)/i)?.[1] ??
+      html.match(/"list_price"\s*:\s*\{[^}]*"amount"\s*:\s*([0-9.]+)/i)?.[1] ??
+      null,
+  );
   const oldPrice =
-    parseAmountFromParts(oldWhole, oldCents) ??
-    parseCurrencyLoose(oldWhole) ??
-    jsonLd.oldPrice;
+    pickPlausibleOldPrice(price, [
+      jsonLd.oldPrice,
+      oldPriceRegex,
+      parseAmountFromParts(oldWhole, oldCents),
+      parseCurrencyLoose(oldWhole),
+    ]) ?? null;
+
+  const genericCurrentPrice = parseAmountFromParts(genericCurrentWhole, genericCurrentCents);
+  const safeGenericCurrentPrice =
+    genericCurrentPrice !== null &&
+    (oldPrice === null || genericCurrentPrice < oldPrice)
+      ? genericCurrentPrice
+      : null;
+
+  const resolvedPrice =
+    price ??
+    safeGenericCurrentPrice;
 
   const imageCandidates = [
     toText($("img.ui-pdp-image.ui-pdp-gallery__figure__image").first().attr("data-zoom")),
@@ -411,7 +487,7 @@ export async function extractMercadoLivreWithZenscrape(
 
   return {
     title,
-    price,
+    price: resolvedPrice,
     oldPrice,
     imageUrl: resolvedImageUrl,
     productUrl,

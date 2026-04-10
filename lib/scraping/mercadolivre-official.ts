@@ -25,6 +25,14 @@ type ExtractedMlIds = {
   productId: string | null;
 };
 
+type MercadoLivreHtmlMetadataFromHtmlInput = {
+  html: string;
+  sourceUrl: string;
+  finalUrl?: string | null;
+  affiliateUrl?: string | null;
+  rawData?: Record<string, unknown>;
+};
+
 const ML_BROWSER_HEADERS: Record<string, string> = {
   "user-agent":
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
@@ -42,6 +50,7 @@ const ML_BROWSER_HEADERS: Record<string, string> = {
 };
 
 const ML_API_TIMEOUT_MS = 4000;
+const ML_HTML_TIMEOUT_MS = 8000;
 
 function toText(value: unknown): string {
   return String(value ?? "").trim();
@@ -52,8 +61,104 @@ function toNumber(value: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function decodeHtmlEntities(value: string): string {
+  return value
+    .replace(/&quot;/g, '"')
+    .replace(/&#34;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function extractMetaContent(html: string, key: string): string {
+  const escaped = escapeRegExp(key);
+  const patterns = [
+    new RegExp(
+      `<meta[^>]+(?:property|name)=["']${escaped}["'][^>]+content=["']([^"']+)["'][^>]*>`,
+      "i",
+    ),
+    new RegExp(
+      `<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["']${escaped}["'][^>]*>`,
+      "i",
+    ),
+  ];
+
+  for (const pattern of patterns) {
+    const match = html.match(pattern);
+    if (match?.[1]) return decodeHtmlEntities(match[1]);
+  }
+
+  return "";
+}
+
+function extractHtmlTitle(html: string): string {
+  const match = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+  return match?.[1] ? decodeHtmlEntities(match[1]) : "";
+}
+
+function sanitizeMercadoLivreTitle(value: string): string {
+  return decodeHtmlEntities(value)
+    .replace(/\s+-\s+R\$\s*[\d.,]+.*$/i, "")
+    .replace(/\s*\|\s*Mercado\s*Livre.*$/i, "")
+    .replace(/\s*\|\s*MercadoLivre.*$/i, "")
+    .trim();
+}
+
+function parseBrazilianCurrency(value: string): number | null {
+  const match = value.match(/R\$\s*([\d.]+,\d{2}|\d+(?:[.,]\d{1,2})?)/i);
+  if (!match?.[1]) return null;
+
+  const normalized = match[1].replace(/\./g, "").replace(",", ".");
+  return toNumber(normalized);
+}
+
+function extractJsonNumber(html: string, keys: string[]): number | null {
+  for (const key of keys) {
+    const pattern = new RegExp(`["']${escapeRegExp(key)}["']\\s*:\\s*([0-9]+(?:\\.[0-9]+)?)`, "i");
+    const match = html.match(pattern);
+    const parsed = toNumber(match?.[1]);
+    if (parsed !== null && parsed > 0) return parsed;
+  }
+  return null;
+}
+
+function toAbsoluteMercadoLivreUrl(value: string, baseUrl: string): string {
+  const raw = toText(value);
+  if (!raw) return "";
+  if (/^https?:\/\//i.test(raw)) return raw;
+  if (/^\/\//.test(raw)) return `https:${raw}`;
+
+  try {
+    return new URL(raw, baseUrl).toString();
+  } catch {
+    return raw;
+  }
+}
+
+function extractItemIdFromHtml(html: string, sourceUrl: string): string | null {
+  const appUrl =
+    extractMetaContent(html, "twitter:app:url:iphone") ||
+    extractMetaContent(html, "twitter:app:url:ipad") ||
+    extractMetaContent(html, "twitter:app:url:googleplay");
+
+  return (
+    findMlbCandidate(appUrl) ||
+    findMlbCandidate(html.match(/meli:\/\/item\?id=(MLB-?\d+)/i)?.[1] ?? "") ||
+    findMlbCandidate(html.match(/["']item_id["']\s*:\s*["']?(MLB-?\d+)/i)?.[1] ?? "") ||
+    findMlbCandidate(sourceUrl)
+  );
+}
+
 function findMlbCandidate(value: string): string | null {
-  const match = value.toUpperCase().match(/MLB-?\d{6,}/);
+  const match = value.toUpperCase().match(/MLB-?\d{8,}/);
   if (!match) return null;
   return match[0].replace("MLB-", "MLB");
 }
@@ -174,10 +279,10 @@ function pickCurrentPriceFromItemPayload(itemPayload: Record<string, unknown>): 
   const currentPrice = toRecord(priceInfo.current_price);
 
   return (
-    toNumber(itemPayload.price) ??
-    toNumber(itemPayload.price_amount) ??
     toNumber(salePrice.amount) ??
     toNumber(currentPrice.amount) ??
+    toNumber(itemPayload.price) ??
+    toNumber(itemPayload.price_amount) ??
     null
   );
 }
@@ -289,6 +394,103 @@ async function resolveItemBySearchSlug(
   }
 }
 
+export async function extractMercadoLivreHtmlMetadata(
+  input: MercadoLivreOfficialInput,
+): Promise<MercadoLivreOfficialPreview> {
+  const sourceUrl = await resolveShortUrl(toText(input.url));
+  if (!sourceUrl) throw new Error("URL Mercado Livre obrigatoria.");
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), ML_HTML_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(sourceUrl, {
+      method: "GET",
+      redirect: "follow",
+      signal: controller.signal,
+      headers: ML_BROWSER_HEADERS,
+      cache: "no-store",
+    });
+
+    const html = await response.text();
+    if (!response.ok || !html) {
+      throw new Error(`HTML Mercado Livre indisponivel: HTTP ${response.status}`);
+    }
+
+    return extractMercadoLivreHtmlMetadataFromHtml({
+      html,
+      sourceUrl,
+      finalUrl: toText(response.url) || sourceUrl,
+      affiliateUrl: input.affiliateUrl,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+export function extractMercadoLivreHtmlMetadataFromHtml(
+  input: MercadoLivreHtmlMetadataFromHtmlInput,
+): MercadoLivreOfficialPreview {
+  const html = toText(input.html);
+  const sourceUrl = toText(input.sourceUrl);
+  const finalUrl = toText(input.finalUrl) || sourceUrl;
+
+  if (!html) {
+    throw new Error("HTML Mercado Livre vazio.");
+  }
+
+  const ogTitle = extractMetaContent(html, "og:title");
+  const title =
+    sanitizeMercadoLivreTitle(ogTitle) ||
+    sanitizeMercadoLivreTitle(extractMetaContent(html, "twitter:title")) ||
+    sanitizeMercadoLivreTitle(extractHtmlTitle(html));
+
+  const ogImage = extractMetaContent(html, "og:image");
+  const twitterImage = extractMetaContent(html, "twitter:image");
+  const imageUrl = toAbsoluteMercadoLivreUrl(ogImage || twitterImage, finalUrl);
+  const permalink = extractMetaContent(html, "og:url") || finalUrl;
+  const itemId = extractItemIdFromHtml(html, finalUrl) || "";
+  const price =
+    parseBrazilianCurrency(ogTitle) ||
+    extractJsonNumber(html, ["price", "localItemPrice", "amount"]);
+  const oldPrice = extractJsonNumber(html, [
+    "original_price",
+    "originalPrice",
+    "base_price",
+    "previous_price",
+  ]);
+  const productUrl = permalink || finalUrl;
+  const affiliateUrl = normalizeMercadoLivreAffiliateUrl(
+    toText(input.affiliateUrl) || productUrl,
+  );
+
+  if (!title && !price && !imageUrl) {
+    throw new Error("HTML Mercado Livre sem metadados suficientes.");
+  }
+
+  return {
+    itemId,
+    title,
+    price,
+    oldPrice,
+    imageUrl,
+    permalink,
+    productUrl,
+    affiliateUrl,
+    condition: null,
+    status: null,
+    rawData: {
+      source_url: sourceUrl,
+      final_url: finalUrl,
+      resolved_item_id: itemId || null,
+      extraction_layer: "html_metadata",
+      og_title: ogTitle,
+      og_image: ogImage,
+      ...(input.rawData ?? {}),
+    },
+  };
+}
+
 export async function extractMercadoLivreOfficial(
   input: MercadoLivreOfficialInput,
 ): Promise<MercadoLivreOfficialPreview> {
@@ -301,10 +503,6 @@ export async function extractMercadoLivreOfficial(
   let itemId = ids.itemId;
   if (!itemId && ids.productId) {
     itemId = await resolveItemFromProductId(ids.productId, headers);
-    // If product resolution fails, try using productId directly as itemId
-    if (!itemId) {
-      itemId = ids.productId;
-    }
   }
   if (!itemId) {
     itemId = await resolveItemBySearchSlug(sourceUrl, headers);

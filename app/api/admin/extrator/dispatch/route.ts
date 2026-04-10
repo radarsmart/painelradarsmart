@@ -1,3 +1,4 @@
+import { revalidatePath } from "next/cache";
 import { NextRequest, NextResponse } from "next/server";
 
 import { requireAdmin } from "@/lib/admin-auth";
@@ -6,6 +7,7 @@ import {
   dispatchLegacyOffer,
   type DistributionChannel,
 } from "@/lib/distribution/legacy-dispatch";
+import { buildSiteManualCopyOverride } from "@/lib/offers/site-visibility";
 import {
   classifyOfferCategory,
   computeDiscountPct,
@@ -17,7 +19,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-type Marketplace = "amazon" | "mercadolivre";
+type Marketplace = "amazon" | "mercadolivre" | "shopee" | "lomadee" | "awin";
+const DEFAULT_OFFER_TTL_HOURS = 48;
 
 function toText(value: unknown): string {
   return String(value ?? "").trim();
@@ -30,7 +33,13 @@ function toNumber(value: unknown): number {
 
 function normalizeMarketplace(value: unknown): Marketplace | null {
   const normalized = toText(value).toLowerCase();
-  if (normalized === "amazon" || normalized === "mercadolivre") {
+  if (
+    normalized === "amazon" ||
+    normalized === "mercadolivre" ||
+    normalized === "shopee" ||
+    normalized === "lomadee" ||
+    normalized === "awin"
+  ) {
     return normalized;
   }
   return null;
@@ -48,6 +57,20 @@ function normalizeChannels(value: unknown): DistributionChannel[] {
         ),
     ),
   );
+}
+
+function computeExpiresAt(hours = DEFAULT_OFFER_TTL_HOURS): string {
+  return new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
+}
+
+function getMissingColumnFromError(message: string): string | null {
+  const singleQuoted = message.match(/Could not find the '([^']+)' column/i);
+  if (singleQuoted?.[1]) return singleQuoted[1];
+
+  const doubleQuoted = message.match(/column "([^"]+)"/i);
+  if (doubleQuoted?.[1]) return doubleQuoted[1];
+
+  return null;
 }
 
 export async function POST(req: NextRequest) {
@@ -70,6 +93,8 @@ export async function POST(req: NextRequest) {
       copy_text?: unknown;
       score?: unknown;
       channels?: unknown;
+      hub_offer_id?: unknown;
+      publish_to_site?: unknown;
     };
 
     const title = toText(body.title);
@@ -77,19 +102,29 @@ export async function POST(req: NextRequest) {
     const oldPrice = toNumber(body.old_price);
     const marketplace = normalizeMarketplace(body.marketplace);
     const productUrl = toText(body.product_url);
-    const affiliateUrl = sanitizeMarketplaceUrl(
-      toText(body.affiliate_url) || productUrl,
-      marketplace ?? undefined,
-      { fallbackUrl: productUrl },
-    );
+    const manualAffiliateUrl = toText(body.affiliate_url);
+    const affiliateUrl =
+      marketplace === "shopee"
+        ? manualAffiliateUrl || productUrl
+        : manualAffiliateUrl ||
+          sanitizeMarketplaceUrl(
+            productUrl,
+            marketplace ?? undefined,
+            { fallbackUrl: productUrl },
+          );
     const imageUrl = toText(body.image_url);
     const copyText = toText(body.copy_text);
     const channels = normalizeChannels(body.channels);
     const slotType = toText(body.slot_type);
+    const hubOfferId = toText(body.hub_offer_id);
+    const publishToSite = Boolean(body.publish_to_site) || channels.length === 0;
+    const isSiteApproval = publishToSite;
+    const isFlash = slotType === "flash";
+    const isFeatured = slotType === "best";
 
     if (!marketplace) {
       return NextResponse.json(
-        { error: "marketplace invalido. Use amazon ou mercadolivre." },
+        { error: "marketplace invalido. Use amazon, mercadolivre, shopee, lomadee ou awin." },
         { status: 400 },
       );
     }
@@ -97,6 +132,14 @@ export async function POST(req: NextRequest) {
     if (!title || !productUrl || price <= 0) {
       return NextResponse.json(
         { error: "title, product_url e price sao obrigatorios para o despacho." },
+        { status: 400 },
+      );
+    }
+
+    const validSlots = ["flash", "best", "comparator"];
+    if (isSiteApproval && (!slotType || !validSlots.includes(slotType))) {
+      return NextResponse.json(
+        { error: `slot_type invalido. Use: ${validSlots.join(", ")}` },
         { status: 400 },
       );
     }
@@ -120,7 +163,7 @@ export async function POST(req: NextRequest) {
     const externalOfferId = `${marketplace}:${productUrl}`;
     const existingOffer = await supabaseAdmin
       .from("offers")
-      .select("id")
+      .select("id,manual_copy")
       .eq("external_offer_id", externalOfferId)
       .maybeSingle();
 
@@ -130,7 +173,19 @@ export async function POST(req: NextRequest) {
 
     const rawData =
       body.raw_data && typeof body.raw_data === "object" ? body.raw_data : {};
-    const saveResult = await salvarOferta({
+    const now = new Date().toISOString();
+    const shouldPublishOnSite = isSiteApproval;
+    const offerStatus = shouldPublishOnSite ? "active" : "inactive";
+    const curationStatus = shouldPublishOnSite ? "approved" : "channel_ready";
+    const manualCopy = shouldPublishOnSite
+      ? buildSiteManualCopyOverride(
+          existingOffer.data?.manual_copy,
+          (slotType as "flash" | "best" | "comparator") || "best",
+          now,
+        )
+      : undefined;
+
+    const offerPayload: Record<string, unknown> = {
       id: existingOffer.data?.id,
       title,
       product_url: productUrl,
@@ -148,13 +203,31 @@ export async function POST(req: NextRequest) {
       discount_percent: discountPct,
       external_offer_id: externalOfferId,
       slot_type: slotType || null,
-      status: "active",
-      curations_status: "approved",
+      is_flash: isFlash,
+      is_featured: isFeatured,
+      status: offerStatus,
+      curations_status: curationStatus,
+      published_at: shouldPublishOnSite ? now : null,
+      expires_at: computeExpiresAt(),
       source: "manual_sniper",
       currency: "BRL",
       raw_data: rawData,
       score,
-    });
+      manual_copy: manualCopy,
+    };
+
+    const payloadToSave = { ...offerPayload };
+    let saveResult = await salvarOferta(payloadToSave);
+
+    while (saveResult.error) {
+      const missingColumn = getMissingColumnFromError(saveResult.error.message);
+      if (!missingColumn || !(missingColumn in payloadToSave)) {
+        break;
+      }
+
+      delete payloadToSave[missingColumn];
+      saveResult = await salvarOferta(payloadToSave);
+    }
 
     if (saveResult.error || !saveResult.data) {
       return NextResponse.json(
@@ -163,10 +236,60 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const offerId = String(saveResult.data.id);
+    const { data: approvedOffer, error: approveError } = await supabaseAdmin
+      .from("offers")
+      .update({
+        curations_status: curationStatus,
+        status: offerStatus,
+        manual_copy: manualCopy,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", offerId)
+      .select("id,curations_status,status")
+      .single();
+
+    if (approveError) {
+      return NextResponse.json(
+        { error: `Falha ao aprovar oferta antes da fila: ${approveError.message}` },
+        { status: 500 },
+      );
+    }
+
+    const effectiveCurationStatus = String(approvedOffer?.curations_status ?? "").toLowerCase();
+    const approvalDidNotStick = shouldPublishOnSite && effectiveCurationStatus !== "approved";
+
+    revalidatePath("/");
+    revalidatePath("/ofertas");
+    revalidatePath("/admin/curadoria");
+    revalidatePath("/admin/amazon");
+
     if (!channels.length) {
+      if (approvalDidNotStick) {
+        return NextResponse.json(
+          {
+            error:
+              "A oferta nao ficou com curations_status=approved antes de entrar na fila.",
+            curations_status: approvedOffer?.curations_status ?? null,
+          },
+          { status: 409 },
+        );
+      }
+
+      if (hubOfferId) {
+        await supabaseAdmin
+          .from("hub_offers")
+          .update({
+            affiliate_url_manual: affiliateUrl || null,
+            selected_for_distribution: true,
+            updated_at: now,
+          })
+          .eq("id", hubOfferId);
+      }
+
       return NextResponse.json({
         success: true,
-        offer_id: String(saveResult.data.id),
+        offer_id: offerId,
         message: "Oferta aprovada no Radar e pronta para a vitrine.",
       });
     }
@@ -177,17 +300,36 @@ export async function POST(req: NextRequest) {
         : undefined;
 
     const dispatch = await dispatchLegacyOffer({
-      offerId: String(saveResult.data.id),
+      offerId,
       affiliateUrl,
       channels,
       copyByChannel,
-      allowRequeueSameDay: false,
+      allowRequeueSameDay: true,
     });
+
+    if (hubOfferId) {
+      await supabaseAdmin
+        .from("hub_offers")
+        .update({
+          affiliate_url_manual: affiliateUrl || null,
+          selected_for_distribution: true,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", hubOfferId);
+    }
 
     return NextResponse.json({
       success: true,
-      offer_id: String(saveResult.data.id),
-      message: "Oferta aprovada e enviada para o pipeline de distribuicao.",
+      offer_id: offerId,
+      message:
+        dispatch.queued > 0
+          ? "Oferta aprovada e enviada para o pipeline de distribuicao."
+          : dispatch.skipped > 0
+            ? "Oferta processada, mas nenhum novo job foi inserido na fila."
+            : "Oferta processada com sucesso.",
+      warning: approvalDidNotStick
+        ? "Aprovacao editoral nao persistiu em offers, mas o enqueue administrativo foi executado pelo fallback."
+        : null,
       distribution: dispatch,
     });
   } catch (error) {

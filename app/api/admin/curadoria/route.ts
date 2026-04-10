@@ -7,6 +7,8 @@ export const dynamic = "force-dynamic";
 
 type CuradoriaAction = "publish" | "publish_batch" | "archive" | "prepare_group";
 type DestinationBlock = "flash" | "day" | "blog";
+type OfferSlotType = "flash" | "best" | "blog";
+const DEFAULT_OFFER_TTL_HOURS = 48;
 
 type OfferRow = {
   id: string;
@@ -74,6 +76,12 @@ function normalizeDestinationBlock(value: unknown): DestinationBlock {
     .trim();
   if (block === "flash" || block === "day" || block === "blog") return block;
   return "day";
+}
+
+function mapDestinationBlockToSlot(block: DestinationBlock): OfferSlotType {
+  if (block === "flash") return "flash";
+  if (block === "blog") return "blog";
+  return "best";
 }
 
 function normalizeBaseUrl(value: string | null | undefined): string | null {
@@ -239,19 +247,25 @@ function payloadByDestination(
   officialAffiliateUrl: string,
 ) {
   const now = new Date().toISOString();
+  const expiresAt = new Date(Date.now() + DEFAULT_OFFER_TTL_HOURS * 60 * 60 * 1000).toISOString();
+  const slotType = mapDestinationBlockToSlot(block);
   const currentManualCopy = parseJsonObject(offer.manual_copy);
   const manualCopy = {
     ...currentManualCopy,
     destination_block: block,
+    slot_type: slotType,
     curated_at: now,
   };
 
   return {
     status: "active",
     curations_status: "approved",
+    slot_type: slotType,
     is_flash: block === "flash",
     is_featured: block === "day",
     affiliate_url: officialAffiliateUrl,
+    published_at: now,
+    expires_at: expiresAt,
     manual_copy: manualCopy,
     updated_at: now,
   };
@@ -271,8 +285,28 @@ async function updateOfferWithFallback(
 
   if (
     error &&
-    (error.message.includes("is_flash") || error.message.includes("is_featured"))
+    (error.message.includes("is_flash") ||
+      error.message.includes("is_featured") ||
+      error.message.includes("published_at"))
   ) {
+    delete payload.is_flash;
+    delete payload.is_featured;
+    if (error.message.includes("published_at")) {
+      delete payload.published_at;
+    }
+    const fallback = await supabaseAdmin
+      .from("offers")
+      .update(payload)
+      .eq("id", offerId)
+      .select(SELECT_OFFER_FIELDS)
+      .single();
+    data = fallback.data;
+    error = fallback.error;
+  }
+
+  if (error && error.message.includes("expires_at")) {
+    delete payload.expires_at;
+    delete payload.published_at;
     delete payload.is_flash;
     delete payload.is_featured;
     const fallback = await supabaseAdmin

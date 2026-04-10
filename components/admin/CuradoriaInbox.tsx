@@ -57,18 +57,19 @@ type GroupModalState = {
   offerTitle: string;
   copyText: string;
   affiliateUrl: string;
+  confirmationText: string;
 };
 
 function offerMarketplaceLabel(marketplace: string | null) {
   const value = String(marketplace ?? "").toLowerCase();
   if (value.includes("amazon")) {
-    return { label: "Amazon", className: "bg-orange-50 text-orange-700" };
+    return { label: "🟠 Amazon", className: "bg-orange-50 text-orange-700" };
   }
   if (value.includes("mercado")) {
-    return { label: "Mercado Livre", className: "bg-emerald-50 text-emerald-700" };
+    return { label: "🟡 ML", className: "bg-yellow-50 text-yellow-700" };
   }
   if (value.includes("shopee")) {
-    return { label: "Shopee", className: "bg-amber-50 text-amber-700" };
+    return { label: "🔴 Shopee", className: "bg-red-50 text-red-700" };
   }
   return { label: marketplace || "Marketplace", className: "bg-slate-100 text-slate-700" };
 }
@@ -90,9 +91,13 @@ function OfferImage({ src, alt }: { src: string | null; alt: string }) {
 function destinationOptions() {
   return [
     { value: "day", label: "Oferta do Dia" },
-    { value: "flash", label: "Relampago" },
+    { value: "flash", label: "Ofertas Relâmpago" },
     { value: "blog", label: "Destaque Blog" },
   ] as Array<{ value: DestinationBlock; label: string }>;
+}
+
+function destinationLabel(value: DestinationBlock) {
+  return destinationOptions().find((option) => option.value === value)?.label ?? "Oferta do Dia";
 }
 
 function looksLikeUrl(value: string) {
@@ -129,6 +134,7 @@ export default function CuradoriaInbox({
     offerTitle: "",
     copyText: "",
     affiliateUrl: "",
+    confirmationText: "",
   });
   const [feedback, setFeedback] = useState<{ type: "success" | "error"; text: string } | null>(
     null,
@@ -327,6 +333,7 @@ export default function CuradoriaInbox({
         offerTitle: String(offer.title ?? "Oferta"),
         copyText: String(payload.copy_text ?? ""),
         affiliateUrl: safeAffiliate,
+        confirmationText: "",
       });
     } catch (error) {
       setFeedback({
@@ -404,16 +411,18 @@ export default function CuradoriaInbox({
       }
 
       const safeAffiliate = String(copyPayload.affiliate_url ?? manualAffiliateUrl);
+      const confirmationText = `Enviado para: ${destinationLabel(destinationBlock)} ✅`;
       setGroupModal({
         open: true,
         offerTitle: String(offer.title ?? "Oferta"),
         copyText: String(copyPayload.copy_text ?? ""),
         affiliateUrl: safeAffiliate,
+        confirmationText,
       });
       removeFromState(offer.id);
       setFeedback({
         type: "success",
-        text: "Oferta aprovada, publicada e copy AIDA gerada.",
+        text: confirmationText,
       });
     } catch (error) {
       setFeedback({
@@ -830,6 +839,11 @@ export default function CuradoriaInbox({
           <div className="w-full max-w-2xl rounded-2xl bg-white p-5 shadow-xl">
             <h3 className="text-lg font-bold text-[#22223B]">Copy para Grupo</h3>
             <p className="mt-1 text-sm text-slate-500">{groupModal.offerTitle}</p>
+            {groupModal.confirmationText ? (
+              <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700">
+                {groupModal.confirmationText}
+              </div>
+            ) : null}
             <p className="mt-2 text-xs text-slate-500">
               Link de afiliado aplicado: {groupModal.affiliateUrl || "nao informado"}
             </p>
@@ -857,6 +871,7 @@ export default function CuradoriaInbox({
                     offerTitle: "",
                     copyText: "",
                     affiliateUrl: "",
+                    confirmationText: "",
                   })
                 }
                 className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700"

@@ -1,360 +1,570 @@
-# Radar Smart — Documentação de Skills e Estado do Projeto
+# Radar Smart - Relatorio Tecnico Atualizado
 
-> Arquivo gerado para servir de base às skills do Antigravity e documentação
-> operacional do projeto. Atualizar sempre que houver mudança relevante de
-> stack, fluxo ou integrações.
+Documento de referencia para configuracao de skills, agentes e automacoes de contexto do projeto Radar Smart.
 
----
+Ultima revisao: 2026-04-10
 
 ## 1. Stack Atual
 
-| Camada       | Tecnologia                   | Versão         |
-| ------------ | ---------------------------- | -------------- |
-| Framework    | Next.js App Router           | 14.2.35        |
-| UI           | React + React DOM            | 18.3.1         |
-| Estilo       | TailwindCSS + PostCSS + clsx | 3.4.17         |
-| Animações    | framer-motion                | 12.23.24       |
-| Ícones       | lucide-react                 | 0.544.0        |
-| Gráficos     | recharts                     | 2.15.4         |
-| Banco + Auth | @supabase/supabase-js        | 2.50.5         |
-| Scraping     | cheerio + undici             | 1.2.0 / 6.21.2 |
-| PDF          | pdfkit                       | 0.18.0         |
-| Linguagem    | TypeScript                   | 5              |
-| Linting      | ESLint                       | 8.57.1         |
+### Framework principal
+- Next.js `14.2.35`
+- React `18.3.1`
+- React DOM `18.3.1`
+- TypeScript `5`
 
-**Cores da marca:** gold `#C9973A` — dark `#0A0F1E`
+### UI e frontend
+- TailwindCSS `3.4.17`
+- PostCSS `8.5.6`
+- `clsx` `2.1.1`
+- `framer-motion` `12.23.24`
+- `lucide-react` `0.544.0`
+- `recharts` `2.15.4`
 
----
+### Backend e integracoes
+- Supabase JS `2.50.5`
+- `cheerio` `1.2.0`
+- `undici` `6.21.2`
+
+### Utilitarios
+- `pdfkit` `0.18.0`
+- ESLint `8.57.1`
+- `eslint-config-next` `14.2.35`
+
+### Observacoes
+- O projeto nao usa Vite. A base atual e Next.js App Router.
+- O frontend e o backend HTTP do projeto estao no mesmo repositorio.
+- A organizacao do app segue a estrutura `app/` do Next.js.
 
 ## 2. Estrutura de Pastas
 
-```
-/
-├── app/
-│   ├── (public)/           # Páginas públicas do site
-│   ├── admin/(protected)/  # Painel admin por módulo
-│   └── api/                # Todas as rotas de API
-│       ├── admin/          # APIs do painel admin
-│       │   ├── scraper/    # Extração e preview de ofertas
-│       │   ├── extrator/   # Dispatch e persistência
-│       │   ├── ml/         # Hub Mercado Livre
-│       │   ├── amazon/     # Hub Amazon
-│       │   ├── shopee/     # Hub Shopee
-│       │   ├── lomadee/    # Hub Lomadee
-│       │   ├── awin/       # Hub AWIN
-│       │   ├── curadoria/  # Discover/sniper (em construção)
-│       │   └── blog/       # Gestão do blog
-│       ├── home/offers/    # Ofertas públicas para o site
-│       ├── click/          # Rastreamento de cliques
-│       └── grupo/          # Rastreamento de entradas no grupo
-├── components/
-│   ├── admin/              # Componentes do painel admin
-│   ├── layout/             # Header, footer, nav
-│   ├── landing/            # Componentes de landing pages
-│   ├── vitrine/            # Storefront público
-│   ├── comparativo/        # Comparador de preços
-│   ├── blog/               # Blog público
-│   └── awin/               # Componentes específicos AWIN
-├── lib/
-│   ├── supabase.ts         # Cliente Supabase
-│   ├── scraping/           # Parsers e scrapers por marketplace
-│   │   ├── mercadolivre-official.ts
-│   │   └── amazon-rainforest.ts
-│   ├── distribution/       # Lógica de distribuição
-│   │   └── legacy-dispatch.ts
-│   ├── offers/
-│   │   └── site-visibility.ts  # Regras de visibilidade pública
-│   ├── affiliates/         # Integrações de afiliados
-│   └── landing/            # Lógica de landing pages
-├── supabase/
-│   └── migrations/         # Migrations versionadas do schema
-├── scripts/                # Utilitários (seed, apostila, etc)
-├── docs/                   # Documentação operacional e técnica
-└── public/                 # Assets estáticos
-```
+### Raiz
+- `app/`: paginas, layouts e rotas HTTP (`app/api`)
+- `components/`: componentes reutilizaveis
+- `lib/`: regras de negocio, integracoes e acesso a dados
+- `public/`: assets estaticos
+- `docs/`: documentacao tecnica e operacional
+- `scripts/`: scripts utilitarios
+- `supabase/`: migrations versionadas
 
----
+### app/
 
-## 3. Banco de Dados (Supabase)
+#### app/admin/(protected)
+Contem o painel administrativo e seus modulos:
+- `amazon/`
+- `awin/`
+- `blog/`
+- `canais/`
+- `configuracoes/`
+- `curadoria/`
+- `envios/`
+- `extrator/`
+- `fila/`
+- `hub-awin/`
+- `infoprodutos/`
+- `landing-pages/`
+- `lomadee/`
+- `mercadolivre/`
+- `ofertas/`
+- `produtos/`
+- `shopee/`
+- `tendencias/`
 
-### Tabelas principais
+#### app/api/
+Contem as rotas HTTP internas e publicas:
+- `admin/`: APIs protegidas do painel
+- `awin/`: APIs publicas/operacionais da integracao AWIN
+- `click/`: tracking de cliques
+- `cron/`: rotas chamadas por cron na Vercel
+- `grupo/`: tracking de entrada em grupo
+- `health/`: healthcheck
+- `home/`: dados do frontend publico
+- `infoproducts/`: click tracking de infoprodutos
+- `landing-pages/`: tracking publico de CTAs
+- `ml/`: cache/listagem ML
+- `shopee/`: listagem Shopee
 
-| Tabela                     | Função                                                     |
-| -------------------------- | ---------------------------------------------------------- |
-| `offers`                   | Ofertas com status, slot, TTL 48h, affiliate_url, raw_data |
-| `price_history`            | Histórico de preços por oferta                             |
-| `hub_offers`               | Ofertas por hub/marketplace                                |
-| `ml_products_cache`        | Cache de produtos ML                                       |
-| `inbox_cache`              | Cache de entrada de ofertas                                |
-| `scrape_jobs`              | Fila de jobs de scraping                                   |
-| `post_queue`               | Fila de distribuição WhatsApp/Telegram                     |
-| `post_targets`             | Destinos de distribuição configurados                      |
-| `clicks`                   | Rastreamento de cliques do site                            |
-| `grupo_membros`            | Rastreamento de entradas no grupo VIP                      |
-| `admins`                   | Usuários com acesso ao painel                              |
-| `categories`               | Categorias de ofertas                                      |
-| `blog_posts`               | Posts do blog                                              |
-| `blog_post_offers`         | Relação blog ↔ ofertas                                     |
-| `infoproducts`             | Infoprodutos afiliados                                     |
-| `landing_pages`            | Landing pages geradas                                      |
-| `landing_page_clicks`      | Cliques em landing pages                                   |
-| `affiliate_programs`       | Programas de afiliados cadastrados                         |
-| `awin_automation_config`   | Configuração de automação AWIN                             |
-| `mercadolivre_auth`        | Tokens OAuth ML                                            |
-| `radar_smart_boost`        | Boost de visibilidade de ofertas                           |
-| `radar_smart_rank`         | Ranking de ofertas                                         |
-| `v_revenue_by_marketplace` | View de receita por marketplace                            |
+#### app/lp/
+- Paginas publicas de landing page por slug
+- Preview publico/privado conforme status
+
+#### app/p/
+- Paginas publicas de infoprodutos
+
+### components/
+
+#### components/admin
+Componentes do painel:
+- `AdminSidebar`
+- `CuradoriaDashboard`
+- `CuradoriaInbox`
+- `EnviosNocPage`
+- `LandingPagesManager`
+- `AwinAutomationPanel`
+- `RefreshSiteOffersButton`
+- `TabelaOfertas`
+- `DeleteQueueItemButton`
+
+#### components/layout
+Componentes globais do frontend:
+- `Header`
+- `Footer`
+- `OfferTicker`
+- `BrandWordmark`
+
+#### components/landing
+Componentes especificos de LP:
+- `LandingPageView`
+- `TrackedCtaLink`
+
+#### components/vitrine
+Componentes da home e listas publicas:
+- `CardOferta`
+- `GridOfertas`
+- `CategoriasScroll`
+- `MLHub`
+
+#### components/comparativo
+- `ComparativoClient`
+
+#### components/blog
+- `BlogProductCard`
+
+### lib/
+
+#### lib/supabase.ts
+- cliente publico
+- cliente admin
+- funcoes utilitarias de acesso a banco
+
+#### lib/distribution/
+- fila e distribuicao para canais
+
+#### lib/scraping/
+- extratores por marketplace
+- ML oficial
+- ML Bright Data
+- ML Zenscrape
+- Amazon Rainforest
+- Shopee HTML
+
+#### lib/awin/
+- cliente AWIN
+- automacao AWIN
+- configuracao da automacao
+
+#### lib/offers/
+- visibilidade publica
+- refresh de preco
+
+#### lib/home/
+- composicao de dados da home
+
+#### lib/ml/
+- cache e curadoria ML
+
+#### lib/shopee/
+- cliente da API afiliada da Shopee
+
+#### lib/lomadee/
+- cliente Lomadee
+
+#### lib/ai/
+- integracao Gemini
+
+#### lib/landing-pages.ts
+- acesso e normalizacao de landing pages
+
+## 3. Banco de Dados
+
+### Tabelas referenciadas no codigo
+- `admins`
+- `affiliate_programs`
+- `awin_automation_config`
+- `blog_post_offers`
+- `blog_posts`
+- `categories`
+- `clicks`
+- `grupo_membros`
+- `hub_offers`
+- `inbox_cache`
+- `infoproducts`
+- `landing_page_clicks`
+- `landing_pages`
+- `mercadolivre_auth`
+- `ml_products_cache`
+- `offers`
+- `post_queue`
+- `post_targets`
+- `price_history`
+- `radar_smart_boost`
+- `radar_smart_rank`
+- `scrape_jobs`
+- `v_revenue_by_marketplace`
+
+### Migrations versionadas no repositorio
+- `20260326_create_ml_products_cache.sql`
+- `20260329123000_add_blog_offer_links.sql`
+- `20260330014500_create_infoproducts.sql`
+- `20260407105000_add_offer_publication_window.sql`
+- `20260407150000_create_awin_automation_config.sql`
+- `20260407162000_update_awin_automation_price_min.sql`
+- `20260407163000_enforce_awin_automation_price_range.sql`
+- `20260408090000_add_offer_price_tracking_columns.sql`
+- `20260409123000_create_landing_pages.sql`
+- `20260409143000_create_landing_page_clicks.sql`
+- `20260409162000_add_landing_page_utm_fields.sql`
 
 ### Fluxo de dados das ofertas
 
-```
-URL / Hub / Manual
-       ↓
-app/api/admin/scraper/route.ts
-(gera preview — nada salvo ainda)
-       ↓
-Admin aprova no painel
-       ↓
-app/api/admin/extrator/dispatch/route.ts → salvarOferta()
-       ↓
-tabela offers
-(status, slot, TTL 48h, affiliate_url, raw_data)
-       ↓
-lib/offers/site-visibility.ts
-(decide se oferta aparece publicamente)
-       ↓
-app/api/home/offers/route.ts
-(home lê flash, best, comparator)
-```
+#### Entrada
+As ofertas entram por:
+- Central de Oferta
+- Hubs de marketplace
+- webhook do n8n
+- automacao AWIN
+- insercao manual no admin
 
-### RPCs ativas
+#### Extracao
+O preview e extraido em:
+- `app/api/admin/scraper/route.ts`
 
-- `increment_infoproduct_clicks` — contabiliza cliques em infoprodutos
-- `get_last_scheduled_at` — usada na fila de distribuição
+Camadas principais:
+- Mercado Livre: API oficial -> Bright Data -> HTML -> Zenscrape/Apify -> manual
+- Amazon: Rainforest API -> fallback de HTML rotacionado -> manual
+- Shopee: HTML + shortlink afiliado
+- AWIN: feed/programmes/deep link
 
-### Edge Functions (Supabase)
+#### Persistencia
+Persistencia principal:
+- `salvarOferta()` em `lib/supabase.ts`
+- rota operacional: `app/api/admin/extrator/dispatch/route.ts`
 
-- `channel-whatsapp-control` — controle do canal WhatsApp
-- `channel-telegram-control` — controle do canal Telegram
-- `worker-process-offer` — processamento da fila de ofertas
-- `elite-flush` — cron de distribuição automática elite
+#### Publicacao no site
+Uma oferta so aparece no site quando:
+- `status = active`
+- `affiliate_url` preenchido
+- `slot_type` valido (`flash`, `best`, `comparator`)
+- curadoria aprovada ou override manual
+- `expires_at` ainda valido
+- `quality_score` e `is_priority` calculados
 
-> ⚠️ Edge Functions existem em produção mas não estão versionadas no
-> repositório.
+Regras centrais:
+- `lib/offers/site-visibility.ts`
+- `lib/offers/quality-score.ts` (Calculo de 0-100: Desconto 40%, Titulo 20%, Imagem 20%, Afiliado 20%)
 
----
+#### Consumo no frontend
+Rotas publicas de dados:
+- `app/api/home/offers/route.ts`
+- `app/api/home/page-data/route.ts`
 
-## 4. APIs e Integrações
+### RPCs e funcoes SQL utilizadas
+- `increment_infoproduct_clicks`
+- `get_last_scheduled_at`
 
-### Ativas hoje
+### Triggers SQL versionadas no repo
+- Nenhuma trigger SQL versionada no repositorio atual
 
-| Integração                | Função                                 | Arquivo/Local                         |
-| ------------------------- | -------------------------------------- | ------------------------------------- |
-| Supabase DB/Auth          | Banco e autenticação                   | lib/supabase.ts                       |
-| Mercado Livre OAuth + API | Produtos e itens ML                    | lib/scraping/mercadolivre-official.ts |
-| Bright Data Unlocker      | Fallback HTML ML                       | Pipeline scraper ML                   |
-| Zenscrape                 | Fallback legado ML                     | Pipeline scraper ML                   |
-| Apify                     | Hub ML/Amazon fallback                 | Pipeline scraper                      |
-| Rainforest API            | Preview Amazon                         | lib/scraping/amazon-rainforest.ts     |
-| Shopee Affiliate GraphQL  | Shortlinks afiliados                   | lib/affiliates/                       |
-| AWIN API + Feed           | Hub + automação + analytics            | components/awin/                      |
-| Lomadee API               | Hub Lomadee                            | lib/                                  |
-| Gemini                    | Geração de copy para landing pages     | lib/landing/                          |
-| N8N Webhook               | Entrada de ofertas externas (opcional) | N8N_WEBHOOK_URL                       |
+### Edge Functions / funcoes externas usadas pelo app
+- `worker-process-offer`
+- `channel-whatsapp-control`
+- `channel-telegram-control`
 
-### Em construção ou desativadas
+Observacao:
+- Essas funcoes sao consumidas pelo app, mas nao estao versionadas neste repositorio.
 
-| Integração                      | Status                             |
-| ------------------------------- | ---------------------------------- |
-| Amazon search/sniper automático | Desativado — retorna `manual_only` |
-| ML search automático            | Desativado — retorna `manual_only` |
-| Curadoria discover/sniper       | Desativado                         |
-| Pixels/eventos pagos em landing | Não implementado ainda             |
+## 4. APIs e Integracoes Ativas
 
-### Pipeline de scraping ML (ordem de fallback)
+### APIs/integracoes ativas
+- Supabase (DB/Auth)
+- Mercado Livre OAuth + API oficial
+- Bright Data Unlocker
+- Zenscrape
+- Apify
+- Rainforest API
+- Shopee Affiliate GraphQL
+- AWIN API + feeds
+- Lomadee API
+- Gemini API
+- n8n webhook
 
-```
-1. API oficial → lib/scraping/mercadolivre-official.ts
-2. Bright Data Unlocker
-3. HTML público direto
-4. Zenscrape / Apify
-5. Manual
-```
+### APIs em construcao ou desativadas parcialmente
+- busca automatica Amazon no admin: desativada, retorno `manual_only`
+- busca automatica ML no admin: desativada, retorno `manual_only`
+- discover/sniper na curadoria: desativado temporariamente
 
-### Pipeline Amazon
+### Estado atual do scraper ML
+- Extracao automatica existe e funciona por camadas
+- Ainda pode falhar dependendo da URL e da superficie do marketplace
+- Fallback manual continua necessario em alguns casos
 
-```
-Preview → Rainforest API
-Busca automática → DESATIVADA
-Operação atual → Hub manual + builder
-```
+Pipeline atual (Cascata Linear):
+- API oficial (Timeout: 5s)
+- HTML publico (Timeout: 4s)
+- Bright Data (Timeout: 10s)
+- Zenscrape
+- Apify
+- manual (Fallback final)
 
----
+Este fluxo e "short-circuit": se uma camada retorna dados validos, as seguintes nao sao chamadas. 
+Logs: Procure por `[ML Preview]` no console para identificar qual camada foi acionada.
+
+### Estado atual do scraper Amazon
+- Preview de produto usa Rainforest API
+- Search/sniper automatico esta desativado
+- Operacao atual depende de hub + central + preview manual/assistido
+
+### Estado atual do scraper Shopee
+- Busca top products via GraphQL afiliado
+- Gera shortlink afiliado
+- Extracao HTML de pagina quando necessario
 
 ## 5. Painel Admin
 
-### Módulos prontos
+### O que o painel faz hoje
+- dashboard operacional
+- curadoria geral
+- central de oferta
+- gestao de ofertas publicadas
+- painel de envios/fila
+- landing pages
+- hubs por marketplace
+- blog e reviews
+- infoprodutos
+- canais
+- configuracoes
 
-- Dashboard
-- Curadoria
-- Central de Oferta
-- Ofertas Publicadas
-- Painel de Envios
-- Landing Pages
-- Hubs: ML / Shopee / Lomadee / AWIN / Amazon
-- Tendências
-- Produtos & SEO
-- Blog
-- Infoprodutos
-- Canais
-- Configurações
+### Funcionalidades prontas
 
-### O que está funcionando
+#### Operacao
+- criar oferta manual
+- extrair por URL
+- publicar para site
+- enfileirar para Telegram e WhatsApp
+- editar e excluir ofertas
+- limpar fila com falhas
 
-- Curadoria e aprovação de ofertas
-- Extração manual e assistida por URL
-- Publicação em site e canais
-- Gestão de ofertas públicas
-- Monitoramento de fila de envio
-- Automação AWIN completa
-- Landing pages com preview, tracking, UTM e Gemini
-- Blog admin com geração e publicação
-- Infoprodutos com analytics
-- Canais WhatsApp e Telegram
-- Price refresh público automático
+#### Curadoria
+- inbox de ofertas
+- aprovacao/reprovacao
+- enrich de preview
+- filtros e acoes operacionais
 
-### O que ainda falta
+#### Landing Pages
+- CRUD
+- preview de rascunho
+- pagina publica por slug
+- tracking de CTA
+- analytics por landing
+- exportacao CSV
+- geracao de copy por Gemini
+- UTM por campanha
 
-- Sniper e descoberta automática ML e Amazon
-- Edge Functions versionadas no repositório
-- Pixels e eventos pagos nas landing pages
+#### AWIN
+- status e health
+- lista de programas
+- feed/lista de produtos
+- deep link builder
+- analytics AWIN
+- automacao com configuracao no banco
 
----
+#### Blog
+- gerar pauta/artigo
+- gerenciar posts
+- preview
+- publicacao
+- vinculo com ofertas
 
-## 6. Distribuição
+#### Infoprodutos
+- cadastro e pagina publica
+- click tracking
 
-### Visibilidade pública no site
+#### Canais
+- healthcheck Telegram
+- healthcheck WhatsApp
+- acoes operacionais de reconexao/status
 
-Oferta aparece quando em `offers`:
+### O que ainda falta implementar ou estabilizar
+- sniper automatico real para ML e Amazon
+- versionamento das Edge Functions criticas fora do app
+- pixels/eventos de midia paga nas landing pages
+- estabilizacao final do funil automatizado de ML
 
-- `status = active`
-- `affiliate_url` preenchido
-- slot válido
-- curadoria aprovada ou override ativo
+## 6. Distribuicao
 
-Lógica centralizada em `lib/offers/site-visibility.ts`
+### Como as ofertas chegam ao site
+- Central de Oferta salva em `offers`
+- aprovacao define `status`, `curations_status`, `slot_type`
+- home/ofertas/comparativo consomem ofertas visiveis por regra de negocio
 
-### WhatsApp e Telegram
+### Como chegam ao Telegram e WhatsApp
+- fluxo principal em `lib/distribution/legacy-dispatch.ts`
+- tenta `worker-process-offer`
+- se houver bloqueio/aprovacao, cai em fila direta `post_queue`
+- `post_targets` define destinos ativos
 
-```
-lib/distribution/legacy-dispatch.ts
-       ↓
-worker-process-offer (Edge Function)
-       ↓ (se bloqueio de aprovação)
-post_queue (fila direta)
-```
+### Janela de envio
+- timezone: `America/Sao_Paulo`
+- horario: `08:00` ate `22:00`
+- intervalo entre agendamentos: `20 minutos`
 
-**Janela de envio:** 08h00 às 22h00 **Frequência:** slots a cada 20 minutos
-**WhatsApp:** máximo 5 mensagens/hora para evitar ban
+### Webhooks e bots ativos
+- `channel-whatsapp-control`
+- `channel-telegram-control`
+- `worker-process-offer`
+- `N8N_WEBHOOK_URL` opcional
+- `N8N_WEBHOOK_SECRET` opcional
 
----
+### Rotas cron versionadas
+- `app/api/admin/distribution/elite-flush/route.ts`
+- `app/api/admin/offers/expire/route.ts`
+- `app/api/cron/public-offers-refresh/route.ts`
+- `app/api/cron/comparator-refresh/route.ts`
+- `app/api/awin/automation/run/route.ts`
 
-## 7. Afiliados e Rastreamento
+## 7. Afiliados
 
 ### Plataformas integradas
+- Mercado Livre
+- Amazon
+- Shopee
+- AWIN
+- Lomadee
 
-| Plataforma    | Método                                      | Observação               |
-| ------------- | ------------------------------------------- | ------------------------ |
-| Mercado Livre | Link normalizado com `source` e `matt_tool` | OAuth ativo              |
-| Amazon        | Affiliate tag no link sanitizado            | Sem PA API oficial       |
-| AWIN          | `awin1.com/cread.php`                       | Analytics próprio no hub |
-| Shopee        | Shortlink via GraphQL                       | API oficial ativa        |
-| Lomadee       | Integrado via lib                           | Módulo ativo no admin    |
+### Como o tracking funciona hoje
 
-### Rastreamento
+#### Mercado Livre
+- normalizacao de URL com `source` e `matt_tool`
+- utilitario: `lib/mercadolivre.ts`
 
-- Cliques do site → tabela `clicks` via `app/api/click/route.ts`
-- Entrada no grupo → tabela `grupo_membros` via `app/api/grupo/route.ts`
-- Revenue por marketplace → view `v_revenue_by_marketplace`
+#### Amazon
+- usa affiliate tag/store id
+- preview e extracao vinculados ao link informado
 
-### UTM padrão
+#### Shopee
+- shortlink afiliado via `generateShortLink`
+- GraphQL afiliado oficial
 
-```
-utm_source=radarsmart
-utm_medium= site | whatsapp | telegram | instagram
-utm_campaign=oferta
-```
+#### AWIN
+- deep link via `awin1.com/cread.php`
+- feed e programas para composicao de oferta
 
-> Toda oferta publicada precisa ter `affiliate_url` preenchido. Sem
-> `affiliate_url` a oferta não aparece no site.
+#### Lomadee
+- cliente proprio para produtos e shortlink
 
----
+#### Tracking interno do site
+- cliques de ofertas em `clicks`
+- entrada de grupo em `grupo_membros`
+- cliques de landing page em `landing_page_clicks`
+- cliques de infoproduto via RPC de incremento
 
-## 8. Histórico de Mudanças Recentes
+## 8. O que Mudou Recentemente
 
-### Entrou recentemente
+### Funcionalidades adicionadas recentemente
+- modulo completo de landing pages
+- preview de rascunho de landing
+- analytics e tracking de CTA
+- geracao de copy via Gemini
+- AWIN hub completo
+- automacao AWIN com configuracao persistida
+- painel de canais
+- refresh automatico de precos publicos
+- Bright Data no pipeline de ML
+- blog admin com fluxo de geracao/publicacao
+- modulo de infoprodutos
+- modulo Lomadee
+- melhorias grandes no storefront e responsividade
+- reorganizacao do dashboard admin
+- cron jobs adicionais na Vercel
+- estabilizacao de RLS, seguranca e performance no Supabase (resolucao padrao do auth_rls_initplan e blindagem de 10+ tabelas apenas para admins)
+- implementacao do Inteligencia de Curadoria: `quality_score` e `is_priority` (automacao de prioridade para score >= 70)
+- refatoracao do Scraper ML para cascata linear com timeouts otimizados (economia de custos e latencia)
+- novos componentes de UI admin: `QualityScoreBadge` e filtros de prioridade alta
 
-- Módulo completo de landing pages com Gemini
-- AWIN hub + automação + analytics
-- Painel de canais WhatsApp/Telegram
-- Blog admin com geração e publicação de conteúdo
-- Infoprodutos + Lomadee
-- Refresh automático de preços públicos
-- Bright Data no pipeline ML
-- Melhorias no storefront e responsividade
-- Cron jobs configurados em `vercel.json`
+### O que esta em andamento
+- estabilizacao da extracao automatica de ML
+- refinamento das landing pages para trafego pago
+- consolidacao de skills e documentacao operacional
+- possivel versionamento de Edge Functions fora do repo principal
 
-### Em andamento
+## 9. Variaveis de Ambiente Relevantes
 
-- Estabilização da extração automática ML
-- Refinamento de funnels e landing pages para tráfego pago
-- Documentação operacional mais completa
-- Versionamento das Edge Functions no repositório
+### Supabase
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+- `SUPABASE_SERVICE_ROLE_KEY`
 
----
+### Mercado Livre
+- `MERCADOLIVRE_APP_ID`
+- `MERCADOLIVRE_CLIENT_SECRET`
+- `MERCADOLIVRE_ACCESS_TOKEN`
+- `MERCADOLIVRE_REDIRECT_URI`
+- `ML_AFFILIATE_ID`
 
-## 9. Variáveis de Ambiente Necessárias
+### Amazon
+- `RAPIDAPI_KEY`
+- `RAINFOREST_API_KEY`
+- `AMAZON_AFFILIATE_TAG`
+- `AMAZON_STORE_ID`
 
-```env
-# Supabase
-NEXT_PUBLIC_SUPABASE_URL=
-NEXT_PUBLIC_SUPABASE_ANON_KEY=
-SUPABASE_SERVICE_ROLE_KEY=
+### Shopee
+- `SHOPEE_APP_ID`
+- `SHOPEE_SECRET_KEY`
 
-# Mercado Livre
-ML_CLIENT_ID=
-ML_CLIENT_SECRET=
-ML_ACCESS_TOKEN=
+### Apify / scraping
+- `APIFY_TOKEN`
+- `APIFY_ML_TASK_ID`
+- `APIFY_AMAZON_TASK_ID`
+- `ZENSCRAPE_API_KEY`
+- `BRIGHTDATA_API_KEY`
+- `BRIGHTDATA_ZONE`
 
-# Amazon
-AMAZON_AFFILIATE_TAG=
-RAINFOREST_API_KEY=
+### AWIN
+- `AWIN_PUBLISHER_ID`
+- `AWIN_API_TOKEN`
+- `AWIN_PRODUCT_FEED_LIST_URL`
+- `AWIN_PRODUCT_FEED_DOWNLOAD_URL`
 
-# Shopee
-SHOPEE_APP_ID=
-SHOPEE_SECRET=
+### Automacao e operacao
+- `CRON_SECRET`
+- `N8N_WEBHOOK_URL`
+- `N8N_WEBHOOK_SECRET`
+- `PUSH_NOTIFICATION_WEBHOOK_URL`
 
-# AWIN
-AWIN_PUBLISHER_ID=
-AWIN_API_TOKEN=
+### Gemini
+- `GEMINI_API_KEY`
+- `GEMINI_MODEL`
 
-# Lomadee
-LOMADEE_SOURCE_ID=
-LOMADEE_TOKEN=
+### Grupo/social
+- `NEXT_PUBLIC_SUPPORT_WHATSAPP`
+- `NEXT_PUBLIC_WHATSAPP_GROUP_URL`
+- `NEXT_PUBLIC_TELEGRAM_URL`
 
-# Scraping
-BRIGHT_DATA_TOKEN=
-ZENSCRAPE_API_KEY=
-APIFY_TOKEN=
+### Lomadee
+- `LOMADEE_API_KEY`
 
-# IA
-GEMINI_API_KEY=
+## 10. Leitura Executiva
 
-# Distribuição
-N8N_WEBHOOK_URL=
-```
+### O que ja esta solido
+- painel admin
+- curadoria
+- publicacao de ofertas
+- distribuicao por fila
+- LPs de performance
+- AWIN
+- tracking interno
+- storefront publico
 
----
+### Principais gargalos tecnicos hoje
+- ML automatico ainda instavel
+- Amazon automatico ainda desativado no search/sniper
+- Edge Functions importantes existem em producao, mas nao estao neste repo
 
-> Última atualização: Abril 2026 Gerado com base no relatório do Codex — manter
-> sincronizado com o código.
+### Recomendacao para skills/agentes
+- skill de `operacao-ofertas`
+- skill de `landing-pages`
+- skill de `awin`
+- skill de `scraping-ml`
+- skill de `distribuicao-canais`
+- skill de `blog-seo`
+- skill de `diagnostico-supabase`
+

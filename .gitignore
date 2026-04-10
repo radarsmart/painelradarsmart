@@ -29,13 +29,24 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
+.dev-server.log
+build.result.log
+*.log
 
 # env files (can opt-in for committing if needed)
 .env*
 
 # vercel
 .vercel
+.vercel_env_check*.txt
 
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# local scratch/test files
+.tmp_*.js
+test-ml-*.js
+test-rainforest*.js
+supabase/.temp/
+docs/apostila-radar-smart-painel-admin.pdf

@@ -1,5 +1,6 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { checkEnvVars } from "@/lib/env-check";
+import { calculateQualityScore } from "@/lib/offers/quality-score";
 
 checkEnvVars();
 
@@ -299,8 +300,12 @@ export const salvarOferta = async (oferta: Record<string, unknown>) => {
   const now = new Date().toISOString();
   const id = typeof oferta.id === "string" ? oferta.id : null;
 
+  const { quality_score, is_priority } = calculateQualityScore(oferta as any);
+
   const basePayload: Record<string, unknown> = {
     ...oferta,
+    quality_score,
+    is_priority,
     updated_at: now,
   };
 

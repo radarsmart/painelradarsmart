@@ -28,8 +28,13 @@ rastreia entradas no grupo
 ## Criacao de Conteudo UGC (Fase 2)
 
 O sistema gera videos curtiveis automaticamente para distribuicao social:
-- **Modelo C (Screen Simulation)**: Simula navegacao humana no `radarsmart.com.br` via Playwright ou usa fluxos combinados (FFmpeg) de vídeo mobile pré-gravado com locução ElevenLabs gerada automaticamente.
-- **Localizacao**: `lib/ugc/` contém o core (`script-generator.ts`, `model-c-screen.ts`). Scripts avulsos em `scripts/` (ex: `generate-audio-only.ts`, `merge-video-audio.ts`).
+- **Modelo C (Screen Simulation)**: Simula navegacao humana no site.
+- **Modelo A Longo (Multi-Cena Inteligente)**: Orquestracao de ate 60s com Freepik, Pexels e Playwright (Text Slides).
+- **Localizacao**: `lib/ugc/` contém o core (`freepik.ts`, `video-composer.ts`). 
+- **Scripts**: 
+  - `generate-model-a-long.ts`: Producao full auto (Roteiro -> Audio -> Video -> Mix).
+  - `generate-audio-only.ts`: Apenas audio e script.
+  - `merge-video-audio.ts`: Mixagem manual.
 - **Scripts**: Gerados por GPT-4o (`OPENAI_API_KEY`) com extração de dados reais via Firecrawl. Tom casual e gago proposital.
 - **Voz**: ElevenLabs (`ELEVENLABS_API_KEY`). Voz oficial: **Mateus Moretti** (`id: F7823wtD50WK1gnmgBk5`).
 - **Como rodar (Local)**: 

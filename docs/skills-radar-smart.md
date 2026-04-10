@@ -285,6 +285,8 @@ Observacao:
 - AWIN API + feeds
 - Lomadee API
 - Gemini API
+- Freepik API (Kling 3 / Mystic)
+- Pexels API (Stock Footage Fallback)
 - n8n webhook
 
 ### APIs em construcao ou desativadas parcialmente
@@ -479,9 +481,10 @@ Logs: Procure por `[ML Preview]` no console para identificar qual camada foi aci
 - implementacao do Inteligencia de Curadoria: `quality_score` e `is_priority` (automacao de prioridade para score >= 70)
 - refatoracao do Scraper ML para cascata linear com timeouts otimizados (economia de custos e latencia)
 - novos componentes de UI admin: `QualityScoreBadge` e filtros de prioridade alta
-- **Fase 2 UGC:** Implementacao do Modelo C (Screen Simulation e Video Celular + Audio Local) finalizada!
-- **Scripts Avulsos:** Criados `generate-audio-only.ts` (extração, script, ElevenLabs) e `merge-video-audio.ts` (une vídeo celular e áudio usando FFmpeg com -shortest).
-- Voz oficial UGC: Mateus Moretti (ElevenLabs ID: `F7823wtD50WK1gnmgBk5`)
+- **Fase 2 UGC:** Implementacao do Modelo C (Screen Simulation) e **Modelo A Longo (Multi-cena inteligente)** finalizadas!
+- **Producao Multi-Cena (`video-composer.ts`):** Orquestrador de ate 60s usando Freepik, Pexels e Playwright (Text Slides).
+- **Voz oficial UGC:** Mateus Moretti (ElevenLabs ID: `F7823wtD50WK1gnmgBk5`).
+- **Scripts:** `generate-model-a-long.ts`, `generate-audio-only.ts`, `merge-video-audio.ts`.
 
 ### O que esta em andamento
 - estabilizacao da extracao automatica de ML

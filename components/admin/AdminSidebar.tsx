@@ -4,11 +4,14 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { LucideIcon } from "lucide-react";
 import {
+  BarChart3,
   FileText,
+  FilePlus2,
   Flame,
   LayoutDashboard,
-  MousePointer2,
+  MessageSquareMore,
   Package,
+  PanelsTopLeft,
   Send,
   Settings,
   ShoppingBag,
@@ -50,18 +53,76 @@ const MENU_ITEMS: SidebarGroup[] = [
         activePatterns: ["/admin/curadoria"],
       },
       {
+        label: "Central de Oferta",
+        icon: FilePlus2,
+        href: "/admin/ofertas/nova",
+        activePatterns: ["/admin/ofertas/nova", "/admin/extrator"],
+      },
+      {
+        label: "Ofertas Publicadas",
+        icon: Package,
+        href: "/admin/ofertas",
+        activePatterns: ["/admin/ofertas"],
+      },
+      {
         label: "Painel de Envios",
         icon: Send,
         href: "/admin/envios",
         activePatterns: ["/admin/envios", "/admin/fila"],
+      },
+      {
+        label: "Landing Pages",
+        icon: PanelsTopLeft,
+        href: "/admin/landing-pages",
+        activePatterns: ["/admin/landing-pages"],
       },
     ],
   },
   {
     group: "Marketplace Hubs",
     items: [
-      { label: "Mercado Livre", icon: Store, disabled: true },
-      { label: "Shopee Hub", icon: Zap, disabled: true },
+      {
+        label: "Mercado Livre",
+        icon: Store,
+        href: "/admin/mercadolivre",
+        activePatterns: ["/admin/mercadolivre"],
+      },
+      {
+        label: "Shopee Hub",
+        icon: Zap,
+        href: "/admin/shopee",
+        activePatterns: ["/admin/shopee"],
+      },
+      {
+        label: "Lomadee",
+        icon: Store,
+        href: "/admin/lomadee",
+        activePatterns: ["/admin/lomadee"],
+      },
+      {
+        label: "AWIN",
+        icon: Store,
+        href: "/admin/awin",
+        activePatterns: ["/admin/awin"],
+      },
+      {
+        label: "AWIN Analytics",
+        icon: BarChart3,
+        href: "/admin/awin/analytics",
+        activePatterns: ["/admin/awin/analytics"],
+      },
+      {
+        label: "Hub AWIN",
+        icon: Store,
+        href: "/admin/hub-awin",
+        activePatterns: ["/admin/hub-awin"],
+      },
+      {
+        label: "Automacao AWIN",
+        icon: Settings,
+        href: "/admin/hub-awin/automation",
+        activePatterns: ["/admin/hub-awin/automation"],
+      },
       {
         label: "Amazon Hub",
         icon: ShoppingBag,
@@ -83,13 +144,19 @@ const MENU_ITEMS: SidebarGroup[] = [
         label: "Produtos & SEO",
         icon: Package,
         href: "/admin/produtos",
-        activePatterns: ["/admin/produtos", "/admin/ofertas"],
+        activePatterns: ["/admin/produtos"],
       },
       {
         label: "Blog & Reviews",
         icon: FileText,
-        href: "/admin/blog/novo",
+        href: "/admin/blog",
         activePatterns: ["/admin/blog"],
+      },
+      {
+        label: "Infoprodutos",
+        icon: PanelsTopLeft,
+        href: "/admin/infoprodutos",
+        activePatterns: ["/admin/infoprodutos"],
       },
     ],
   },
@@ -97,10 +164,10 @@ const MENU_ITEMS: SidebarGroup[] = [
     group: "Ferramentas",
     items: [
       {
-        label: "Extrator Manual",
-        icon: MousePointer2,
-        href: "/admin/extrator",
-        activePatterns: ["/admin/extrator", "/admin/ofertas/nova"],
+        label: "Canais",
+        icon: MessageSquareMore,
+        href: "/admin/canais",
+        activePatterns: ["/admin/canais"],
       },
       {
         label: "Configuracoes",
@@ -114,10 +181,15 @@ const MENU_ITEMS: SidebarGroup[] = [
 
 function isItemActive(pathname: string, item: SidebarItem) {
   if (!item.href) return false;
+  if (item.href === "/admin/hub-awin" && pathname.startsWith("/admin/hub-awin/automation")) {
+    return false;
+  }
 
   const patterns = item.activePatterns?.length ? item.activePatterns : [item.href];
   return patterns.some((pattern) =>
-    pattern === "/admin" ? pathname === pattern : pathname.startsWith(pattern),
+    pattern === "/admin" || pattern === "/admin/ofertas" || pattern === "/admin/awin"
+      ? pathname === pattern
+      : pathname.startsWith(pattern),
   );
 }
 

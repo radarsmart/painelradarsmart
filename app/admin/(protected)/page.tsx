@@ -18,6 +18,8 @@ import { supabaseAdmin } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
 
+type MarketplaceFilter = "all" | "amazon" | "mercadolivre" | "shopee";
+
 type OfferRow = {
   id: string;
   title: string;
@@ -52,6 +54,35 @@ type TrafficSuggestion = {
   marketplace: string;
   reason: string;
 };
+
+function normalizeMarketplaceFilter(value: string | string[] | undefined): MarketplaceFilter {
+  const normalized = String(Array.isArray(value) ? value[0] : value ?? "all")
+    .trim()
+    .toLowerCase();
+  if (normalized === "amazon") return "amazon";
+  if (normalized === "mercadolivre") return "mercadolivre";
+  if (normalized === "shopee") return "shopee";
+  return "all";
+}
+
+function matchesMarketplaceFilter(
+  marketplace: string | null | undefined,
+  filter: MarketplaceFilter,
+) {
+  if (filter === "all") return true;
+  const value = String(marketplace ?? "").toLowerCase();
+  if (filter === "mercadolivre") return value.includes("mercado");
+  return value.includes(filter);
+}
+
+function marketplaceFilterOptions() {
+  return [
+    { value: "all", label: "Todos" },
+    { value: "amazon", label: "Amazon" },
+    { value: "mercadolivre", label: "Mercado Livre" },
+    { value: "shopee", label: "Shopee" },
+  ] as const;
+}
 
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
@@ -223,7 +254,12 @@ function WorkerStatus({
   );
 }
 
-export default async function AdminDashboardPage() {
+export default async function AdminDashboardPage({
+  searchParams,
+}: {
+  searchParams?: { marketplace?: string | string[] };
+}) {
+  const selectedMarketplace = normalizeMarketplaceFilter(searchParams?.marketplace);
   const [offersResult, queueResult, momentumResult] = await Promise.all([
     supabaseAdmin
       .from("offers")
@@ -246,14 +282,19 @@ export default async function AdminDashboardPage() {
     throw new Error(`Falha ao carregar ofertas: ${offersResult.error.message}`);
   }
 
-  const offers = ((offersResult.data ?? []) as OfferRow[]).map((item) => ({
+  const allOffers = ((offersResult.data ?? []) as OfferRow[]).map((item) => ({
     ...item,
     marketplace: item.marketplace ?? "outro",
     status: item.status ?? "active",
   }));
+  const offers = allOffers.filter((item) =>
+    matchesMarketplaceFilter(item.marketplace, selectedMarketplace),
+  );
 
   const queueItems = (queueResult.data ?? []) as QueueRow[];
-  const momentumRows = (momentumResult.data ?? []) as MomentumRow[];
+  const momentumRows = ((momentumResult.data ?? []) as MomentumRow[]).filter((item) =>
+    matchesMarketplaceFilter(item.marketplace, selectedMarketplace),
+  );
 
   const today = new Date();
   const yesterday = new Date(today);
@@ -377,11 +418,34 @@ export default async function AdminDashboardPage() {
             href="/admin/ofertas/nova"
             className="inline-flex h-11 items-center justify-center rounded-xl bg-[#9E6A18] px-5 text-sm font-semibold text-white transition hover:brightness-110"
           >
-            Nova Oferta
+            Central de Oferta
           </Link>
           <ResetOffersButton />
         </div>
       </header>
+
+      <section className="flex flex-wrap items-center gap-2">
+        {marketplaceFilterOptions().map((option) => {
+          const active = selectedMarketplace === option.value;
+          const href =
+            option.value === "all"
+              ? "/admin"
+              : `/admin?marketplace=${encodeURIComponent(option.value)}`;
+          return (
+            <Link
+              key={option.value}
+              href={href}
+              className={`rounded-full px-4 py-2 text-sm font-semibold transition-all ${
+                active
+                  ? "bg-[#22223B] text-white"
+                  : "border border-slate-200 bg-white text-slate-600 hover:border-[#9E6A18] hover:text-[#9E6A18]"
+              }`}
+            >
+              {option.label}
+            </Link>
+          );
+        })}
+      </section>
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <MetricCard

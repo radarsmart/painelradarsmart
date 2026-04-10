@@ -1,0 +1,46 @@
+---
+name: distribuicao
+description: Usar ao construir ou modificar distribuicao de ofertas para site, WhatsApp e Telegram.
+---
+
+## Como oferta vira publica no site
+
+offers precisa ter: status active, affiliate_url preenchido, slot valido e
+curadoria aprovada ou override ativo. Home le flash, best e comparator via
+app/api/home/offers/route.ts.
+
+## Distribuicao WhatsApp e Telegram
+
+Fluxo central: lib/distribution/legacy-dispatch.ts Primeiro tenta
+worker-process-offer (Edge Function). Se houver bloqueio de aprovacao, entra
+direto em post_queue. Janela de envio: 08h00 as 22h00, slots a cada 20 minutos.
+
+## Edge Functions ativas (Supabase)
+
+channel-whatsapp-control channel-telegram-control worker-process-offer
+elite-flush (cron para distribuicao automatica elite)
+
+## Tabelas envolvidas
+
+post_queue: fila de envio post_targets: destinos configurados grupo_membros:
+rastreia entradas no grupo
+
+## Criacao de Conteudo UGC (Fase 2)
+
+O sistema gera videos curtiveis automaticamente para distribuicao social:
+- **Modelo C (Screen Simulation)**: Simula navegacao humana no `radarsmart.com.br` via Playwright.
+- **Localizacao**: `lib/ugc/model-c-screen.ts`.
+- **Scripts**: Gerados por GPT-4o (`OPENAI_API_KEY`) com tom casual e natural.
+- **Voz**: ElevenLabs (`ELEVENLABS_API_KEY`). Voz oficial: **Mateus Moretti** (`id: F7823wtD50WK1gnmgBk5`).
+- **Como rodar (Local)**: `npx tsx scripts/generate-ugc.ts --voice=mateus`.
+
+O CTA e obrigatorio e sempre direciona para: *"Corre lá, entra no Radar Smart pelo link na bio e garante antes de esgotar!"*.
+
+## Webhook opcional
+
+N8N_WEBHOOK_URL para entrada de ofertas externas (opcional).
+
+## Regras
+
+Sempre usar affiliate_url, nunca link direto do marketplace. Registrar cada
+envio com canal, offer_id, status e timestamp.

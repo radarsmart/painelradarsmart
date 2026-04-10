@@ -479,6 +479,8 @@ Logs: Procure por `[ML Preview]` no console para identificar qual camada foi aci
 - implementacao do Inteligencia de Curadoria: `quality_score` e `is_priority` (automacao de prioridade para score >= 70)
 - refatoracao do Scraper ML para cascata linear com timeouts otimizados (economia de custos e latencia)
 - novos componentes de UI admin: `QualityScoreBadge` e filtros de prioridade alta
+- **Fase 2 UGC:** Implementacao do Modelo C (Screen Simulation) com Playwright, FFmpeg e ElevenLabs
+- Voz oficial UGC: Mateus Moretti (ElevenLabs ID: `F7823wtD50WK1gnmgBk5`)
 
 ### O que esta em andamento
 - estabilizacao da extracao automatica de ML
@@ -530,9 +532,12 @@ Logs: Procure por `[ML Preview]` no console para identificar qual camada foi aci
 - `N8N_WEBHOOK_SECRET`
 - `PUSH_NOTIFICATION_WEBHOOK_URL`
 
-### Gemini
+### Gemini / OpenAI / ElevenLabs
 - `GEMINI_API_KEY`
 - `GEMINI_MODEL`
+- `OPENAI_API_KEY` (UGC GPT-4o)
+- `ELEVENLABS_API_KEY` (UGC Voice)
+- `ELEVENLABS_VOICE_ID` (Padrao: Mateus Moretti)
 
 ### Grupo/social
 - `NEXT_PUBLIC_SUPPORT_WHATSAPP`

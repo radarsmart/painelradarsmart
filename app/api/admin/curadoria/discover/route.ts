@@ -24,10 +24,12 @@ type CuradoriaOfferRow = {
   status: string | null;
   curations_status: string | null;
   created_at: string | null;
+  quality_score?: number | null;
+  is_priority?: boolean | null;
 };
 
 const SELECT_FIELDS =
-  "id,external_offer_id,title,marketplace,price,old_price,discount_pct,discount_percent,rating,review_count,reviews_count,raw_data,image_url,affiliate_url,product_url,status,curations_status,created_at";
+  "id,external_offer_id,title,marketplace,price,old_price,discount_pct,discount_percent,rating,review_count,reviews_count,raw_data,image_url,affiliate_url,product_url,status,curations_status,created_at,quality_score,is_priority";
 const DEFAULT_DISCOVER_LIMIT = 20;
 const INBOX_RETENTION_HOURS = 72;
 
@@ -55,6 +57,7 @@ async function readInboxOffers(limit = DEFAULT_DISCOVER_LIMIT): Promise<Curadori
     .select(SELECT_FIELDS)
     .or("curations_status.eq.inbox,curations_status.eq.needs_review,status.eq.needs_review,status.eq.pending")
     .not("status", "eq", "archived")
+    .order("quality_score", { ascending: false, nullsFirst: false })
     .order("created_at", { ascending: false })
     .limit(safeLimit);
 

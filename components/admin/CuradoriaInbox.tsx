@@ -42,7 +42,11 @@ type CuradoriaOffer = {
   status: string | null;
   curations_status: string | null;
   created_at: string | null;
+  quality_score?: number | null;
+  is_priority?: boolean | null;
 };
+
+import { QualityScoreBadge } from "./QualityScoreBadge";
 
 type EnrichedOffer = CuradoriaOffer & {
   discount: number;
@@ -109,6 +113,26 @@ function looksLikeUrl(value: string) {
   }
 }
 
+const AFFILIATE_STORAGE_KEY = "curadoria_affiliate_links";
+
+type AffiliateLinkClass = "valid" | "missing_tracking" | "invalid" | "empty";
+
+function classifyAffiliateUrl(url: string, marketplace: string | null): AffiliateLinkClass {
+  if (!url.trim()) return "empty";
+  if (!looksLikeUrl(url)) return "invalid";
+  const mp = String(marketplace ?? "").toLowerCase();
+  if (mp.includes("amazon")) {
+    return url.includes("tag=") || url.includes("amzn.to") ? "valid" : "missing_tracking";
+  }
+  if (mp.includes("mercado")) {
+    return url.includes("matt_tool=") || url.includes("mla.io") ? "valid" : "missing_tracking";
+  }
+  if (mp.includes("shopee")) {
+    return url.includes("shope.ee") || url.includes("s.shopee.com.br") ? "valid" : "missing_tracking";
+  }
+  return "valid";
+}
+
 export default function CuradoriaInbox({
   initialOffers,
 }: {
@@ -140,6 +164,7 @@ export default function CuradoriaInbox({
     null,
   );
   const [discoveringMore, setDiscoveringMore] = useState(false);
+  const [priorityOnly, setPriorityOnly] = useState(false);
 
   const getAuthHeaders = async (): Promise<HeadersInit> => {
     const { data } = await supabase.auth.getSession();
@@ -164,6 +189,28 @@ export default function CuradoriaInbox({
       Object.fromEntries(initialOffers.map((offer) => [offer.id, "day"])),
     );
   }, [initialOffers]);
+
+  // Melhoria #3 — carrega links salvos na sessão ao montar
+  useEffect(() => {
+    try {
+      const saved = sessionStorage.getItem(AFFILIATE_STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved) as Record<string, string>;
+        setAffiliateByOffer((prev) => ({ ...parsed, ...prev }));
+      }
+    } catch {
+      // sessionStorage indisponível (modo privado etc.) — degrada sem erros
+    }
+  }, []);
+
+  // Melhoria #3 — persiste links na sessão sempre que o admin digita/cola
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(AFFILIATE_STORAGE_KEY, JSON.stringify(affiliateByOffer));
+    } catch {
+      // ignora silenciosamente
+    }
+  }, [affiliateByOffer]);
 
   const enrichedOffers = useMemo<EnrichedOffer[]>(
     () =>
@@ -218,8 +265,12 @@ export default function CuradoriaInbox({
     [offers],
   );
 
-  const curadoriaCount = enrichedOffers.length;
-  const reviewCount = enrichedOffers.filter((offer) =>
+  const displayedOffers = priorityOnly 
+    ? enrichedOffers.filter(o => o.is_priority === true)
+    : enrichedOffers;
+
+  const curadoriaCount = displayedOffers.length;
+  const reviewCount = displayedOffers.filter((offer) =>
     String(offer.curations_status ?? "").toLowerCase().includes("review"),
   ).length;
 
@@ -349,17 +400,20 @@ export default function CuradoriaInbox({
     const manualAffiliateUrl = String(affiliateByOffer[offer.id] ?? "").trim();
     const destinationBlock = destinationByOffer[offer.id] ?? "day";
 
-    if (!manualAffiliateUrl) {
+    // Melhoria #2 — usa classificação de URL em vez de apenas looksLikeUrl
+    const urlClass = classifyAffiliateUrl(manualAffiliateUrl, offer.marketplace);
+
+    if (urlClass === "empty") {
       setFeedback({
         type: "error",
         text: "Cole seu link de afiliado antes de aprovar a oferta.",
       });
       return;
     }
-    if (!looksLikeUrl(manualAffiliateUrl)) {
+    if (urlClass === "invalid") {
       setFeedback({
         type: "error",
-        text: "Link de afiliado invalido. Use URL completa (https://...).",
+        text: "Link de afiliado inválido. Use URL completa (https://...).",
       });
       return;
     }
@@ -367,6 +421,7 @@ export default function CuradoriaInbox({
     setLoading(offer.id, "approve");
     setFeedback(null);
     try {
+      // Melhoria #4 — uma única requisição: publish já retorna copy_text
       const publishResponse = await fetch("/api/admin/curadoria", {
         method: "POST",
         headers: await getAuthHeaders(),
@@ -382,40 +437,21 @@ export default function CuradoriaInbox({
         handleUnauthorized();
         return;
       }
-      const publishPayload = (await publishResponse.json()) as { error?: string };
-      if (!publishResponse.ok) {
-        throw new Error(publishPayload.error ?? "Falha ao aprovar oferta.");
-      }
-
-      const copyResponse = await fetch("/api/admin/curadoria", {
-        method: "POST",
-        headers: await getAuthHeaders(),
-        credentials: "include",
-        body: JSON.stringify({
-          action: "prepare_group",
-          offer_id: offer.id,
-          affiliate_url: manualAffiliateUrl,
-        }),
-      });
-      if (copyResponse.status === 401 || copyResponse.status === 403) {
-        handleUnauthorized();
-        return;
-      }
-      const copyPayload = (await copyResponse.json()) as {
+      const publishPayload = (await publishResponse.json()) as {
         error?: string;
         copy_text?: string;
         affiliate_url?: string;
       };
-      if (!copyResponse.ok) {
-        throw new Error(copyPayload.error ?? "Falha ao gerar copy apos aprovacao.");
+      if (!publishResponse.ok) {
+        throw new Error(publishPayload.error ?? "Falha ao aprovar oferta.");
       }
 
-      const safeAffiliate = String(copyPayload.affiliate_url ?? manualAffiliateUrl);
+      const safeAffiliate = String(publishPayload.affiliate_url ?? manualAffiliateUrl);
       const confirmationText = `Enviado para: ${destinationLabel(destinationBlock)} ✅`;
       setGroupModal({
         open: true,
         offerTitle: String(offer.title ?? "Oferta"),
-        copyText: String(copyPayload.copy_text ?? ""),
+        copyText: String(publishPayload.copy_text ?? ""),
         affiliateUrl: safeAffiliate,
         confirmationText,
       });
@@ -583,6 +619,20 @@ export default function CuradoriaInbox({
         </button>
       </div>
 
+      <div className="flex items-center justify-end">
+        <button
+          onClick={() => setPriorityOnly(!priorityOnly)}
+          className={`inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+            priorityOnly 
+              ? "bg-emerald-500 text-white shadow-sm" 
+              : "bg-black/5 text-gray-600 hover:bg-black/10 dark:bg-white/5 dark:text-gray-300 dark:hover:bg-white/10"
+          }`}
+        >
+          <Zap className="h-4 w-4" />
+          Apenas Prioridade Alta
+        </button>
+      </div>
+
       {topPotential.length ? (
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
@@ -641,14 +691,14 @@ export default function CuradoriaInbox({
         </div>
       ) : null}
 
-      {!enrichedOffers.length ? (
+      {!displayedOffers.length ? (
         <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-10 text-center text-slate-500">
           🕵️ O Sniper esta procurando ofertas com lucro agora... tente atualizar em 30 segundos.
         </div>
       ) : null}
 
       <div className="space-y-4">
-        {enrichedOffers.map((offer) => {
+        {displayedOffers.map((offer) => {
           const loadingAction = loadingMap[offer.id] ?? null;
           const market = offerMarketplaceLabel(offer.marketplace);
           const marketplaceUrl = sanitizeMarketplaceUrl(
@@ -661,7 +711,9 @@ export default function CuradoriaInbox({
           );
           const affiliateValue = String(affiliateByOffer[offer.id] ?? "").trim();
           const destination = destinationByOffer[offer.id] ?? "day";
-          const approveDisabled = !affiliateValue || Boolean(loadingAction);
+          // Melhoria #2 — classifica o link e define se o botão está habilitado
+          const urlClass = classifyAffiliateUrl(affiliateValue, offer.marketplace);
+          const approveDisabled = (urlClass === "empty" || urlClass === "invalid") || Boolean(loadingAction);
 
           return (
             <article
@@ -694,6 +746,7 @@ export default function CuradoriaInbox({
                           Prime/Full
                         </span>
                       ) : null}
+                      <QualityScoreBadge score={offer.quality_score} isPriority={offer.is_priority} />
                     </div>
                     <p className="mt-2 line-clamp-2 text-base font-bold text-[#22223B]">
                       {offer.title || "Oferta sem titulo"}
@@ -738,27 +791,36 @@ export default function CuradoriaInbox({
                         }))
                       }
                       placeholder="https://..."
-                      className="h-10 flex-1 rounded-lg border-2 border-[#9e6a18]/50 bg-white px-3 text-sm outline-none focus:border-[#9e6a18]"
+                      className={`h-10 flex-1 rounded-lg border-2 bg-white px-3 text-sm outline-none transition-colors ${
+                        urlClass === "valid"
+                          ? "border-emerald-500 focus:border-emerald-600"
+                          : urlClass === "missing_tracking"
+                            ? "border-amber-400 focus:border-amber-500"
+                            : urlClass === "invalid"
+                              ? "border-red-400 focus:border-red-500"
+                              : "border-[#9e6a18]/50 focus:border-[#9e6a18]"
+                      }`}
                     />
                     <button
                       type="button"
                       disabled={!marketplaceUrl}
-                      onClick={() => {
-                        // eslint-disable-next-line no-console
-                        console.log("Abrir no Marketplace:", {
-                          offer_id: offer.id,
-                          marketplace: offer.marketplace,
-                          product_url: offer.product_url,
-                          sanitized_url: marketplaceUrl,
-                        });
-                        window.open(marketplaceUrl, "_blank");
-                      }}
+                      onClick={() => window.open(marketplaceUrl, "_blank")}
                       className="inline-flex h-10 items-center gap-1 rounded-lg border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       <ExternalLink className="h-3.5 w-3.5" />
                       Abrir no Marketplace
                     </button>
                   </div>
+                  {/* Melhoria #2 — feedback visual do link de afiliado */}
+                  {urlClass === "valid" && affiliateValue ? (
+                    <p className="text-xs font-semibold text-emerald-600">✅ Link de afiliado válido</p>
+                  ) : urlClass === "missing_tracking" ? (
+                    <p className="text-xs font-semibold text-amber-600">
+                      ⚠️ URL válida, mas sem parâmetro de rastreamento detectado. Verifique se você gerou o link pelo portal de afiliados do marketplace.
+                    </p>
+                  ) : urlClass === "invalid" ? (
+                    <p className="text-xs text-red-600">❌ URL inválida — use o formato https://...</p>
+                  ) : null}
 
                   <div className="grid gap-2 md:grid-cols-[1fr_auto]">
                     <select

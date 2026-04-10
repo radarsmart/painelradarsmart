@@ -28,7 +28,12 @@ type Offer = {
   affiliate_url?: string | null;
   slot_type?: string | null;
   manual_copy?: unknown;
+  quality_score?: number | null;
+  is_priority?: boolean | null;
 };
+
+import { Zap } from "lucide-react";
+import { QualityScoreBadge } from "./QualityScoreBadge";
 
 function OfferThumb({ src, alt }: { src?: string | null; alt: string }) {
   const [imgSrc, setImgSrc] = useState(src && src.trim() ? src : "/logo.png");
@@ -46,6 +51,11 @@ function OfferThumb({ src, alt }: { src?: string | null; alt: string }) {
 export default function TabelaOfertas({ initialOffers }: { initialOffers: Offer[] }) {
   const [offers, setOffers] = useState(initialOffers);
   const [loadingId, setLoadingId] = useState<string | null>(null);
+  const [priorityOnly, setPriorityOnly] = useState(false);
+
+  const displayedOffers = priorityOnly 
+    ? offers.filter(o => o.is_priority === true)
+    : offers;
 
   useEffect(() => {
     setOffers(initialOffers);
@@ -196,9 +206,24 @@ export default function TabelaOfertas({ initialOffers }: { initialOffers: Offer[
   }
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-      <div className="space-y-3 p-3 md:hidden">
-        {offers.map((offer) => (
+    <div className="space-y-4">
+      <div className="flex items-center justify-end">
+        <button
+          onClick={() => setPriorityOnly(!priorityOnly)}
+          className={`inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+            priorityOnly 
+              ? "bg-emerald-500 text-white shadow-sm" 
+              : "bg-black/5 text-gray-600 hover:bg-black/10 dark:bg-white/5 dark:text-gray-300 dark:hover:bg-white/10"
+          }`}
+        >
+          <Zap className="h-4 w-4" />
+          Apenas Prioridade Alta
+        </button>
+      </div>
+
+      <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="space-y-3 p-3 md:hidden">
+          {displayedOffers.map((offer) => (
           <article
             key={offer.id}
             className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm"
@@ -231,6 +256,9 @@ export default function TabelaOfertas({ initialOffers }: { initialOffers: Offer[
                     ? getSiteStatusLabel(offer)
                     : "Fora do site"}
                 </p>
+                <div className="mt-2">
+                  <QualityScoreBadge score={offer.quality_score} isPriority={offer.is_priority} />
+                </div>
               </div>
             </div>
 
@@ -286,7 +314,7 @@ export default function TabelaOfertas({ initialOffers }: { initialOffers: Offer[
             </tr>
           </thead>
           <tbody>
-            {offers.map((offer) => (
+            {displayedOffers.map((offer) => (
               <tr key={offer.id} className="border-t border-slate-200">
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-3">
@@ -303,6 +331,9 @@ export default function TabelaOfertas({ initialOffers }: { initialOffers: Offer[
                   >
                     {getMarketplaceBadge(offer.marketplace).label}
                   </span>
+                  <div className="mt-2">
+                    <QualityScoreBadge score={offer.quality_score} isPriority={offer.is_priority} />
+                  </div>
                 </td>
 
                 <td className="px-4 py-3">
@@ -380,6 +411,7 @@ export default function TabelaOfertas({ initialOffers }: { initialOffers: Offer[
           </tbody>
         </table>
       </div>
+    </div>
     </div>
   );
 }

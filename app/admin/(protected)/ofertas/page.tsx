@@ -27,6 +27,8 @@ type AdminOfferRow = {
   affiliate_url?: string | null;
   slot_type?: string | null;
   manual_copy?: unknown;
+  quality_score?: number | null;
+  is_priority?: boolean | null;
 };
 
 export default async function AdminOfertasPage() {
@@ -34,10 +36,11 @@ export default async function AdminOfertasPage() {
 
   const { data } = await supabaseAdmin
     .from("offers")
-    .select("id,title,marketplace,image_url,price,old_price,status,created_at,updated_at,published_at,expires_at,price_updated_at,price_previous,price_trend,curations_status,affiliate_url,slot_type,manual_copy")
+    .select("id,title,marketplace,image_url,price,old_price,status,created_at,updated_at,published_at,expires_at,price_updated_at,price_previous,price_trend,curations_status,affiliate_url,slot_type,manual_copy,quality_score,is_priority")
     .eq("status", "active")
     .not("affiliate_url", "is", null)
     .in("slot_type", ["flash", "best", "comparator"])
+    .order("quality_score", { ascending: false, nullsFirst: false })
     .order("published_at", { ascending: false })
     .order("updated_at", { ascending: false })
     .limit(300);

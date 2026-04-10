@@ -1,7 +1,9 @@
 import { AlertCircle, CheckCircle2, Clock, Send } from "lucide-react";
+import { unstable_noStore as noStore } from "next/cache";
 import type { ReactNode } from "react";
 import DashboardRefreshButton from "@/components/admin/DashboardRefreshButton";
 import ClearFailedQueueButton from "@/components/admin/ClearFailedQueueButton";
+import DeleteQueueItemButton from "@/components/admin/DeleteQueueItemButton";
 import { supabaseAdmin } from "@/lib/supabase";
 
 type QueueRow = {
@@ -14,6 +16,7 @@ type QueueRow = {
   scheduled_at: string | null;
   sent_at: string | null;
   created_at: string | null;
+  updated_at: string | null;
   attempt_count: number | null;
   payload: {
     target?: {
@@ -109,11 +112,13 @@ function QueueStatCard({
   value,
   color,
   icon,
+  description,
 }: {
   title: string;
   value: number;
   color: string;
   icon: ReactNode;
+  description?: string;
 }) {
   return (
     <div className="flex items-center justify-between rounded-2xl bg-white p-6 shadow-sm">
@@ -122,6 +127,9 @@ function QueueStatCard({
           {title}
         </p>
         <p className={`mt-1 text-3xl font-black ${color}`}>{value}</p>
+        {description ? (
+          <p className="mt-2 text-xs text-slate-500">{description}</p>
+        ) : null}
       </div>
       <div className="rounded-xl bg-gray-50 p-3 text-gray-400">{icon}</div>
     </div>
@@ -129,13 +137,15 @@ function QueueStatCard({
 }
 
 export default async function EnviosNocPage() {
+  noStore();
+
   const { data: queueData, error: queueError } = await supabaseAdmin
     .from("post_queue")
     .select(
-      "id,offer_id,channel,target_id,status,last_error,scheduled_at,sent_at,created_at,attempt_count,payload",
+      "id,offer_id,channel,target_id,status,last_error,scheduled_at,sent_at,created_at,updated_at,attempt_count,payload",
     )
-    .order("created_at", { ascending: false })
-    .limit(100);
+    .order("id", { ascending: false })
+    .limit(200);
 
   if (queueError) {
     throw new Error(`Falha ao carregar fila: ${queueError.message}`);
@@ -168,12 +178,23 @@ export default async function EnviosNocPage() {
   ).length;
 
   const todayKey = getSaoPauloDateKey(new Date());
+  const processedTodayCount = queueItems.filter((item) => {
+    const status = String(item.status ?? "").toLowerCase();
+    if (!["sent", "failed", "processing"].includes(status)) return false;
+    const baseDate = item.updated_at ?? item.sent_at ?? item.created_at;
+    if (!baseDate) return false;
+    return getSaoPauloDateKey(new Date(baseDate)) === todayKey;
+  }).length;
   const sentTodayCount = queueItems.filter((item) => {
     if (String(item.status ?? "").toLowerCase() !== "sent" || !item.sent_at) {
       return false;
     }
     return getSaoPauloDateKey(new Date(item.sent_at)) === todayKey;
   }).length;
+  const latestActivity = queueItems[0];
+  const latestActivityLabel = latestActivity
+    ? `${String(latestActivity.channel ?? "canal").toUpperCase()} #${latestActivity.id} - ${statusBadge(latestActivity.status).label}`
+    : "Sem atividade recente";
 
   const now = new Date();
   const saoPauloHour = Number(
@@ -220,30 +241,45 @@ export default async function EnviosNocPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
         <QueueStatCard
           title="Na Fila"
           value={queuedCount}
           color="text-amber-600"
           icon={<Clock size={20} />}
+          description="Apenas jobs ainda pendentes ou em processamento."
         />
         <QueueStatCard
           title="Postados Hoje"
           value={sentTodayCount}
           color="text-emerald-600"
           icon={<CheckCircle2 size={20} />}
+          description="Jobs com envio concluido hoje."
+        />
+        <QueueStatCard
+          title="Processados Hoje"
+          value={processedTodayCount}
+          color="text-sky-600"
+          icon={<Send size={20} />}
+          description={latestActivityLabel}
         />
         <QueueStatCard
           title="Erros Criticos"
           value={failedCount}
           color="text-red-600"
           icon={<AlertCircle size={20} />}
+          description="Falhas nao entram em 'Na Fila'."
         />
       </div>
 
       <div className="overflow-hidden rounded-3xl bg-white shadow-sm">
         <div className="flex items-center justify-between border-b border-gray-50 bg-white px-6 py-5">
-          <h2 className="font-bold text-[#1A1A1A]">Fila de Postagens Recentes</h2>
+          <div>
+            <h2 className="font-bold text-[#1A1A1A]">Fila de Postagens Recentes</h2>
+            <p className="mt-1 text-xs text-slate-500">
+              Ordenada pelo ID mais recente da fila para refletir os ultimos envios criados.
+            </p>
+          </div>
           <div className="flex items-center gap-2">
             <ClearFailedQueueButton failedCount={failedCount} />
           </div>
@@ -296,6 +332,11 @@ export default async function EnviosNocPage() {
                           Score IA: {Number(offer?.score ?? 0).toFixed(1)}
                           {item.payload?.target?.name ? ` - ${item.payload.target.name}` : ""}
                         </p>
+                        {String(item.status ?? "").toLowerCase() === "failed" ? (
+                          <p className="mt-1 text-[11px] text-red-600">
+                            {item.last_error?.trim() || "Falha sem detalhe persistido"}
+                          </p>
+                        ) : null}
                       </td>
                       <td className="px-6 py-4 text-xs text-gray-600">
                         {scheduleLabel}
@@ -308,12 +349,15 @@ export default async function EnviosNocPage() {
                         </span>
                       </td>
                       <td className="px-6 py-4 text-right">
-                        <span
-                          className="inline-flex rounded-lg p-2 text-gray-400 transition-colors group-hover:text-red-600"
-                          title={errorLabel}
-                        >
-                          <AlertCircle size={16} />
-                        </span>
+                        <div className="flex items-center justify-end gap-2">
+                          <span
+                            className="inline-flex rounded-lg p-2 text-gray-400 transition-colors group-hover:text-red-600"
+                            title={errorLabel}
+                          >
+                            <AlertCircle size={16} />
+                          </span>
+                          <DeleteQueueItemButton id={item.id} />
+                        </div>
                       </td>
                     </tr>
                   );

@@ -1225,101 +1225,124 @@ export async function POST(req: NextRequest) {
             accessToken = null;
           }
 
-          const [
-            previewOfficialResult,
-            previewBrightDataResult,
-            previewHtmlResult,
-            previewApifyResult,
-          ] =
-            await Promise.allSettled([
-              withTimeout(
-                extractMercadoLivreOfficial({
-                  url: mercadoLivreExtractionUrl,
-                  affiliateUrl,
-                  accessToken: accessToken ?? undefined,
-                }),
-                ML_PREVIEW_OFFICIAL_TIMEOUT_MS,
-                "API oficial do Mercado Livre",
-              ).then((mlOfficial) =>
-                enrichResponseWithCoupon(
-                  buildFromMercadoLivreOfficial({
-                    elapsedMs: Date.now() - startedAt,
-                    title: mlOfficial.title,
-                    price: mlOfficial.price,
-                    oldPrice: mlOfficial.oldPrice,
-                    imageUrl: mlOfficial.imageUrl,
-                    permalink: mlOfficial.permalink,
-                    productUrl: mlOfficial.productUrl,
-                    affiliateUrl: mlOfficial.affiliateUrl,
-                    condition: mlOfficial.condition,
-                    status: mlOfficial.status,
-                    rawData: mlOfficial.rawData,
-                  }),
-                  couponCode,
-                  couponDiscountPct,
-                ),
-              ),
-              withTimeout(
-                extractMercadoLivreWithBrightData({
-                  url: mercadoLivreExtractionUrl,
-                  affiliateUrl,
-                }),
-                ML_PREVIEW_BRIGHTDATA_TIMEOUT_MS,
-                "Bright Data Mercado Livre",
-              ).then((mlBrightData) =>
-                enrichResponseWithCoupon(
-                  {
-                    ...buildFromMercadoLivreOfficial({
-                      elapsedMs: Date.now() - startedAt,
-                      title: mlBrightData.title,
-                      price: mlBrightData.price,
-                      oldPrice: mlBrightData.oldPrice,
-                      imageUrl: mlBrightData.imageUrl,
-                      permalink: mlBrightData.permalink,
-                      productUrl: mlBrightData.productUrl,
-                      affiliateUrl: mlBrightData.affiliateUrl,
-                      condition: mlBrightData.condition,
-                      status: mlBrightData.status,
-                      rawData: mlBrightData.rawData,
-                    }),
-                    engine: "ml-brightdata-unlocker",
-                    extraction_layer: "open_graph",
-                  },
-                  couponCode,
-                  couponDiscountPct,
-                ),
-              ),
-              withTimeout(
+          let bestPreviewPayload: SuccessResponse | null = null;
+          
+          try {
+            console.log("[ML Preview] Tentando API Oficial...");
+            const mlOfficial = await withTimeout(
+              extractMercadoLivreOfficial({
+                url: mercadoLivreExtractionUrl,
+                affiliateUrl,
+                accessToken: accessToken ?? undefined,
+              }),
+              ML_PREVIEW_OFFICIAL_TIMEOUT_MS,
+              "API oficial do Mercado Livre",
+            );
+            bestPreviewPayload = enrichResponseWithCoupon(
+              buildFromMercadoLivreOfficial({
+                elapsedMs: Date.now() - startedAt,
+                title: mlOfficial.title,
+                price: mlOfficial.price,
+                oldPrice: mlOfficial.oldPrice,
+                imageUrl: mlOfficial.imageUrl,
+                permalink: mlOfficial.permalink,
+                productUrl: mlOfficial.productUrl,
+                affiliateUrl: mlOfficial.affiliateUrl,
+                condition: mlOfficial.condition,
+                status: mlOfficial.status,
+                rawData: mlOfficial.rawData,
+              }),
+              couponCode,
+              couponDiscountPct,
+            );
+            console.log("[ML Preview] Sucesso na API Oficial");
+          } catch (error) {
+            officialError = extractErrorMessage(error);
+            console.log("[ML Preview] Falha na API Oficial:", officialError);
+          }
+
+          if (!bestPreviewPayload || bestPreviewPayload.status !== "ok") {
+            try {
+              console.log("[ML Preview] Tentando HTML Metadata...");
+              const mlHtml = await withTimeout(
                 extractMercadoLivreHtmlMetadata({
                   url: mercadoLivreExtractionUrl,
                   affiliateUrl,
                 }),
                 ML_PREVIEW_HTML_TIMEOUT_MS,
                 "HTML do Mercado Livre",
-              ).then((mlHtml) =>
-                enrichResponseWithCoupon(
-                  {
-                    ...buildFromMercadoLivreOfficial({
-                      elapsedMs: Date.now() - startedAt,
-                      title: mlHtml.title,
-                      price: mlHtml.price,
-                      oldPrice: mlHtml.oldPrice,
-                      imageUrl: mlHtml.imageUrl,
-                      permalink: mlHtml.permalink,
-                      productUrl: mlHtml.productUrl,
-                      affiliateUrl: mlHtml.affiliateUrl,
-                      condition: mlHtml.condition,
-                      status: mlHtml.status,
-                      rawData: mlHtml.rawData,
-                    }),
-                    engine: "ml-html-metadata",
-                    extraction_layer: "open_graph",
-                  },
-                  couponCode,
-                  couponDiscountPct,
-                ),
-              ),
-              withTimeout(
+              );
+              bestPreviewPayload = enrichResponseWithCoupon(
+                {
+                  ...buildFromMercadoLivreOfficial({
+                    elapsedMs: Date.now() - startedAt,
+                    title: mlHtml.title,
+                    price: mlHtml.price,
+                    oldPrice: mlHtml.oldPrice,
+                    imageUrl: mlHtml.imageUrl,
+                    permalink: mlHtml.permalink,
+                    productUrl: mlHtml.productUrl,
+                    affiliateUrl: mlHtml.affiliateUrl,
+                    condition: mlHtml.condition,
+                    status: mlHtml.status,
+                    rawData: mlHtml.rawData,
+                  }),
+                  engine: "ml-html-metadata",
+                  extraction_layer: "open_graph",
+                },
+                couponCode,
+                couponDiscountPct,
+              );
+              console.log("[ML Preview] Sucesso no HTML Metadata");
+            } catch (error) {
+              fallbackError = extractErrorMessage(error);
+              console.log("[ML Preview] Falha no HTML Metadata:", fallbackError);
+            }
+          }
+
+          if (!bestPreviewPayload || bestPreviewPayload.status !== "ok") {
+            try {
+              console.log("[ML Preview] Tentando Bright Data...");
+              const mlBrightData = await withTimeout(
+                extractMercadoLivreWithBrightData({
+                  url: mercadoLivreExtractionUrl,
+                  affiliateUrl,
+                }),
+                ML_PREVIEW_BRIGHTDATA_TIMEOUT_MS,
+                "Bright Data Mercado Livre",
+              );
+              bestPreviewPayload = enrichResponseWithCoupon(
+                {
+                  ...buildFromMercadoLivreOfficial({
+                    elapsedMs: Date.now() - startedAt,
+                    title: mlBrightData.title,
+                    price: mlBrightData.price,
+                    oldPrice: mlBrightData.oldPrice,
+                    imageUrl: mlBrightData.imageUrl,
+                    permalink: mlBrightData.permalink,
+                    productUrl: mlBrightData.productUrl,
+                    affiliateUrl: mlBrightData.affiliateUrl,
+                    condition: mlBrightData.condition,
+                    status: mlBrightData.status,
+                    rawData: mlBrightData.rawData,
+                  }),
+                  engine: "ml-brightdata-unlocker",
+                  extraction_layer: "open_graph",
+                },
+                couponCode,
+                couponDiscountPct,
+              );
+              console.log("[ML Preview] Sucesso no Bright Data");
+            } catch (error) {
+              brightdataError = extractErrorMessage(error);
+              console.log("[ML Preview] Falha no Bright Data:", brightdataError);
+            }
+          }
+
+          if (!bestPreviewPayload || bestPreviewPayload.status !== "ok") {
+            try {
+              console.log("[ML Preview] Tentando Apify Search...");
+              const payload = await withTimeout(
                 extractMercadoLivreWithApifySearch({
                   url: sourceUrl,
                   affiliateUrl,
@@ -1327,30 +1350,16 @@ export async function POST(req: NextRequest) {
                 }),
                 ML_PREVIEW_APIFY_TIMEOUT_MS,
                 "Apify Mercado Livre",
-              ).then((payload) =>
-                payload ? enrichResponseWithCoupon(payload, couponCode, couponDiscountPct) : null,
-              ),
-            ]);
-
-          if (previewOfficialResult.status === "rejected") {
-            officialError = extractErrorMessage(previewOfficialResult.reason);
+              );
+              if (payload) {
+                bestPreviewPayload = enrichResponseWithCoupon(payload, couponCode, couponDiscountPct);
+                console.log("[ML Preview] Sucesso no Apify");
+              }
+            } catch (error) {
+              apifyError = extractErrorMessage(error);
+              console.log("[ML Preview] Falha no Apify:", apifyError);
+            }
           }
-          if (previewBrightDataResult.status === "rejected") {
-            brightdataError = extractErrorMessage(previewBrightDataResult.reason);
-          }
-          if (previewHtmlResult.status === "rejected") {
-            fallbackError = extractErrorMessage(previewHtmlResult.reason);
-          }
-          if (previewApifyResult.status === "rejected") {
-            apifyError = extractErrorMessage(previewApifyResult.reason);
-          }
-
-          const bestPreviewPayload = pickBestExtractionPayload([
-            previewOfficialResult.status === "fulfilled" ? previewOfficialResult.value : null,
-            previewBrightDataResult.status === "fulfilled" ? previewBrightDataResult.value : null,
-            previewHtmlResult.status === "fulfilled" ? previewHtmlResult.value : null,
-            previewApifyResult.status === "fulfilled" ? previewApifyResult.value : null,
-          ]);
 
           if (bestPreviewPayload) {
             const layerUsed: DebugLayer =
@@ -1591,15 +1600,91 @@ export async function POST(req: NextRequest) {
         let officialPayload: SuccessResponse | null = null;
         let brightDataPayload: SuccessResponse | null = null;
         let zensPayload: SuccessResponse | null = null;
-        const [brightDataResult, zensResult, officialResult] = await Promise.allSettled([
-          withTimeout(
-            (async () => {
-              const startedAt = Date.now();
-              const mlBrightData = await extractMercadoLivreWithBrightData({
+        try {
+          console.log("[ML Persist] Tentando API Oficial...");
+          const startedAt = Date.now();
+          let accessToken: string | null = null;
+          try {
+            accessToken = await getValidToken();
+          } catch {
+            accessToken = null;
+          }
+          const mlOfficial = await withTimeout(
+            extractMercadoLivreOfficial({
+              url: mercadoLivreExtractionUrl,
+              affiliateUrl,
+              accessToken: accessToken ?? undefined,
+            }),
+            ML_OFFICIAL_OPERATION_TIMEOUT_MS,
+            "API oficial do Mercado Livre",
+          );
+          officialPayload = buildFromMercadoLivreOfficial({
+            elapsedMs: Date.now() - startedAt,
+            title: mlOfficial.title,
+            price: mlOfficial.price,
+            oldPrice: mlOfficial.oldPrice,
+            imageUrl: mlOfficial.imageUrl,
+            permalink: mlOfficial.permalink,
+            productUrl: mlOfficial.productUrl,
+            affiliateUrl: mlOfficial.affiliateUrl,
+            condition: mlOfficial.condition,
+            status: mlOfficial.status,
+            rawData: mlOfficial.rawData,
+          });
+          console.log("[ML Persist] Sucesso na API Oficial");
+        } catch (error) {
+          officialError = extractErrorMessage(error);
+          console.log("[ML Persist] Falha na API Oficial:", officialError);
+        }
+
+        const officialHasCoreFieldsLocally = Boolean(
+          officialPayload &&
+            toText(officialPayload.title) &&
+            isPositivePrice(officialPayload.price) &&
+            toText(officialPayload.image_url),
+        );
+
+        if (!officialPayload || !officialHasCoreFieldsLocally) {
+          try {
+            console.log("[ML Persist] Tentando Zenscrape...");
+            const startedAt = Date.now();
+            const ml = await withTimeout(
+              extractMercadoLivreWithZenscrape({
                 url: mercadoLivreExtractionUrl,
                 affiliateUrl,
-              });
-              return {
+              }),
+              ML_ZENSCRAPE_OPERATION_TIMEOUT_MS,
+              "Zenscrape Mercado Livre",
+            );
+            zensPayload = buildFromMercadoLivreZenscrape({
+              elapsedMs: Date.now() - startedAt,
+              title: ml.title,
+              price: ml.price,
+              oldPrice: ml.oldPrice,
+              imageUrl: ml.imageUrl,
+              productUrl: ml.productUrl,
+              affiliateUrl: ml.affiliateUrl,
+              rawData: ml.rawData,
+            });
+            console.log("[ML Persist] Sucesso no Zenscrape");
+          } catch (error) {
+            zenscrapeError = extractErrorMessage(error);
+            console.log("[ML Persist] Falha no Zenscrape:", zenscrapeError);
+          }
+
+          if (!zensPayload) {
+            try {
+              console.log("[ML Persist] Tentando Bright Data...");
+              const startedAt = Date.now();
+              const mlBrightData = await withTimeout(
+                extractMercadoLivreWithBrightData({
+                  url: mercadoLivreExtractionUrl,
+                  affiliateUrl,
+                }),
+                ML_BRIGHTDATA_OPERATION_TIMEOUT_MS,
+                "Bright Data Mercado Livre",
+              );
+              brightDataPayload = {
                 ...buildFromMercadoLivreOfficial({
                   elapsedMs: Date.now() - startedAt,
                   title: mlBrightData.title,
@@ -1616,80 +1701,12 @@ export async function POST(req: NextRequest) {
                 engine: "ml-brightdata-unlocker",
                 extraction_layer: "open_graph" as const,
               };
-            })(),
-            ML_BRIGHTDATA_OPERATION_TIMEOUT_MS,
-            "Bright Data Mercado Livre",
-          ),
-          withTimeout(
-            (async () => {
-              const startedAt = Date.now();
-              const ml = await extractMercadoLivreWithZenscrape({
-                url: mercadoLivreExtractionUrl,
-                affiliateUrl,
-              });
-              return buildFromMercadoLivreZenscrape({
-                elapsedMs: Date.now() - startedAt,
-                title: ml.title,
-                price: ml.price,
-                oldPrice: ml.oldPrice,
-                imageUrl: ml.imageUrl,
-                productUrl: ml.productUrl,
-                affiliateUrl: ml.affiliateUrl,
-                rawData: ml.rawData,
-              });
-            })(),
-            ML_ZENSCRAPE_OPERATION_TIMEOUT_MS,
-            "Zenscrape Mercado Livre",
-          ),
-          withTimeout(
-            (async () => {
-              const startedAt = Date.now();
-              let accessToken: string | null = null;
-              try {
-                accessToken = await getValidToken();
-              } catch {
-                accessToken = null;
-              }
-              const mlOfficial = await extractMercadoLivreOfficial({
-                url: mercadoLivreExtractionUrl,
-                affiliateUrl,
-                accessToken: accessToken ?? undefined,
-              });
-              return buildFromMercadoLivreOfficial({
-                elapsedMs: Date.now() - startedAt,
-                title: mlOfficial.title,
-                price: mlOfficial.price,
-                oldPrice: mlOfficial.oldPrice,
-                imageUrl: mlOfficial.imageUrl,
-                permalink: mlOfficial.permalink,
-                productUrl: mlOfficial.productUrl,
-                affiliateUrl: mlOfficial.affiliateUrl,
-                condition: mlOfficial.condition,
-                status: mlOfficial.status,
-                rawData: mlOfficial.rawData,
-              });
-            })(),
-            ML_OFFICIAL_OPERATION_TIMEOUT_MS,
-            "API oficial do Mercado Livre",
-          ),
-        ]);
-
-        if (brightDataResult.status === "fulfilled") {
-          brightDataPayload = brightDataResult.value;
-        } else {
-          brightdataError = extractErrorMessage(brightDataResult.reason);
-        }
-
-        if (zensResult.status === "fulfilled") {
-          zensPayload = zensResult.value;
-        } else {
-          zenscrapeError = extractErrorMessage(zensResult.reason);
-        }
-
-        if (officialResult.status === "fulfilled") {
-          officialPayload = officialResult.value;
-        } else {
-          officialError = extractErrorMessage(officialResult.reason);
+              console.log("[ML Persist] Sucesso no Bright Data");
+            } catch (error) {
+              brightdataError = extractErrorMessage(error);
+              console.log("[ML Persist] Falha no Bright Data:", brightdataError);
+            }
+          }
         }
 
         const enrichedOfficial = officialPayload

@@ -8,12 +8,14 @@ import {
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
+  Filter,
   Loader2,
   MessageSquare,
   PackagePlus,
   Search,
   Send,
   Sparkles,
+  Truck,
 } from "lucide-react";
 
 import { supabase } from "@/lib/supabase";
@@ -31,6 +33,7 @@ type AwinProduct = {
   originalCurrency: string;
   merchantName: string;
   categoryName: string;
+  deliveryCost?: number;
 };
 
 type FeedResponse = {
@@ -42,7 +45,7 @@ type FeedResponse = {
 };
 
 type SlotType = "flash" | "best" | "comparator";
-type SortType = "" | "best_deals" | "top_selling";
+type SortType = "" | "best_deals" | "top_selling" | "price_asc" | "price_desc";
 
 function formatMoney(value: number, currency: string) {
   return new Intl.NumberFormat("pt-BR", {
@@ -63,9 +66,10 @@ export default function HubAwinProductsPage() {
   const page = Math.max(1, Number(searchParams.get("page") ?? 1) || 1);
   const search = searchParams.get("search") ?? "";
   const category = searchParams.get("category") ?? "";
-  const sort = (searchParams.get("sort") === "best_deals" || searchParams.get("sort") === "top_selling"
-    ? searchParams.get("sort")
-    : "") as SortType;
+  const sort = (searchParams.get("sort") ?? "") as SortType;
+  const priceMin = searchParams.get("priceMin") ?? "";
+  const priceMax = searchParams.get("priceMax") ?? "";
+  const freeShipping = searchParams.get("freeShipping") === "true";
 
   const [products, setProducts] = useState<AwinProduct[]>([]);
   const [total, setTotal] = useState(0);
@@ -75,28 +79,44 @@ export default function HubAwinProductsPage() {
   const [dispatching, setDispatching] = useState<string | null>(null);
   const [siteModalProduct, setSiteModalProduct] = useState<AwinProduct | null>(null);
   const [addedProducts, setAddedProducts] = useState<Record<string, boolean>>({});
+  
   const [searchDraft, setSearchDraft] = useState(search);
   const [categoryDraft, setCategoryDraft] = useState(category);
   const [sortDraft, setSortDraft] = useState<SortType>(sort);
+  const [priceMinDraft, setPriceMinDraft] = useState(priceMin);
+  const [priceMaxDraft, setPriceMaxDraft] = useState(priceMax);
+  const [freeShippingDraft, setFreeShippingDraft] = useState(freeShipping);
+
   const [categories, setCategories] = useState<string[]>([]);
   const [aiLoading, setAiLoading] = useState<string | null>(null);
   const [productCopies, setProductCopies] = useState<Record<string, string>>({});
+  const [showAdvanced, setShowAdvanced] = useState(priceMin || priceMax || freeShipping ? true : false);
 
   function buildUrl(nextParams: {
     search?: string;
     category?: string;
     sort?: SortType;
+    priceMin?: string;
+    priceMax?: string;
+    freeShipping?: boolean;
     page?: number;
   }) {
     const query = new URLSearchParams();
+    
     const nextSearch = nextParams.search ?? search;
     const nextCategory = nextParams.category ?? category;
     const nextSort = nextParams.sort ?? sort;
+    const nextPriceMin = nextParams.priceMin ?? priceMin;
+    const nextPriceMax = nextParams.priceMax ?? priceMax;
+    const nextFreeShipping = nextParams.freeShipping ?? freeShipping;
     const nextPage = nextParams.page ?? page;
 
     if (nextSearch.trim()) query.set("search", nextSearch.trim());
     if (nextCategory.trim()) query.set("category", nextCategory.trim());
     if (nextSort) query.set("sort", nextSort);
+    if (nextPriceMin) query.set("priceMin", nextPriceMin);
+    if (nextPriceMax) query.set("priceMax", nextPriceMax);
+    if (nextFreeShipping) query.set("freeShipping", "true");
     if (nextPage > 1) query.set("page", String(nextPage));
 
     const queryString = query.toString();
@@ -122,6 +142,9 @@ export default function HubAwinProductsPage() {
       if (search.trim()) query.set("search", search.trim());
       if (category.trim()) query.set("category", category.trim());
       if (sort) query.set("sort", sort);
+      if (priceMin) query.set("priceMin", priceMin);
+      if (priceMax) query.set("priceMax", priceMax);
+      if (freeShipping) query.set("freeShipping", "true");
       query.set("page", String(page));
 
       const response = await fetch(
@@ -153,7 +176,15 @@ export default function HubAwinProductsPage() {
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    router.push(buildUrl({ search: searchDraft, category: categoryDraft, sort: sortDraft, page: 1 }));
+    router.push(buildUrl({ 
+      search: searchDraft, 
+      category: categoryDraft, 
+      sort: sortDraft, 
+      priceMin: priceMinDraft,
+      priceMax: priceMaxDraft,
+      freeShipping: freeShippingDraft,
+      page: 1 
+    }));
   }
 
   async function handleGenerateAICopy(product: AwinProduct) {
@@ -242,9 +273,12 @@ export default function HubAwinProductsPage() {
     setSearchDraft(search);
     setCategoryDraft(category);
     setSortDraft(sort);
+    setPriceMinDraft(priceMin);
+    setPriceMaxDraft(priceMax);
+    setFreeShippingDraft(freeShipping);
     void loadProducts();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [advertiserId, search, category, sort, page]);
+  }, [advertiserId, search, category, sort, priceMin, priceMax, freeShipping, page]);
 
   return (
     <div className="min-h-screen flex-1 space-y-8 bg-[#F5F1ED] p-8 pt-6">
@@ -261,7 +295,7 @@ export default function HubAwinProductsPage() {
             Produtos AWIN <span className="ml-2 rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-700">Brasil Ativo</span>
           </h1>
           <p className="mt-1 text-sm font-medium text-muted-foreground">
-            Feed do anunciante ID {advertiserId}. Use a IA para gerar copies persuasivas.
+            Curadoria profunda: filtre por anunciante, categoria, preço e frete.
           </p>
         </div>
 
@@ -272,49 +306,112 @@ export default function HubAwinProductsPage() {
 
       <form
         onSubmit={handleSubmit}
-        className="grid gap-3 rounded-3xl bg-white p-6 shadow-sm md:grid-cols-[1fr_240px_220px_auto]"
+        className="space-y-4 rounded-3xl bg-white p-6 shadow-sm"
       >
-        <div className="relative">
-          <Search className="absolute left-3 top-3 text-slate-400" size={18} />
-          <input
-            value={searchDraft}
-            onChange={(event) => setSearchDraft(event.target.value)}
-            placeholder="Buscar por nome do produto"
-            className="h-11 w-full rounded-2xl border border-slate-200 py-2 pl-10 pr-4 text-sm outline-none transition focus:border-orange"
-          />
-        </div>
-        <select
-          value={categoryDraft}
-          onChange={(event) => setCategoryDraft(event.target.value)}
-          className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 outline-none transition focus:border-orange"
-        >
-          <option value="">Todas as categorias</option>
-          {category ? <option value={category}>{category}</option> : null}
-          {categories
-            .filter((item) => item !== category)
-            .map((item) => (
+        <div className="grid gap-3 md:grid-cols-[1fr_240px_220px_auto]">
+          <div className="relative">
+            <Search className="absolute left-3 top-3 text-slate-400" size={18} />
+            <input
+              value={searchDraft}
+              onChange={(event) => setSearchDraft(event.target.value)}
+              placeholder="Buscar por nome do produto"
+              className="h-11 w-full rounded-2xl border border-slate-200 py-2 pl-10 pr-4 text-sm outline-none transition focus:border-orange"
+            />
+          </div>
+          <select
+            value={categoryDraft}
+            onChange={(event) => setCategoryDraft(event.target.value)}
+            className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 outline-none transition focus:border-orange"
+          >
+            <option value="">Todas as categorias</option>
+            {categories.map((item) => (
               <option key={item} value={item}>
                 {item}
               </option>
             ))}
-        </select>
-        <select
-          value={sortDraft}
-          onChange={(event) => setSortDraft(event.target.value as SortType)}
-          className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 outline-none transition focus:border-orange"
-        >
-          <option value="">Ordem do feed</option>
-          <option value="best_deals">Melhores ofertas</option>
-          <option value="top_selling">Mais vendidos</option>
-        </select>
-        <button
-          type="submit"
-          disabled={loading}
-          className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-[#1A1A1A] px-5 text-sm font-bold text-white transition hover:bg-black disabled:opacity-60"
-        >
-          {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
-          Filtrar
-        </button>
+          </select>
+          <select
+            value={sortDraft}
+            onChange={(event) => setSortDraft(event.target.value as SortType)}
+            className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 outline-none transition focus:border-orange"
+          >
+            <option value="">Ordem do feed</option>
+            <option value="best_deals">Melhores ofertas</option>
+            <option value="top_selling">Mais vendidos</option>
+            <option value="price_asc">Menor preço</option>
+            <option value="price_desc">Maior preço</option>
+          </select>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setShowAdvanced(!showAdvanced)}
+              className={`inline-flex h-11 w-11 items-center justify-center rounded-2xl border transition ${showAdvanced ? "bg-orange-50 border-orange text-orange" : "bg-white border-slate-200 text-slate-500 hover:bg-slate-50"}`}
+            >
+              <Filter className="h-5 w-5" />
+            </button>
+            <button
+              type="submit"
+              disabled={loading}
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-[#1A1A1A] px-5 text-sm font-bold text-white transition hover:bg-black disabled:opacity-60"
+            >
+              {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+              Filtrar
+            </button>
+          </div>
+        </div>
+
+        {showAdvanced && (
+          <div className="grid gap-4 border-t border-slate-100 pt-4 md:grid-cols-4 md:items-center">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold text-slate-500 uppercase">Preço de</span>
+              <input
+                type="number"
+                value={priceMinDraft}
+                onChange={(e) => setPriceMinDraft(e.target.value)}
+                placeholder="0.00"
+                className="h-10 w-24 rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-orange"
+              />
+              <span className="text-xs font-bold text-slate-500 uppercase">até</span>
+              <input
+                type="number"
+                value={priceMaxDraft}
+                onChange={(e) => setPriceMaxDraft(e.target.value)}
+                placeholder="999.00"
+                className="h-10 w-24 rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-orange"
+              />
+            </div>
+
+            <div className="md:col-span-2">
+              <label className="inline-flex items-center cursor-pointer gap-3">
+                <input
+                  type="checkbox"
+                  checked={freeShippingDraft}
+                  onChange={(e) => setFreeShippingDraft(e.target.checked)}
+                  className="peer sr-only"
+                />
+                <div className="relative h-6 w-11 rounded-full bg-slate-200 after:absolute after:start-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:border after:border-gray-300 after:bg-white after:transition-all after:content-[''] peer-checked:bg-emerald-500 peer-checked:after:translate-x-full peer-checked:after:border-white peer-focus:outline-none dark:border-gray-600 dark:bg-gray-700 forced-colors:hidden"></div>
+                <div className="flex items-center gap-2 text-sm font-bold text-slate-700">
+                  <Truck className="h-4 w-4" />
+                  Frete Grátis
+                </div>
+              </label>
+            </div>
+            
+            <div className="text-right">
+              <button
+                type="button"
+                onClick={() => {
+                  setPriceMinDraft("");
+                  setPriceMaxDraft("");
+                  setFreeShippingDraft(false);
+                }}
+                className="text-xs font-bold text-slate-400 hover:text-red-500 transition"
+              >
+                Limpar Filtros Avançados
+              </button>
+            </div>
+          </div>
+        )}
       </form>
 
       {error ? (
@@ -348,15 +445,17 @@ export default function HubAwinProductsPage() {
           {products.map((product) => {
             const productKey = getProductKey(product);
             const isAdded = Boolean(addedProducts[productKey]);
+            const isDispatching = dispatching?.includes(productKey);
             const isAiBusy = aiLoading === productKey;
             const currentCopy = productCopies[productKey];
+            const isFreeShipping = product.deliveryCost === 0;
 
             return (
             <article
               key={productKey}
               className="flex flex-col rounded-3xl border border-rs-border bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg"
             >
-              <div className="flex h-48 items-center justify-center overflow-hidden rounded-2xl bg-slate-50">
+              <div className="flex h-48 items-center justify-center overflow-hidden rounded-2xl bg-slate-50 relative">
                 {product.merchantImageUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
@@ -367,13 +466,20 @@ export default function HubAwinProductsPage() {
                 ) : (
                   <div className="text-xs font-semibold text-slate-400">Sem imagem</div>
                 )}
+                
+                {isFreeShipping && (
+                  <div className="absolute top-3 right-3 flex items-center gap-1.5 rounded-full bg-emerald-100 px-3 py-1 text-[10px] font-black uppercase text-emerald-700 shadow-sm border border-emerald-200/50">
+                    <Truck className="h-3 w-3" />
+                    Frete Grátis
+                  </div>
+                )}
               </div>
 
               <div className="mt-4 flex flex-wrap gap-2 text-[10px] font-black uppercase tracking-widest">
                 <span className="rounded-full bg-orange/10 px-2.5 py-1 text-orange">
                   {product.merchantName || "AWIN"}
                 </span>
-                <span className="rounded-full bg-slate-100 px-2.5 py-1 text-slate-600">
+                <span className="rounded-full bg-slate-100 px-2.5 py-1 text-slate-600 line-clamp-1">
                   {product.categoryName || "Sem categoria"}
                 </span>
               </div>
@@ -395,7 +501,7 @@ export default function HubAwinProductsPage() {
               
               {currentCopy && (
                 <div className="mt-3 rounded-2xl bg-[#FFDA00]/10 p-3 italic text-xs text-slate-700">
-                  &ldquo;{currentCopy}&rdquo;
+                  "{currentCopy}"
                 </div>
               )}
 
@@ -462,7 +568,7 @@ export default function HubAwinProductsPage() {
             Nenhum produto encontrado
           </h2>
           <p className="mt-2 max-w-sm text-sm text-slate-500">
-            Ajuste a busca ou limpe o filtro de categoria para tentar novamente.
+            Tente ajustar os filtros, o preço ou a busca para encontrar o que deseja.
           </p>
         </div>
       )}
@@ -494,7 +600,7 @@ export default function HubAwinProductsPage() {
 
       {siteModalProduct ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-md:max-w-md rounded-3xl bg-white p-6 shadow-xl">
+          <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-xl">
             <h3 className="mb-4 text-lg font-bold text-gray-900">Escolha o bloco de destino</h3>
             <div className="space-y-3">
               {[

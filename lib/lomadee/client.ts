@@ -143,6 +143,9 @@ export async function fetchLomadeeProducts(params: {
   page?: number;
   limit?: number;
   price?: string;
+  priceMin?: number | null;
+  priceMax?: number | null;
+  sort?: string;
   organizationIds?: string;
   isAvailable?: boolean;
 }): Promise<LomadeeProductsResult> {
@@ -150,14 +153,33 @@ export async function fetchLomadeeProducts(params: {
   query.set("page", String(Math.max(1, params.page ?? 1)));
   query.set("limit", String(Math.min(Math.max(params.limit ?? 20, 1), 100)));
   if (params.search) query.set("search", params.search);
-  if (params.price) query.set("price", params.price);
+  
+  // Se houver range de preco manual, priorizar. 
+  // API Lomadee as vezes aceita price=min..max ou apenas filtraremos no client se necessario.
+  if (params.priceMin || params.priceMax) {
+    const min = params.priceMin || 0;
+    const max = params.priceMax || 999999;
+    query.set("price", `${min}..${max}`);
+  } else if (params.price) {
+    query.set("price", params.price);
+  }
+
   if (params.organizationIds) query.set("organizationIds", params.organizationIds);
   if (typeof params.isAvailable === "boolean") query.set("isAvailable", String(params.isAvailable));
 
   const payload = await lomadeeFetch(`/affiliate/products?${query.toString()}`);
   const products = Array.isArray(payload.data)
-    ? payload.data.map((item) => normalizeProduct(item as LomadeeProduct)).filter(Boolean)
+    ? payload.data.map((item) => normalizeProduct(item as LomadeeProduct)).filter(Boolean) as NormalizedLomadeeProduct[]
     : [];
+
+  // Ordenacao manual se a API nao prover
+  if (params.sort === "price_asc") {
+    products.sort((a, b) => a.price - b.price);
+  } else if (params.sort === "price_desc") {
+    products.sort((a, b) => b.price - a.price);
+  } else if (params.sort === "discount") {
+    products.sort((a, b) => b.discount_pct - a.discount_pct);
+  }
   const meta = (payload.meta && typeof payload.meta === "object"
     ? payload.meta
     : {}) as Record<string, unknown>;

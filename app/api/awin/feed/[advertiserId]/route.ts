@@ -24,12 +24,19 @@ export async function GET(req: NextRequest, context: RouteContext) {
 
   try {
     const sortParam = req.nextUrl.searchParams.get("sort") ?? "";
+    const priceMinParam = req.nextUrl.searchParams.get("priceMin");
+    const priceMaxParam = req.nextUrl.searchParams.get("priceMax");
+    const freeShipping = req.nextUrl.searchParams.get("freeShipping") === "true";
+
     const products = await fetchAwinAdvertiserFeedProducts({
       advertiserId: context.params.advertiserId,
       search: req.nextUrl.searchParams.get("search") ?? "",
       category: req.nextUrl.searchParams.get("category") ?? "",
       page: Number(req.nextUrl.searchParams.get("page") ?? 1),
-      sort: sortParam === "best_deals" || sortParam === "top_selling" ? sortParam : "",
+      priceMin: priceMinParam ? Number(priceMinParam) : null,
+      priceMax: priceMaxParam ? Number(priceMaxParam) : null,
+      freeShipping,
+      sort: sortParam as any,
     });
 
     return NextResponse.json(products, {

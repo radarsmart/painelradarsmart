@@ -18,6 +18,7 @@ const AWIN_ADVERTISER_FEED_COLUMNS = [
   "average_rating",
   "rating",
   "reviews",
+  "delivery_cost",
 ].join(",");
 
 type AwinProgramme = {
@@ -133,9 +134,10 @@ export type NormalizedAwinAdvertiserFeedProduct = {
   merchantName: string;
   categoryName: string;
   rating: number;
+  deliveryCost: number;
 };
 
-type AwinAdvertiserFeedSort = "best_deals" | "top_selling" | "";
+type AwinAdvertiserFeedSort = "best_deals" | "top_selling" | "price_asc" | "price_desc" | "";
 
 function cleanEnv(value?: string) {
   return String(value ?? "").trim().replace(/^['"]|['"]$/g, "");
@@ -765,6 +767,7 @@ export async function fetchAwinAdvertiserFeedProducts(params: {
   sort?: AwinAdvertiserFeedSort;
   priceMin?: number | null;
   priceMax?: number | null;
+  freeShipping?: boolean;
 }) {
   const advertiserId = toText(params.advertiserId);
   if (!/^\d+$/.test(advertiserId)) {
@@ -785,7 +788,7 @@ export async function fetchAwinAdvertiserFeedProducts(params: {
   const startIndex = (page - 1) * AWIN_ADVERTISER_FEED_PAGE_SIZE;
   const endIndex = startIndex + AWIN_ADVERTISER_FEED_PAGE_SIZE;
   const feeds = await fetchAwinAdvertiserFeeds(advertiserId);
-  const categories = Array.from(
+  const feedCategories = Array.from(
     new Set(feeds.map((feed) => translateAwinCategory(feed.name)).filter(Boolean)),
   ).sort((a, b) => a.localeCompare(b));
   const candidateFeeds = categoryLower
@@ -797,7 +800,9 @@ export async function fetchAwinAdvertiserFeedProducts(params: {
     : feeds;
   const products: NormalizedAwinAdvertiserFeedProduct[] = [];
   const sortableProducts: NormalizedAwinAdvertiserFeedProduct[] = [];
-  const shouldSort = sort === "best_deals" || sort === "top_selling";
+  const foundCategories = new Set<string>(feedCategories);
+  const freeShipping = params.freeShipping === true;
+  const shouldSort = Boolean(sort);
   const brlRates = await fetchAwinBrlRates();
   let total = 0;
 
@@ -814,10 +819,13 @@ export async function fetchAwinAdvertiserFeedProducts(params: {
       if (!product) continue;
 
       const haystack = `${product.id} ${product.merchantProductId} ${product.productName} ${product.description} ${product.merchantName} ${product.categoryName} ${product.awDeepLink} ${product.merchantDeepLink}`.toLowerCase();
+      if (product.categoryName) foundCategories.add(product.categoryName);
+      
       if (searchLower && !matchesAwinSearch(haystack, searchLower)) continue;
       if (categoryLower && !`${translateAwinCategory(feed.name)} ${product.categoryName}`.toLowerCase().includes(categoryLower)) continue;
       if (priceMin !== null && product.searchPrice < priceMin) continue;
       if (priceMax !== null && product.searchPrice > priceMax) continue;
+      if (freeShipping && product.deliveryCost > 0) continue;
 
       if (shouldSort) {
         sortableProducts.push(product);
@@ -832,8 +840,10 @@ export async function fetchAwinAdvertiserFeedProducts(params: {
 
   if (shouldSort) {
     const sortedProducts = sortableProducts.slice();
-    if (sort === "best_deals") {
+    if (sort === "best_deals" || sort === "price_asc") {
       sortedProducts.sort((a, b) => a.searchPrice - b.searchPrice);
+    } else if (sort === "price_desc") {
+      sortedProducts.sort((a, b) => b.searchPrice - a.searchPrice);
     } else if (sort === "top_selling" && sortedProducts.some((product) => product.rating > 0)) {
       sortedProducts.sort((a, b) => b.rating - a.rating);
     }
@@ -846,7 +856,7 @@ export async function fetchAwinAdvertiserFeedProducts(params: {
     products,
     total,
     page,
-    categories,
+    categories: Array.from(foundCategories).sort((a, b) => a.localeCompare(b)),
   };
 }
 

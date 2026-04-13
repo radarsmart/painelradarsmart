@@ -16,15 +16,17 @@ export async function GET(req: NextRequest) {
     const search = String(req.nextUrl.searchParams.get("q") ?? "").trim();
     const page = Number(req.nextUrl.searchParams.get("page") || "1");
     const limit = Number(req.nextUrl.searchParams.get("limit") || "20");
-    const price = String(req.nextUrl.searchParams.get("price") ?? "").trim();
-    const organizationIds = String(req.nextUrl.searchParams.get("organizationIds") ?? "").trim();
-    const isAvailableParam = req.nextUrl.searchParams.get("isAvailable");
+    const sort = req.nextUrl.searchParams.get("sort") ?? "";
+    const priceMin = req.nextUrl.searchParams.get("priceMin");
+    const priceMax = req.nextUrl.searchParams.get("priceMax");
 
     const result = await fetchLomadeeProducts({
       search,
       page,
       limit,
-      price,
+      priceMin: priceMin ? Number(priceMin) : null,
+      priceMax: priceMax ? Number(priceMax) : null,
+      sort,
       organizationIds,
       isAvailable: isAvailableParam === null ? true : isAvailableParam === "true",
     });

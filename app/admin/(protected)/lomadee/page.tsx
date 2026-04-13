@@ -1,7 +1,16 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { CheckCircle2, Loader2, MessageSquare, Search, Send, Sparkles } from "lucide-react";
+import { 
+  CheckCircle2, 
+  Filter, 
+  Loader2, 
+  MessageSquare, 
+  Search, 
+  Send, 
+  Sparkles, 
+  Truck 
+} from "lucide-react";
 
 import { supabase } from "@/lib/supabase";
 
@@ -18,6 +27,7 @@ type LomadeeProduct = {
   seller: string;
   available: boolean;
   synced_at: string;
+  deliveryCost?: number;
 };
 
 type ProductsResponse = {
@@ -34,6 +44,7 @@ type ProductsResponse = {
 
 type DispatchAction = "telegram" | "whatsapp" | "site";
 type SlotType = "flash" | "best" | "comparator";
+type SortType = "" | "discount" | "price_asc" | "price_desc";
 
 const SLOT_OPTIONS: Array<{ slot: SlotType; label: string }> = [
   { slot: "flash", label: "Oferta Relâmpago" },
@@ -55,6 +66,11 @@ function getProductKey(product: LomadeeProduct) {
 export default function LomadeeHubPage() {
   const [search, setSearch] = useState("smartphone");
   const [page, setPage] = useState(1);
+  const [sort, setSort] = useState<SortType>("");
+  const [priceMin, setPriceMin] = useState("");
+  const [priceMax, setPriceMax] = useState("");
+  const [freeShipping, setFreeShipping] = useState(false);
+  
   const [products, setProducts] = useState<LomadeeProduct[]>([]);
   const [meta, setMeta] = useState<ProductsResponse["meta"]>();
   const [loading, setLoading] = useState(false);
@@ -64,6 +80,7 @@ export default function LomadeeHubPage() {
   const [siteModalProduct, setSiteModalProduct] = useState<LomadeeProduct | null>(null);
   const [aiLoading, setAiLoading] = useState<string | null>(null);
   const [productCopies, setProductCopies] = useState<Record<string, string>>({});
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   const totalLabel = useMemo(() => {
     if (!meta) return String(products.length);
@@ -91,6 +108,10 @@ export default function LomadeeHubPage() {
       params.set("limit", "20");
       params.set("isAvailable", "true");
       if (search.trim()) params.set("q", search.trim());
+      if (sort) params.set("sort", sort);
+      if (priceMin) params.set("priceMin", priceMin);
+      if (priceMax) params.set("priceMax", priceMax);
+      if (freeShipping) params.set("freeShipping", "true");
 
       const response = await fetch(`/api/admin/lomadee/products?${params.toString()}`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -105,11 +126,6 @@ export default function LomadeeHubPage() {
       setProducts(payload.products ?? []);
       setMeta(payload.meta);
       setPage(nextPage);
-      setFeedback(
-        payload.products?.length
-          ? `${payload.products.length} produtos carregados da Lomadee.`
-          : "Nenhum produto encontrado para a busca atual.",
-      );
     } catch (err) {
       setProducts([]);
       setMeta(undefined);
@@ -122,7 +138,7 @@ export default function LomadeeHubPage() {
   useEffect(() => {
     void loadProducts(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [sort, freeShipping]);
 
   async function buildAffiliateUrl(product: LomadeeProduct) {
     const token = await getAccessToken();
@@ -208,10 +224,7 @@ export default function LomadeeHubPage() {
           slot_type: slotType || "best",
           copy_text: copy,
           raw_data: product,
-          channels:
-            action === "site"
-              ? []
-              : [action],
+          channels: action === "site" ? [] : [action],
         }),
       });
       const payload = (await response.json()) as { success?: boolean; message?: string; error?: string };
@@ -237,54 +250,114 @@ export default function LomadeeHubPage() {
     <div className="space-y-6">
       <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
         <div>
-          <h1 className="font-display text-3xl font-bold text-navy">Lomadee Hub <span className="ml-2 rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-700">Brasil Ativo</span></h1>
+          <h1 className="font-display text-3xl font-bold text-navy">
+            Lomadee Hub <span className="ml-2 rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-700">Brasil Ativo</span>
+          </h1>
           <p className="text-sm text-rs-muted">
-            Busque produtos da API Lomadee e use a Inteligência Artificial para acelerar sua curadoria.
+            Curadoria profunda via API Lomadee. Filtre preços, ordene e use IA para suas copies.
           </p>
         </div>
       </div>
 
-      <section className="rounded-2xl border border-rs-border bg-white p-5 shadow-sm">
-        <div className="grid gap-3 md:grid-cols-[1fr_auto_auto] md:items-end">
-          <label className="space-y-1">
-            <span className="text-xs font-semibold uppercase tracking-wide text-slate-600">
-              Buscar produto
-            </span>
+      <section className="rounded-3xl border border-rs-border bg-white p-6 shadow-sm space-y-4">
+        <div className="grid gap-3 md:grid-cols-[1fr_200px_auto]">
+          <div className="relative">
+            <Search className="absolute left-3 top-3 text-slate-400" size={18} />
             <input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === "Enter") void loadProducts(1);
               }}
-              className="h-11 w-full rounded-xl border border-slate-300 px-3 text-sm outline-none focus:border-orange"
+              className="h-11 w-full rounded-2xl border border-slate-200 py-2 pl-10 pr-4 text-sm outline-none transition focus:border-orange"
               placeholder="smartphone, ar condicionado, notebook..."
             />
-          </label>
+          </div>
 
-          <button
-            type="button"
-            onClick={() => void loadProducts(1)}
-            disabled={loading}
-            className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-navy px-4 text-sm font-semibold text-white disabled:opacity-60"
+          <select
+            value={sort}
+            onChange={(e) => setSort(e.target.value as SortType)}
+            className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 outline-none transition focus:border-orange"
           >
-            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
-            Buscar
-          </button>
+            <option value="">Ordem Relevância</option>
+            <option value="discount">Melhores Descontos</option>
+            <option value="price_asc">Menor preço</option>
+            <option value="price_desc">Maior preço</option>
+          </select>
 
-          <div className="rounded-xl bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700">
-            Total: {totalLabel}
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setShowAdvanced(!showAdvanced)}
+              className={`inline-flex h-11 w-11 items-center justify-center rounded-2xl border transition ${showAdvanced ? "bg-orange-50 border-orange text-orange" : "bg-white border-slate-200 text-slate-500 hover:bg-slate-50"}`}
+            >
+              <Filter className="h-5 w-5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => void loadProducts(1)}
+              disabled={loading}
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-navy px-5 text-sm font-bold text-white transition hover:bg-black disabled:opacity-60"
+            >
+              {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+              Filtrar
+            </button>
           </div>
         </div>
+
+        {showAdvanced && (
+          <div className="grid gap-4 border-t border-slate-100 pt-4 md:grid-cols-4 md:items-center">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold text-slate-500 uppercase">Preço de</span>
+              <input
+                type="number"
+                value={priceMin}
+                onChange={(e) => setPriceMin(e.target.value)}
+                placeholder="0.00"
+                className="h-10 w-24 rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-orange"
+              />
+              <span className="text-xs font-bold text-slate-500 uppercase">até</span>
+              <input
+                type="number"
+                value={priceMax}
+                onChange={(e) => setPriceMax(e.target.value)}
+                placeholder="999.00"
+                className="h-10 w-24 rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-orange"
+              />
+            </div>
+
+            <div className="md:col-span-2">
+               <div className="rounded-xl bg-slate-50 px-4 py-2.5 text-xs font-semibold text-slate-500 italic">
+                Total encontrado na API: {totalLabel}
+              </div>
+            </div>
+            
+            <div className="text-right">
+              <button
+                type="button"
+                onClick={() => {
+                  setPriceMin("");
+                  setPriceMax("");
+                  setSort("");
+                  setFreeShipping(false);
+                }}
+                className="text-xs font-bold text-slate-400 hover:text-red-500 transition"
+              >
+                Limpar Filtros
+              </button>
+            </div>
+          </div>
+        )}
       </section>
 
       {error ? (
-        <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+        <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
           {error}
         </div>
       ) : null}
 
       {feedback ? (
-        <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-700">
+        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-700">
           {feedback}
         </div>
       ) : null}
@@ -294,56 +367,61 @@ export default function LomadeeHubPage() {
           const productKey = getProductKey(product);
           const currentCopy = productCopies[productKey];
           const isAiBusy = aiLoading === productKey;
+          const isDispatching = dispatching?.includes(productKey);
 
           return (
           <article
             key={productKey}
-            className="flex flex-col rounded-2xl border border-rs-border bg-white p-4 shadow-sm"
+            className="flex flex-col rounded-3xl border border-rs-border bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg"
           >
-            <div className="flex gap-4">
+            <div className="flex h-44 items-center justify-center overflow-hidden rounded-2xl bg-slate-50 relative">
               {product.image ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={product.image}
                   alt={product.title}
-                  className="h-24 w-24 rounded-xl border border-slate-200 object-contain"
+                  className="h-full w-full object-contain p-3"
                 />
               ) : (
                 <div className="flex h-24 w-24 items-center justify-center rounded-xl bg-slate-100 text-xs text-slate-400">
                   Sem imagem
                 </div>
               )}
-              <div className="min-w-0 flex-1">
-                <p className="line-clamp-2 text-sm font-bold text-navy">{product.title}</p>
-                <p className="mt-1 text-xs text-slate-500">{product.seller}</p>
-                <p className="mt-2 text-2xl font-black text-navy">{formatBRL(product.price)}</p>
-                {product.original_price > product.price ? (
-                  <p className="text-xs text-slate-500 line-through">
-                    {formatBRL(product.original_price)}
-                  </p>
-                ) : null}
-              </div>
             </div>
 
-            <div className="mt-4 flex flex-wrap gap-2 text-xs text-slate-500">
-              <span className="rounded-full bg-slate-100 px-2 py-1">Lomadee</span>
-              <span className="rounded-full bg-emerald-100 px-2 py-1 text-emerald-700 font-bold">
+            <div className="mt-4 flex flex-wrap gap-2 text-[10px] font-black uppercase tracking-widest">
+              <span className="rounded-full bg-slate-100 px-2.5 py-1 text-slate-600">Lomadee</span>
+              <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-emerald-700 font-black">
                 {product.discount_pct}% OFF
               </span>
             </div>
 
+            <div className="mt-3 min-h-[56px]">
+              <h2 className="line-clamp-2 text-sm font-bold leading-6 text-[#1A1A1A]">{product.title}</h2>
+              <p className="mt-1 text-xs text-slate-400 font-medium">{product.seller}</p>
+            </div>
+
+            <div className="mt-2 flex items-baseline gap-2">
+              <p className="text-2xl font-black text-navy">{formatBRL(product.price)}</p>
+              {product.original_price > product.price ? (
+                <p className="text-xs text-slate-400 line-through">
+                  {formatBRL(product.original_price)}
+                </p>
+              ) : null}
+            </div>
+
             {currentCopy && (
-                <div className="mt-3 rounded-xl bg-orange-100/50 p-3 italic text-xs text-slate-700 border border-orange-100">
-                  &ldquo;{currentCopy}&rdquo;
+                <div className="mt-3 rounded-2xl bg-[#FFDA00]/10 p-3 italic text-xs text-slate-700 border border-[#FFDA00]/20">
+                  "{currentCopy}"
                 </div>
               )}
 
-            <div className="mt-4 grid gap-2">
+            <div className="mt-5 grid gap-2">
               <button
                   type="button"
                   onClick={() => void handleGenerateAICopy(product)}
                   disabled={isAiBusy || !!dispatching}
-                  className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-orange-100 text-xs font-bold text-orange-900 transition hover:bg-orange-200 disabled:opacity-50"
+                  className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-orange-100 text-sm font-bold text-orange-900 transition hover:bg-orange-200 disabled:opacity-50"
                 >
                   {isAiBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
                   {currentCopy ? "Regerar Copy IA" : "Gerar Copy IA"}
@@ -354,7 +432,7 @@ export default function LomadeeHubPage() {
                   type="button"
                   disabled={!!dispatching}
                   onClick={() => void handleDispatch(product, "telegram")}
-                  className="inline-flex items-center justify-center gap-1 rounded-xl bg-sky-500 px-2 py-2 text-xs font-bold text-white disabled:opacity-60"
+                  className="inline-flex items-center justify-center gap-1 rounded-xl bg-[#0088CC] px-2 py-2 text-xs font-bold text-white transition hover:brightness-95 disabled:opacity-50"
                 >
                   {dispatching === `telegram:${productKey}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
                   Telegram
@@ -363,7 +441,7 @@ export default function LomadeeHubPage() {
                   type="button"
                   disabled={!!dispatching}
                   onClick={() => void handleDispatch(product, "whatsapp")}
-                  className="inline-flex items-center justify-center gap-1 rounded-xl bg-emerald-500 px-2 py-2 text-xs font-bold text-white disabled:opacity-60"
+                  className="inline-flex items-center justify-center gap-1 rounded-xl bg-[#25D366] px-2 py-2 text-xs font-bold text-white transition hover:brightness-95 disabled:opacity-50"
                 >
                   {dispatching === `whatsapp:${productKey}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <MessageSquare className="h-3.5 w-3.5" />}
                   WhatsApp
@@ -372,7 +450,7 @@ export default function LomadeeHubPage() {
                   type="button"
                   disabled={!!dispatching}
                   onClick={() => setSiteModalProduct(product)}
-                  className="inline-flex items-center justify-center gap-1 rounded-xl bg-green-700 px-2 py-2 text-xs font-bold text-white disabled:opacity-60"
+                  className="inline-flex items-center justify-center gap-1 rounded-xl bg-slate-900 px-2 py-2 text-xs font-bold text-white transition hover:bg-black disabled:opacity-50"
                 >
                   <CheckCircle2 className="h-3.5 w-3.5" />
                   Site
@@ -384,23 +462,23 @@ export default function LomadeeHubPage() {
         })}
       </section>
 
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between rounded-3xl bg-white p-4 shadow-sm">
         <button
           type="button"
           disabled={loading || page <= 1}
           onClick={() => void loadProducts(page - 1)}
-          className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 disabled:opacity-50"
+          className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-slate-100 px-4 text-sm font-bold text-slate-700 hover:bg-slate-200 disabled:opacity-50"
         >
           Anterior
         </button>
-        <span className="text-sm text-slate-500">
+        <span className="text-sm font-semibold text-slate-600">
           Página {meta?.page ?? page} de {meta?.totalPages ?? 1}
         </span>
         <button
           type="button"
           disabled={loading || (meta?.totalPages ? page >= meta.totalPages : false)}
           onClick={() => void loadProducts(page + 1)}
-          className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 disabled:opacity-50"
+          className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 text-sm font-bold text-white hover:bg-black disabled:opacity-50"
         >
           Próxima
         </button>
@@ -408,28 +486,33 @@ export default function LomadeeHubPage() {
 
       {siteModalProduct ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl">
-            <h2 className="text-xl font-bold text-navy">Publicar no site</h2>
-            <p className="mt-2 text-sm text-slate-600">
-              Escolha onde este produto da Lomadee vai aparecer na vitrine publica.
-            </p>
-            <div className="mt-5 grid gap-3 md:grid-cols-2">
-              {SLOT_OPTIONS.map((item) => (
+          <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-xl">
+            <h3 className="mb-4 text-lg font-bold text-gray-900">Escolha o bloco de destino</h3>
+            <div className="space-y-3">
+              {[
+                { slot: "flash", label: "Ofertas Relâmpago", tone: "bg-orange-100 text-orange-900" },
+                { slot: "best", label: "Melhores Ofertas", tone: "bg-blue-100 text-blue-900" },
+                { slot: "comparator", label: "Comparador", tone: "bg-green-100 text-green-900" },
+              ].map((item) => (
                 <button
                   key={item.slot}
                   type="button"
                   disabled={!!dispatching}
                   onClick={() => void handleDispatch(siteModalProduct, "site", item.slot)}
-                  className="rounded-xl bg-green-700 px-4 py-3 text-sm font-bold text-white disabled:opacity-60"
+                  className={`flex w-full items-center gap-3 rounded-2xl p-4 text-left hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60 ${item.tone}`}
                 >
-                  {item.label}
+                  <CheckCircle2 className="h-5 w-5" />
+                  <div>
+                    <p className="font-semibold">{item.label}</p>
+                    <p className="text-sm opacity-70">{item.slot}</p>
+                  </div>
                 </button>
               ))}
             </div>
             <button
               type="button"
               onClick={() => setSiteModalProduct(null)}
-              className="mt-4 w-full rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700"
+              className="mt-4 w-full rounded-2xl bg-gray-100 py-3 font-semibold text-gray-700 hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-60"
             >
               Cancelar
             </button>

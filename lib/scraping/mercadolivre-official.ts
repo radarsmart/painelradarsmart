@@ -173,6 +173,34 @@ function findMlProductCandidate(value: string): string | null {
   return normalizeMlCode(match[0]);
 }
 
+function normalizeMercadoLivreUrl(rawUrl: string): string {
+  const value = toText(rawUrl);
+  if (!value) return "";
+
+  try {
+    const parsed = new URL(value);
+    const keepParams = new URLSearchParams();
+
+    for (const key of ["wid", "item_id", "itemId", "id"]) {
+      const param = parsed.searchParams.get(key);
+      if (param) keepParams.set(key, param);
+    }
+
+    parsed.search = keepParams.toString();
+    parsed.hash = "";
+    return parsed.toString();
+  } catch {
+    return value.split("#")[0]?.trim() || value;
+  }
+}
+
+function stripAuthorizationHeader(headers: Record<string, string>): Record<string, string> {
+  const cloned = { ...headers };
+  delete cloned.authorization;
+  delete cloned.Authorization;
+  return cloned;
+}
+
 function findExplicitItemIdInFilters(value: string): string | null {
   const normalized = toText(value);
   if (!normalized) return null;
@@ -270,7 +298,7 @@ async function resolveShortUrl(url: string): Promise<string> {
   }
 }
 
-function buildRequestHeaders(accessToken?: string | null): HeadersInit {
+function buildRequestHeaders(accessToken?: string | null): Record<string, string> {
   const headers: Record<string, string> = {
     ...ML_BROWSER_HEADERS,
     accept: "application/json",
@@ -316,18 +344,25 @@ function toRecord(value: unknown): Record<string, unknown> {
 
 async function fetchItemById(
   itemId: string,
-  headers: HeadersInit,
+  headers: Record<string, string>,
 ): Promise<Record<string, unknown>> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), ML_API_TIMEOUT_MS);
 
   try {
-    const response = await fetch(`https://api.mercadolibre.com/items/${itemId}`, {
-      method: "GET",
-      headers,
-      cache: "no-store",
-      signal: controller.signal,
-    });
+    const request = (requestHeaders: HeadersInit) =>
+      fetch(`https://api.mercadolibre.com/items/${itemId}`, {
+        method: "GET",
+        headers: requestHeaders,
+        cache: "no-store",
+        signal: controller.signal,
+      });
+
+    let response = await request(headers);
+    if ((response.status === 401 || response.status === 403) && headers.authorization) {
+      response = await request(stripAuthorizationHeader(headers));
+    }
+
     const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
     if (!response.ok) {
       const reason =
@@ -342,18 +377,25 @@ async function fetchItemById(
 
 async function resolveItemFromProductId(
   productId: string,
-  headers: HeadersInit,
+  headers: Record<string, string>,
 ): Promise<string | null> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), ML_API_TIMEOUT_MS);
 
   try {
-    const response = await fetch(`https://api.mercadolibre.com/products/${productId}`, {
-      method: "GET",
-      headers,
-      cache: "no-store",
-      signal: controller.signal,
-    });
+    const request = (requestHeaders: HeadersInit) =>
+      fetch(`https://api.mercadolibre.com/products/${productId}`, {
+        method: "GET",
+        headers: requestHeaders,
+        cache: "no-store",
+        signal: controller.signal,
+      });
+
+    let response = await request(headers);
+    if ((response.status === 401 || response.status === 403) && headers.authorization) {
+      response = await request(stripAuthorizationHeader(headers));
+    }
+
     const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
     if (!response.ok) return null;
 
@@ -380,7 +422,7 @@ async function resolveItemFromProductId(
 
 async function resolveItemBySearchSlug(
   sourceUrl: string,
-  headers: HeadersInit,
+  headers: Record<string, string>,
 ): Promise<string | null> {
   let timeout: ReturnType<typeof setTimeout> | null = null;
   try {
@@ -390,15 +432,22 @@ async function resolveItemBySearchSlug(
 
     const controller = new AbortController();
     timeout = setTimeout(() => controller.abort(), ML_API_TIMEOUT_MS);
-    const response = await fetch(
-      `https://api.mercadolibre.com/sites/MLB/search?q=${encodeURIComponent(slug)}&limit=5`,
-      {
-        method: "GET",
-        headers,
-        cache: "no-store",
-        signal: controller.signal,
-      },
-    );
+    const request = (requestHeaders: HeadersInit) =>
+      fetch(
+        `https://api.mercadolibre.com/sites/MLB/search?q=${encodeURIComponent(slug)}&limit=5`,
+        {
+          method: "GET",
+          headers: requestHeaders,
+          cache: "no-store",
+          signal: controller.signal,
+        },
+      );
+
+    let response = await request(headers);
+    if ((response.status === 401 || response.status === 403) && headers.authorization) {
+      response = await request(stripAuthorizationHeader(headers));
+    }
+
     const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
     if (!response.ok) return null;
 
@@ -420,7 +469,7 @@ async function resolveItemBySearchSlug(
 export async function extractMercadoLivreHtmlMetadata(
   input: MercadoLivreOfficialInput,
 ): Promise<MercadoLivreOfficialPreview> {
-  const sourceUrl = await resolveShortUrl(toText(input.url));
+  const sourceUrl = normalizeMercadoLivreUrl(await resolveShortUrl(toText(input.url)));
   if (!sourceUrl) throw new Error("URL Mercado Livre obrigatoria.");
 
   const controller = new AbortController();
@@ -517,7 +566,7 @@ export function extractMercadoLivreHtmlMetadataFromHtml(
 export async function extractMercadoLivreOfficial(
   input: MercadoLivreOfficialInput,
 ): Promise<MercadoLivreOfficialPreview> {
-  const sourceUrl = await resolveShortUrl(toText(input.url));
+  const sourceUrl = normalizeMercadoLivreUrl(await resolveShortUrl(toText(input.url)));
   if (!sourceUrl) throw new Error("URL Mercado Livre obrigatoria.");
 
   const headers = buildRequestHeaders(input.accessToken ?? undefined);

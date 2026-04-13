@@ -9,7 +9,8 @@ import {
   Search, 
   Send, 
   Sparkles, 
-  Truck 
+  Truck,
+  X
 } from "lucide-react";
 
 import { supabase } from "@/lib/supabase";
@@ -46,12 +47,6 @@ type DispatchAction = "telegram" | "whatsapp" | "site";
 type SlotType = "flash" | "best" | "comparator";
 type SortType = "" | "discount" | "price_asc" | "price_desc";
 
-const SLOT_OPTIONS: Array<{ slot: SlotType; label: string }> = [
-  { slot: "flash", label: "Oferta Relâmpago" },
-  { slot: "best", label: "Melhores Ofertas" },
-  { slot: "comparator", label: "Comparador" },
-];
-
 function formatBRL(value: number) {
   return new Intl.NumberFormat("pt-BR", {
     style: "currency",
@@ -78,6 +73,9 @@ export default function LomadeeHubPage() {
   const [feedback, setFeedback] = useState("");
   const [dispatching, setDispatching] = useState<string | null>(null);
   const [siteModalProduct, setSiteModalProduct] = useState<LomadeeProduct | null>(null);
+  const [aiModalProduct, setAiModalProduct] = useState<LomadeeProduct | null>(null);
+  const [tempCopy, setTempCopy] = useState("");
+  
   const [aiLoading, setAiLoading] = useState<string | null>(null);
   const [productCopies, setProductCopies] = useState<Record<string, string>>({});
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -188,6 +186,8 @@ export default function LomadeeHubPage() {
       }
 
       setProductCopies((prev) => ({ ...prev, [productKey]: payload.copy! }));
+      setTempCopy(payload.copy);
+      setAiModalProduct(product);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro na IA.");
     } finally {
@@ -195,7 +195,7 @@ export default function LomadeeHubPage() {
     }
   }
 
-  async function handleDispatch(product: LomadeeProduct, action: DispatchAction, slotType?: SlotType) {
+  async function handleDispatch(product: LomadeeProduct, action: DispatchAction, slotType?: SlotType, overrideCopy?: string) {
     const productKey = getProductKey(product);
     const dispatchKey = `${action}:${productKey}`;
     setDispatching(dispatchKey);
@@ -205,7 +205,7 @@ export default function LomadeeHubPage() {
     try {
       const token = await getAccessToken();
       const affiliateUrl = await buildAffiliateUrl(product);
-      const copy = productCopies[productKey] || "";
+      const copy = overrideCopy ?? productCopies[productKey] ?? "";
 
       const response = await fetch("/api/admin/extrator/dispatch", {
         method: "POST",
@@ -239,6 +239,7 @@ export default function LomadeeHubPage() {
           : `${payload.message || "Produto enviado para o canal."}`,
       );
       setSiteModalProduct(null);
+      setAiModalProduct(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Falha ao processar produto Lomadee.");
     } finally {
@@ -351,14 +352,16 @@ export default function LomadeeHubPage() {
       </section>
 
       {error ? (
-        <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-          {error}
+        <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 flex items-center justify-between">
+          <span>{error}</span>
+          <button onClick={() => setError("")}><X className="h-4 w-4" /></button>
         </div>
       ) : null}
 
       {feedback ? (
-        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-700">
-          {feedback}
+        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-700 flex items-center justify-between">
+          <span>{feedback}</span>
+           <button onClick={() => setFeedback("")}><X className="h-4 w-4" /></button>
         </div>
       ) : null}
 
@@ -424,7 +427,7 @@ export default function LomadeeHubPage() {
                   className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-orange-100 text-sm font-bold text-orange-900 transition hover:bg-orange-200 disabled:opacity-50"
                 >
                   {isAiBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-                  {currentCopy ? "Regerar Copy IA" : "Gerar Copy IA"}
+                  {currentCopy ? "Revisar/Regerar Copy" : "Gerar Copy IA"}
                 </button>
 
               <div className="grid grid-cols-3 gap-2">
@@ -434,7 +437,7 @@ export default function LomadeeHubPage() {
                   onClick={() => void handleDispatch(product, "telegram")}
                   className="inline-flex items-center justify-center gap-1 rounded-xl bg-[#0088CC] px-2 py-2 text-xs font-bold text-white transition hover:brightness-95 disabled:opacity-50"
                 >
-                  {dispatching === `telegram:${productKey}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+                  {dispatching?.startsWith("telegram") ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
                   Telegram
                 </button>
                 <button
@@ -443,7 +446,7 @@ export default function LomadeeHubPage() {
                   onClick={() => void handleDispatch(product, "whatsapp")}
                   className="inline-flex items-center justify-center gap-1 rounded-xl bg-[#25D366] px-2 py-2 text-xs font-bold text-white transition hover:brightness-95 disabled:opacity-50"
                 >
-                  {dispatching === `whatsapp:${productKey}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <MessageSquare className="h-3.5 w-3.5" />}
+                  {dispatching?.startsWith("whatsapp") ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <MessageSquare className="h-3.5 w-3.5" />}
                   WhatsApp
                 </button>
                 <button
@@ -483,6 +486,73 @@ export default function LomadeeHubPage() {
           Próxima
         </button>
       </div>
+
+      {aiModalProduct && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-2xl rounded-3xl bg-white p-8 shadow-xl">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                <Sparkles className="text-orange h-5 w-5" /> Revisar Copy IA (Lomadee)
+              </h3>
+              <button onClick={() => setAiModalProduct(null)}><X className="h-6 w-6 text-gray-400" /></button>
+            </div>
+            
+            <p className="mb-4 text-sm font-bold text-gray-700">{aiModalProduct.title}</p>
+            
+            <textarea
+              className="w-full h-48 rounded-2xl border border-slate-200 p-4 text-sm font-medium focus:border-orange outline-none resize-none"
+              value={tempCopy}
+              onChange={(e) => setTempCopy(e.target.value)}
+              placeholder="Digite sua copy aqui..."
+            />
+            
+            <div className="mt-6 grid grid-cols-2 gap-3">
+               <button
+                  type="button"
+                  onClick={() => void handleGenerateAICopy(aiModalProduct)}
+                  disabled={!!aiLoading}
+                  className="flex items-center justify-center gap-2 rounded-2xl bg-slate-100 py-4 font-bold text-slate-700 hover:bg-slate-200"
+                >
+                  {aiLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                  Regerar com IA
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const pk = getProductKey(aiModalProduct);
+                    setProductCopies(prev => ({ ...prev, [pk]: tempCopy }));
+                    setAiModalProduct(null);
+                  }}
+                  className="rounded-2xl bg-[#1A1A1A] py-4 font-bold text-white hover:bg-black uppercase tracking-widest text-xs"
+                >
+                  Salvar Copy
+                </button>
+            </div>
+
+            <div className="mt-4 pt-4 border-t border-slate-100">
+              <p className="text-xs text-slate-400 mb-3 uppercase font-black">Enviar Direto:</p>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  onClick={() => void handleDispatch(aiModalProduct, "telegram", undefined, tempCopy)}
+                  disabled={!!dispatching}
+                  className="flex items-center justify-center gap-2 rounded-2xl bg-[#0088CC] py-4 font-bold text-white hover:brightness-95"
+                >
+                  {dispatching?.startsWith("telegram") ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                  Enviar Telegram
+                </button>
+                <button
+                  onClick={() => void handleDispatch(aiModalProduct, "whatsapp", undefined, tempCopy)}
+                  disabled={!!dispatching}
+                  className="flex items-center justify-center gap-2 rounded-2xl bg-[#25D366] py-4 font-bold text-white hover:brightness-95"
+                >
+                  {dispatching?.startsWith("whatsapp") ? <Loader2 className="h-4 w-4 animate-spin" /> : <MessageSquare className="h-4 w-4" />}
+                  Enviar WhatsApp
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {siteModalProduct ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">

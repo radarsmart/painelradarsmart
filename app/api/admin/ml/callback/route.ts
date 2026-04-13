@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { saveMercadoLivreAuth } from "@/lib/supabase";
+import { resolveSiteUrl } from "@/lib/site";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+const ML_OAUTH_STATE_COOKIE = "radar_ml_oauth_state";
 
 function cleanEnv(value?: string): string {
   return (value ?? "")
@@ -23,9 +25,12 @@ function getMlOAuthConfig() {
     cleanEnv(process.env.ML_CLIENT_SECRET) ||
     "";
 
+  const configuredRedirectUri = cleanEnv(process.env.MERCADOLIVRE_REDIRECT_URI);
+  const canonicalRedirectUri = `${resolveSiteUrl()}/api/admin/ml/callback`;
   const redirectUri =
-    cleanEnv(process.env.MERCADOLIVRE_REDIRECT_URI) ||
-    "https://radar-smart.vercel.app/api/admin/ml/callback";
+    !configuredRedirectUri || configuredRedirectUri.includes("radar-smart.vercel.app")
+      ? canonicalRedirectUri
+      : configuredRedirectUri;
 
   return { clientId, clientSecret, redirectUri };
 }
@@ -41,15 +46,46 @@ type MercadoLivreTokenResponse = {
   message?: string;
 };
 
+function clearMlOauthStateCookie(
+  response: NextResponse,
+  req: NextRequest,
+): NextResponse {
+  response.cookies.set({
+    name: ML_OAUTH_STATE_COOKIE,
+    value: "",
+    httpOnly: true,
+    sameSite: "lax",
+    secure: req.nextUrl.protocol === "https:",
+    path: "/api/admin/ml/callback",
+    maxAge: 0,
+  });
+  return response;
+}
+
 export async function GET(req: NextRequest) {
   const origin = req.nextUrl.origin;
   const code = req.nextUrl.searchParams.get("code");
+  const state = req.nextUrl.searchParams.get("state");
+  const cookieState = req.cookies.get(ML_OAUTH_STATE_COOKIE)?.value ?? "";
   const { clientId, clientSecret, redirectUri } = getMlOAuthConfig();
 
   if (!code) {
-    return NextResponse.redirect(
-      `${origin}/admin/curadoria?ml_auth=error&reason=missing_code`,
-      { status: 302 },
+    return clearMlOauthStateCookie(
+      NextResponse.redirect(
+        `${origin}/admin/curadoria?ml_auth=error&reason=missing_code`,
+        { status: 302 },
+      ),
+      req,
+    );
+  }
+
+  if (!state || !cookieState || state !== cookieState) {
+    return clearMlOauthStateCookie(
+      NextResponse.redirect(
+        `${origin}/admin/curadoria?ml_auth=error&reason=invalid_state`,
+        { status: 302 },
+      ),
+      req,
     );
   }
 
@@ -63,9 +99,12 @@ export async function GET(req: NextRequest) {
   });
 
   if (!clientId || !clientSecret) {
-    return NextResponse.redirect(
-      `${origin}/admin/curadoria?ml_auth=error&reason=missing_credentials`,
-      { status: 302 },
+    return clearMlOauthStateCookie(
+      NextResponse.redirect(
+        `${origin}/admin/curadoria?ml_auth=error&reason=missing_credentials`,
+        { status: 302 },
+      ),
+      req,
     );
   }
 
@@ -93,23 +132,32 @@ export async function GET(req: NextRequest) {
       const reason = encodeURIComponent(
         payload.message || payload.error || `token_exchange_http_${response.status}`,
       );
-      return NextResponse.redirect(
-        `${origin}/admin/curadoria?ml_auth=error&reason=${reason}`,
-        { status: 302 },
+      return clearMlOauthStateCookie(
+        NextResponse.redirect(
+          `${origin}/admin/curadoria?ml_auth=error&reason=${reason}`,
+          { status: 302 },
+        ),
+        req,
       );
     }
 
     await saveMercadoLivreAuth(payload);
-    return NextResponse.redirect(`${origin}/admin/curadoria?ml_auth=success`, {
-      status: 302,
-    });
+    return clearMlOauthStateCookie(
+      NextResponse.redirect(`${origin}/admin/curadoria?ml_auth=success`, {
+        status: 302,
+      }),
+      req,
+    );
   } catch (error) {
     const reason = encodeURIComponent(
       error instanceof Error ? error.message : "unknown_callback_error",
     );
-    return NextResponse.redirect(
-      `${origin}/admin/curadoria?ml_auth=error&reason=${reason}`,
-      { status: 302 },
+    return clearMlOauthStateCookie(
+      NextResponse.redirect(
+        `${origin}/admin/curadoria?ml_auth=error&reason=${reason}`,
+        { status: 302 },
+      ),
+      req,
     );
   }
 }

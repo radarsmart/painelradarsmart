@@ -1,4 +1,4 @@
-import { chromium } from "playwright";
+import { chromium, type Page } from "playwright";
 import * as fs from "fs";
 import * as path from "path";
 import ffmpeg from "fluent-ffmpeg";
@@ -12,7 +12,12 @@ ffmpeg.setFfmpegPath(FFMPEG_PATH);
 /**
  * Função Auxiliar: Grava um clipe curto de forma isolada
  */
-async function recordSimpleClip(url: string, durationMs: number, name: string, action?: (page: any) => Promise<void>): Promise<string> {
+async function recordSimpleClip(
+  url: string,
+  durationMs: number,
+  name: string,
+  action?: (page: Page) => Promise<void>,
+): Promise<string> {
   const tempDir = path.join(process.cwd(), "temp");
   const clipsDir = path.join(tempDir, "clips_raw");
   if (!fs.existsSync(clipsDir)) fs.mkdirSync(clipsDir, { recursive: true });

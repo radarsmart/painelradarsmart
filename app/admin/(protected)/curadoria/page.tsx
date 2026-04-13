@@ -1,6 +1,7 @@
-import Link from "next/link";
+﻿import Link from "next/link";
 import { revalidatePath } from "next/cache";
 import CuradoriaCopyButton from "@/components/admin/CuradoriaCopyButton";
+import CuradoriaTelegramButton from "@/components/admin/CuradoriaTelegramButton";
 import StoryGeneratorButton from "@/components/admin/StoryGeneratorButton";
 import { dispatchLegacyOffer } from "@/lib/distribution/legacy-dispatch";
 import { supabaseAdmin } from "@/lib/supabase";
@@ -106,16 +107,16 @@ function marketplaceFilterOptions() {
 function getMarketplaceBadge(marketplace: string | null) {
   const value = toText(marketplace).toLowerCase();
   if (value.includes("amazon")) {
-    return { label: "🟠 Amazon", className: "bg-orange-50 text-orange-700" };
+    return { label: "Amazon", className: "bg-orange-50 text-orange-700" };
   }
   if (value.includes("mercado")) {
-    return { label: "🟡 ML", className: "bg-yellow-50 text-yellow-700" };
+    return { label: "Mercado Livre", className: "bg-yellow-50 text-yellow-700" };
   }
   if (value.includes("shopee")) {
-    return { label: "🔴 Shopee", className: "bg-red-50 text-red-700" };
+    return { label: "Shopee", className: "bg-red-50 text-red-700" };
   }
   if (value.includes("awin")) {
-    return { label: "🟣 AWIN", className: "bg-violet-50 text-violet-700" };
+    return { label: "AWIN", className: "bg-violet-50 text-violet-700" };
   }
   return { label: marketplace || "Marketplace", className: "bg-slate-100 text-slate-700" };
 }
@@ -308,22 +309,61 @@ async function rotateOfferSlot(formData: FormData) {
   revalidatePath("/admin/curadoria");
 }
 
-async function sendOfferToTelegram(formData: FormData) {
+type TelegramState = { ok: boolean; message: string } | null;
+
+async function sendOfferToTelegram(
+  _prevState: TelegramState,
+  formData: FormData,
+): Promise<TelegramState> {
   "use server";
 
   const offerId = toText(formData.get("id"));
   const affiliateUrl = toText(formData.get("affiliate_url"));
 
-  if (!offerId) return;
+  if (!offerId) return { ok: false, message: "ID da oferta não encontrado." };
 
-  await dispatchLegacyOffer({
-    offerId,
-    affiliateUrl: affiliateUrl || undefined,
-    channels: ["telegram"],
-    allowRequeueSameDay: false,
-  });
+  try {
+    const { data: offer, error } = await supabaseAdmin
+      .from("offers")
+      .select("affiliate_url,product_url,marketplace")
+      .eq("id", offerId)
+      .single();
 
-  revalidatePath("/admin/curadoria");
+    if (error || !offer) {
+      return { ok: false, message: "Oferta não encontrada." };
+    }
+
+    const marketplace = toText(offer.marketplace).toLowerCase();
+    const requiresManual =
+      marketplace.includes("amazon") || marketplace.includes("mercado");
+    const currentAffiliate = toText(offer.affiliate_url);
+    const productUrl = toText(offer.product_url);
+    const resolvedAffiliate = affiliateUrl || currentAffiliate;
+
+    if (requiresManual && (!resolvedAffiliate || resolvedAffiliate === productUrl)) {
+      return {
+        ok: false,
+        message:
+          "Cole o link de afiliado oficial antes de enviar Amazon ou Mercado Livre para o Telegram.",
+      };
+    }
+
+    await dispatchLegacyOffer({
+      offerId,
+      affiliateUrl: resolvedAffiliate || undefined,
+      channels: ["telegram"],
+      allowRequeueSameDay: false,
+    });
+    revalidatePath("/admin/curadoria");
+    return { ok: true, message: "Enviado para o Telegram com sucesso! ✅" };
+  } catch (error) {
+    return {
+      ok: false,
+      message: `Falha ao enviar: ${
+        error instanceof Error ? error.message : "Erro desconhecido."
+      }`,
+    };
+  }
 }
 
 function HealthDashboard({ stats }: { stats: HealthStats }) {
@@ -335,7 +375,7 @@ function HealthDashboard({ stats }: { stats: HealthStats }) {
         </span>
         <div className="flex items-end gap-2">
           <span className="text-3xl font-black text-blue-600">{stats.active}</span>
-          <span className="mb-1 text-xs font-bold text-green-500">↑ Saudável</span>
+          <span className="mb-1 text-xs font-bold text-green-500">Saudável</span>
         </div>
       </div>
 
@@ -372,6 +412,7 @@ export default async function CuradoriaGeralPage({
   const [
     offersResponse,
     { count: activeCountExact, error: activeCountError },
+    { count: totalOffersCount },
     recentHealthRows,
   ] = await Promise.all([
     fetchCuradoriaOffers(),
@@ -379,6 +420,10 @@ export default async function CuradoriaGeralPage({
       .from("offers")
       .select("id", { count: "exact", head: true })
       .eq("status", "active"),
+    // Melhoria C: total de ofertas no banco para o contador
+    supabaseAdmin
+      .from("offers")
+      .select("id", { count: "exact", head: true }),
     fetchHealthRows(last24Hours),
   ]);
 
@@ -420,7 +465,7 @@ export default async function CuradoriaGeralPage({
       <div className="mb-10 flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-extrabold tracking-tight text-gray-900">
-            Curadoria Radar Smart 🛰️
+            Curadoria Radar Smart
           </h1>
           <p className="text-gray-500">
             Gere o inventário e a distribuição de ofertas no seu ecossistema.
@@ -461,6 +506,17 @@ export default async function CuradoriaGeralPage({
             </Link>
           );
         })}
+        {/* Melhoria C: contador de ofertas exibidas vs total no banco */}
+        <span className="ml-auto rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-500">
+          Exibindo{" "}
+          <strong className="text-slate-700">{safeOffers.length}</strong>
+          {" de "}
+          <strong className="text-slate-700">{totalOffersCount ?? "?"}</strong>
+          {" ofertas"}
+          {safeOffers.length === 50 && (
+            <span className="ml-1 text-amber-600">(limite de 50)</span>
+          )}
+        </span>
       </div>
 
       <HealthDashboard stats={stats} />
@@ -522,7 +578,7 @@ export default async function CuradoriaGeralPage({
 
                 <div className="text-right">
                   <span className="block text-[10px] uppercase text-gray-400">Cliques</span>
-                  <span className="font-bold text-gray-700">{clickCount} 🔥</span>
+                  <span className="font-bold text-gray-700">{clickCount}</span>
                 </div>
               </div>
 
@@ -578,20 +634,11 @@ export default async function CuradoriaGeralPage({
                   price={toNumber(offer.price)}
                 />
 
-                <form action={sendOfferToTelegram}>
-                  <input type="hidden" name="id" value={offer.id} />
-                  <input
-                    type="hidden"
-                    name="affiliate_url"
-                    value={toText(offer.affiliate_url) || toText(offer.product_url)}
-                  />
-                  <button
-                    type="submit"
-                    className="w-full rounded-xl bg-sky-500 py-3 text-center text-sm font-bold text-white transition-colors hover:bg-sky-600"
-                  >
-                    Enviar para Telegram
-                  </button>
-                </form>
+                <CuradoriaTelegramButton
+                  offerId={offer.id}
+                  affiliateUrl={toText(offer.affiliate_url)}
+                  action={sendOfferToTelegram}
+                />
 
                 {(toText(offer.product_url) || toText(offer.affiliate_url)) && (
                   <a
@@ -600,7 +647,7 @@ export default async function CuradoriaGeralPage({
                     rel="noopener noreferrer"
                     className="block w-full rounded-xl bg-yellow-400 py-3 text-center text-sm font-bold text-yellow-900 transition-colors hover:bg-yellow-500"
                   >
-                    🔗 Gerar Link Afiliado ML
+                    Gerar Link Afiliado ML
                   </a>
                 )}
 
@@ -618,6 +665,7 @@ export default async function CuradoriaGeralPage({
     </div>
   );
 }
+
 
 
 

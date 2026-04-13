@@ -11,6 +11,7 @@ import {
   RefreshCw,
   Send,
   Sparkles,
+  Zap,
 } from "lucide-react";
 import { formatBRL } from "@/lib/formatters";
 import { supabase } from "@/lib/supabase";

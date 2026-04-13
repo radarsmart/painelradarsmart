@@ -151,3 +151,60 @@ export async function generateLandingCopyWithGemini(params: {
 
   return JSON.parse(content) as LandingCopySuggestion;
 }
+
+export async function generateOfferCopyWithGemini(params: {
+  apiKey: string;
+  model: string;
+  productName: string;
+  price: number;
+  oldPrice?: number | null;
+  marketplace: string;
+}): Promise<string> {
+  const discountInfo =
+    params.oldPrice && params.oldPrice > params.price
+      ? `De: R$ ${params.oldPrice} por: R$ ${params.price}`
+      : `Preço: R$ ${params.price}`;
+
+  const prompt = [
+    `Crie uma copy curta e persuasiva para WhatsApp/Telegram sobre este produto:`,
+    `Produto: ${params.productName}`,
+    `Preço: ${discountInfo}`,
+    `Marketplace: ${params.marketplace}`,
+    ``,
+    `Regras:`,
+    `- Use emojis adequados.`,
+    `- Comece com um gancho chamativo (ex: "BAIXOU!", "PROMOÇÃO!", "OPORTUNIDADE").`,
+    `- Destaque o valor e a facilidade de compra.`,
+    `- Seja breve (máximo 4 linhas).`,
+    `- Não use hashtags.`,
+    `- Linguagem amigável e direta (pt-BR).`,
+  ].join("\n");
+
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${params.model}:generateContent?key=${encodeURIComponent(params.apiKey)}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+      body: JSON.stringify({
+        contents: [
+          {
+            role: "user",
+            parts: [{ text: prompt }],
+          },
+        ],
+        generationConfig: {
+          temperature: 0.8,
+          maxOutputTokens: 200,
+        },
+      }),
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(`Gemini error: ${response.status}`);
+  }
+
+  const payload = (await response.json()) as GeminiResponse;
+  return extractText(payload);
+}

@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import type { LucideIcon } from "lucide-react";
 import {
   BarChart3,
+  Clapperboard,
   FileText,
   FilePlus2,
   Flame,
@@ -157,6 +158,12 @@ const MENU_ITEMS: SidebarGroup[] = [
         icon: PanelsTopLeft,
         href: "/admin/infoprodutos",
         activePatterns: ["/admin/infoprodutos"],
+      },
+      {
+        label: "Criativos UGC",
+        icon: Clapperboard,
+        href: "/admin/criativos",
+        activePatterns: ["/admin/criativos"],
       },
     ],
   },

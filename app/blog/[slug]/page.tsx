@@ -3,6 +3,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { toAbsoluteSiteUrl } from "@/lib/site";
 import { supabaseAdmin } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
@@ -173,10 +174,17 @@ export async function generateMetadata({
     openGraph: {
       title: post.meta_title || post.title,
       description: post.meta_description || post.excerpt || "",
+      url: toAbsoluteSiteUrl(`/blog/${post.slug}`),
       images: post.cover_image ? [{ url: post.cover_image }] : [],
       type: "article",
     },
-    alternates: { canonical: `https://radarsmart.vercel.app/blog/${post.slug}` },
+    twitter: {
+      card: post.cover_image ? "summary_large_image" : "summary",
+      title: post.meta_title || post.title,
+      description: post.meta_description || post.excerpt || "",
+      images: post.cover_image ? [post.cover_image] : [],
+    },
+    alternates: { canonical: toAbsoluteSiteUrl(`/blog/${post.slug}`) },
   };
 }
 

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireAdmin } from "@/lib/admin-auth";
 
 export const dynamic = "force-dynamic";
 
@@ -20,6 +21,11 @@ function isValidRemoteImageUrl(value: string): boolean {
 }
 
 export async function GET(req: NextRequest) {
+  const adminGuard = await requireAdmin(req);
+  if (!adminGuard.ok) {
+    return NextResponse.json({ error: adminGuard.error }, { status: adminGuard.status });
+  }
+
   const src = req.nextUrl.searchParams.get("src")?.trim() ?? "";
   if (!src || !isValidRemoteImageUrl(src)) {
     return NextResponse.json({ error: "Imagem invalida." }, { status: 400 });

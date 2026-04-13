@@ -157,10 +157,20 @@ function extractItemIdFromHtml(html: string, sourceUrl: string): string | null {
   );
 }
 
+function normalizeMlCode(value: string): string {
+  return value.toUpperCase().replace(/^([A-Z]+)-/, "$1");
+}
+
 function findMlbCandidate(value: string): string | null {
   const match = value.toUpperCase().match(/MLB-?\d{8,}/);
   if (!match) return null;
-  return match[0].replace("MLB-", "MLB");
+  return normalizeMlCode(match[0]);
+}
+
+function findMlProductCandidate(value: string): string | null {
+  const match = value.toUpperCase().match(/ML[A-Z]{2,3}-?\d{6,}/);
+  if (!match) return null;
+  return normalizeMlCode(match[0]);
 }
 
 function findExplicitItemIdInFilters(value: string): string | null {
@@ -200,6 +210,14 @@ function extractIdsFromUrl(url: string): ExtractedMlIds {
       return { itemId: fromPath, productId: null };
     }
 
+    const productIdFromPath = findMlProductCandidate(parsed.pathname);
+    if (productIdFromPath) {
+      if (pathLower.includes("/p/") || pathLower.includes("/up/")) {
+        return { itemId: null, productId: productIdFromPath };
+      }
+      return { itemId: null, productId: productIdFromPath };
+    }
+
     const byPdpFilters = findExplicitItemIdInFilters(
       parsed.searchParams.get("pdp_filters") ?? "",
     );
@@ -207,9 +225,14 @@ function extractIdsFromUrl(url: string): ExtractedMlIds {
 
     const fromHash = findMlbCandidate(parsed.hash);
     if (fromHash) return { itemId: fromHash, productId: null };
+
+    const productIdFromHash = findMlProductCandidate(parsed.hash);
+    if (productIdFromHash) return { itemId: null, productId: productIdFromHash };
   } catch {
     const fallback = findMlbCandidate(source);
     if (fallback) return { itemId: fallback, productId: null };
+    const fallbackProduct = findMlProductCandidate(source);
+    if (fallbackProduct) return { itemId: null, productId: fallbackProduct };
   }
 
   return { itemId: null, productId: null };

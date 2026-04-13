@@ -5,7 +5,16 @@ description: Usar ao criar qualquer conteúdo visual, script, vídeo ou criativo
 
 ## Identidade da Radar Smart
 
-A Radar Smart é uma plataforma brasileira de curadoria inteligente de ofertas. Não somos apenas um site de desconto — somos um radar que garimpamos as melhores ofertas do e-commerce brasileiro para o consumidor economizar de verdade.
+A Radar Smart é uma plataforma brasileira de curadoria inteligente de ofertas. O tom de voz oficial é masculino (Avatar Mateus), casual, empolgado e autêntico. O objetivo é que o usuário sinta que está falando com um amigo/curador real.
+
+## Realismo e Humanização (UGC)
+
+Para evitar o "aspecto de IA" e parecer um criador real (estilo Konverter IA):
+1. **Avatar Masculino Oficial (Mateus):** 
+   - Use o ID: `5d8e2be335a9495db883c05111759ba4`
+2. **Ambientação:** Use sempre backgrounds de ambientes reais (Home Office, Sala, Rua com Bokeh) em vez de cenários abstratos ou cores sólidas.
+3. **Scripts Humanos:** Use hesitações como "hã...", "tipo...", "sério gente" e repetições leves ("p-preço") para quebrar a perfeição da IA.
+4. **Motion:** Utilize modelos com a tag `expressive` para garantir micro-expressões e movimentos de corpo naturais.
 
 ## Público-alvo
 

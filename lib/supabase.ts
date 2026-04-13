@@ -1,6 +1,9 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { checkEnvVars } from "@/lib/env-check";
-import { calculateQualityScore } from "@/lib/offers/quality-score";
+import {
+  calculateQualityScore,
+  type OfferQualityData,
+} from "@/lib/offers/quality-score";
 
 checkEnvVars();
 
@@ -296,11 +299,42 @@ export const registrarClique = async (offerId: string, source: string) =>
 export const registrarGrupo = async (canal: string, origem: string) =>
   supabase.from("grupo_membros").insert({ canal, origem });
 
+function toOfferQualityData(oferta: Record<string, unknown>): OfferQualityData {
+  const readNumber = (...keys: string[]) => {
+    for (const key of keys) {
+      const value = oferta[key];
+      if (typeof value === "number" && Number.isFinite(value)) return value;
+    }
+    return undefined;
+  };
+
+  const readString = (...keys: string[]) => {
+    for (const key of keys) {
+      const value = oferta[key];
+      if (typeof value === "string" && value.trim()) return value;
+    }
+    return undefined;
+  };
+
+  return {
+    title: readString("title"),
+    price: readNumber("price"),
+    original_price: readNumber("original_price", "old_price", "price_old"),
+    price_old: readNumber("price_old", "old_price"),
+    image_url: readString("image_url"),
+    affiliate_url: readString("affiliate_url"),
+    product_url: readString("product_url"),
+    historical_price_avg: readNumber("historical_price_avg"),
+  };
+}
+
 export const salvarOferta = async (oferta: Record<string, unknown>) => {
   const now = new Date().toISOString();
   const id = typeof oferta.id === "string" ? oferta.id : null;
 
-  const { quality_score, is_priority } = calculateQualityScore(oferta as any);
+  const { quality_score, is_priority } = calculateQualityScore(
+    toOfferQualityData(oferta),
+  );
 
   const basePayload: Record<string, unknown> = {
     ...oferta,

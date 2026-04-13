@@ -4,6 +4,8 @@ import type { ReactNode } from "react";
 import DashboardRefreshButton from "@/components/admin/DashboardRefreshButton";
 import ClearFailedQueueButton from "@/components/admin/ClearFailedQueueButton";
 import DeleteQueueItemButton from "@/components/admin/DeleteQueueItemButton";
+import RetryFailedQueueButton from "@/components/admin/RetryFailedQueueButton";
+import RetryQueueItemButton from "@/components/admin/RetryQueueItemButton";
 import { supabaseAdmin } from "@/lib/supabase";
 
 type QueueRow = {
@@ -176,6 +178,11 @@ export default async function EnviosNocPage() {
   const failedCount = queueItems.filter(
     (item) => String(item.status ?? "").toLowerCase() === "failed",
   ).length;
+  const failedWhatsappCount = queueItems.filter(
+    (item) =>
+      String(item.status ?? "").toLowerCase() === "failed" &&
+      String(item.channel ?? "").toLowerCase() === "whatsapp",
+  ).length;
 
   const todayKey = getSaoPauloDateKey(new Date());
   const processedTodayCount = queueItems.filter((item) => {
@@ -281,6 +288,10 @@ export default async function EnviosNocPage() {
             </p>
           </div>
           <div className="flex items-center gap-2">
+            <RetryFailedQueueButton
+              failedCount={failedWhatsappCount}
+              channel="whatsapp"
+            />
             <ClearFailedQueueButton failedCount={failedCount} />
           </div>
         </div>
@@ -356,6 +367,9 @@ export default async function EnviosNocPage() {
                           >
                             <AlertCircle size={16} />
                           </span>
+                          {String(item.status ?? "").toLowerCase() === "failed" ? (
+                            <RetryQueueItemButton id={item.id} />
+                          ) : null}
                           <DeleteQueueItemButton id={item.id} />
                         </div>
                       </td>

@@ -239,3 +239,69 @@ export async function textToVideo(prompt: string): Promise<string> {
   
   throw new Error("Timeout text2video");
 }
+
+/**
+ * 5. Anima uma foto de pessoa sincronizando com áudio (Avatar Falando)
+ * Endpoint: POST /v1/ai/video/omni-human-1-5
+ * Assíncrono
+ */
+export async function animateAvatar(
+  imageUrl: string,
+  audioUrl: string,
+  prompt: string = "A person speaking naturally with subtle head movements"
+): Promise<string> {
+  const apiKey = getApiKey();
+  console.log("🗣️ Animando avatar com OmniHuman 1.5...");
+  console.log(`🖼️ Imagem: ${imageUrl}`);
+  console.log(`🎵 Áudio: ${audioUrl}`);
+
+  const response = await fetch(
+    "https://api.freepik.com/v1/ai/video/omni-human-1-5",
+    {
+      method: "POST",
+      headers: {
+        "x-freepik-api-key": apiKey,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        image_url: imageUrl,
+        audio_url: audioUrl,
+        prompt: prompt,
+        resolution: "1080p"
+      })
+    }
+  );
+
+  const data = await response.json();
+  const taskId = data?.data?.task_id || data?.task_id;
+  if (!taskId) throw new Error(`task_id não retornou: ${JSON.stringify(data)}`);
+
+  // Polling (máx 300s)
+  for (let i = 0; i < 60; i++) {
+    await new Promise(r => setTimeout(r, 7000)); // 7s entre polls
+    const poll = await fetch(
+      `https://api.freepik.com/v1/ai/video/omni-human-1-5/${taskId}`,
+      { headers: { "x-freepik-api-key": apiKey } }
+    );
+    const pollData = await poll.json();
+    const status = pollData?.status || pollData?.data?.status;
+
+    console.log(`⏳ OmniHuman status: ${status} (${i+1}/60)`);
+
+    if (status === "COMPLETED" || status === "DONE" || status === "SUCCESS") {
+      const url = pollData?.data?.generated?.[0]?.url || 
+                  pollData?.data?.generated?.[0] || 
+                  pollData?.generated?.[0]?.url || 
+                  pollData?.generated?.[0];
+      
+      if (!url) throw new Error(`URL não encontrada: ${JSON.stringify(pollData)}`);
+      return typeof url === 'string' ? url : url.url;
+    }
+
+    if (status === "FAILED" || status === "ERROR") {
+      throw new Error(`OmniHuman falhou: ${JSON.stringify(pollData)}`);
+    }
+  }
+
+  throw new Error("Timeout OmniHuman 1.5");
+}

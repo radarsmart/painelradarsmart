@@ -1357,7 +1357,7 @@ export default function AdminNovaOfertaPage() {
                   ? "URL Amazon (https://www.amazon.com.br/dp/ASIN...)"
                   : marketplace === "awin"
                     ? "URL completa do produto ou link AWIN (https://www.awin1.com/cread.php?... ou https://pt.aliexpress.com/...)"
-                  : "URL Mercado Livre (https://www.mercadolivre.com.br/.../p/MLB...)"
+                  : "URL Mercado Livre (https://www.mercadolivre.com.br/.../p/MLB... ou .../up/MLBU...)"
               }
               className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm outline-none focus:border-orange"
             />

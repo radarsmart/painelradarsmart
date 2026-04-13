@@ -1,13 +1,38 @@
-﻿import Header from "@/components/layout/Header";
+import type { Metadata } from "next";
+import { unstable_noStore as noStore } from "next/cache";
+import Header from "@/components/layout/Header";
 import Footer from "@/components/layout/Footer";
 import GridOfertas from "@/components/vitrine/GridOfertas";
 import type { OfertaCard } from "@/components/vitrine/CardOferta";
 import { isOfferVisibleOnSite } from "@/lib/offers/site-visibility";
+import { toAbsoluteSiteUrl } from "@/lib/site";
 import { supabaseAdmin } from "@/lib/supabase";
-import { unstable_noStore as noStore } from "next/cache";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+
+const PAGE_TITLE = "Ofertas aprovadas e ativas";
+const PAGE_DESCRIPTION =
+  "Veja as ofertas aprovadas e ativas do Radar Smart, com curadoria e links para comprar melhor nos principais marketplaces.";
+
+export const metadata: Metadata = {
+  title: PAGE_TITLE,
+  description: PAGE_DESCRIPTION,
+  alternates: {
+    canonical: toAbsoluteSiteUrl("/ofertas"),
+  },
+  openGraph: {
+    title: `${PAGE_TITLE} | Radar Smart`,
+    description: PAGE_DESCRIPTION,
+    url: toAbsoluteSiteUrl("/ofertas"),
+    type: "website",
+  },
+  twitter: {
+    card: "summary",
+    title: `${PAGE_TITLE} | Radar Smart`,
+    description: PAGE_DESCRIPTION,
+  },
+};
 
 type OfferRow = {
   id: string;

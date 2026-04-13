@@ -48,5 +48,6 @@ next-env.d.ts
 .tmp_*.js
 test-ml-*.js
 test-rainforest*.js
+temp/
 supabase/.temp/
 docs/apostila-radar-smart-painel-admin.pdf

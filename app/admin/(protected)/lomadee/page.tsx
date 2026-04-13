@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { CheckCircle2, Loader2, MessageSquare, Search, Send } from "lucide-react";
+import { CheckCircle2, Loader2, MessageSquare, Search, Send, Sparkles } from "lucide-react";
 
 import { supabase } from "@/lib/supabase";
 
@@ -36,7 +36,7 @@ type DispatchAction = "telegram" | "whatsapp" | "site";
 type SlotType = "flash" | "best" | "comparator";
 
 const SLOT_OPTIONS: Array<{ slot: SlotType; label: string }> = [
-  { slot: "flash", label: "Oferta Relampago" },
+  { slot: "flash", label: "Oferta Relâmpago" },
   { slot: "best", label: "Melhores Ofertas" },
   { slot: "comparator", label: "Comparador" },
 ];
@@ -62,6 +62,8 @@ export default function LomadeeHubPage() {
   const [feedback, setFeedback] = useState("");
   const [dispatching, setDispatching] = useState<string | null>(null);
   const [siteModalProduct, setSiteModalProduct] = useState<LomadeeProduct | null>(null);
+  const [aiLoading, setAiLoading] = useState<string | null>(null);
+  const [productCopies, setProductCopies] = useState<Record<string, string>>({});
 
   const totalLabel = useMemo(() => {
     if (!meta) return String(products.length);
@@ -72,7 +74,7 @@ export default function LomadeeHubPage() {
     const { data, error: sessionError } = await supabase.auth.getSession();
     const token = data.session?.access_token;
     if (sessionError || !token) {
-      throw new Error("Sessao expirada. Faca login novamente.");
+      throw new Error("Sessão expirada. Faça login novamente.");
     }
     return token;
   }
@@ -143,8 +145,43 @@ export default function LomadeeHubPage() {
     return payload.url;
   }
 
+  async function handleGenerateAICopy(product: LomadeeProduct) {
+    const productKey = getProductKey(product);
+    setAiLoading(productKey);
+    setError("");
+
+    try {
+      const token = await getAccessToken();
+      const response = await fetch("/api/admin/ai/copy", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          productName: product.title,
+          price: product.price,
+          oldPrice: product.original_price,
+          marketplace: product.seller || "Lomadee",
+        }),
+      });
+
+      const payload = (await response.json()) as { copy?: string; error?: string };
+      if (!response.ok || !payload.copy) {
+        throw new Error(payload.error || "Falha ao gerar copy com IA.");
+      }
+
+      setProductCopies((prev) => ({ ...prev, [productKey]: payload.copy! }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro na IA.");
+    } finally {
+      setAiLoading(null);
+    }
+  }
+
   async function handleDispatch(product: LomadeeProduct, action: DispatchAction, slotType?: SlotType) {
-    const dispatchKey = `${action}:${getProductKey(product)}`;
+    const productKey = getProductKey(product);
+    const dispatchKey = `${action}:${productKey}`;
     setDispatching(dispatchKey);
     setError("");
     setFeedback("");
@@ -152,6 +189,8 @@ export default function LomadeeHubPage() {
     try {
       const token = await getAccessToken();
       const affiliateUrl = await buildAffiliateUrl(product);
+      const copy = productCopies[productKey] || "";
+
       const response = await fetch("/api/admin/extrator/dispatch", {
         method: "POST",
         headers: {
@@ -167,13 +206,12 @@ export default function LomadeeHubPage() {
           affiliate_url: affiliateUrl,
           marketplace: "lomadee",
           slot_type: slotType || "best",
+          copy_text: copy,
           raw_data: product,
           channels:
             action === "site"
               ? []
-              : action === "telegram"
-                ? ["telegram"]
-                : ["whatsapp"],
+              : [action],
         }),
       });
       const payload = (await response.json()) as { success?: boolean; message?: string; error?: string };
@@ -185,7 +223,7 @@ export default function LomadeeHubPage() {
       setFeedback(
         action === "site"
           ? "Produto aprovado para aparecer no site."
-          : `${payload.message || "Produto enviado para o canal."} Para aparecer no site, use Aprovar no Radar.`,
+          : `${payload.message || "Produto enviado para o canal."}`,
       );
       setSiteModalProduct(null);
     } catch (err) {
@@ -197,11 +235,13 @@ export default function LomadeeHubPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="font-display text-3xl font-bold text-navy">Lomadee Hub</h1>
-        <p className="text-sm text-rs-muted">
-          Busque produtos da API Lomadee, gere links de afiliado e aprove manualmente para a vitrine.
-        </p>
+      <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
+        <div>
+          <h1 className="font-display text-3xl font-bold text-navy">Lomadee Hub <span className="ml-2 rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-700">Brasil Ativo</span></h1>
+          <p className="text-sm text-rs-muted">
+            Busque produtos da API Lomadee e use a Inteligência Artificial para acelerar sua curadoria.
+          </p>
+        </div>
       </div>
 
       <section className="rounded-2xl border border-rs-border bg-white p-5 shadow-sm">
@@ -235,10 +275,6 @@ export default function LomadeeHubPage() {
             Total: {totalLabel}
           </div>
         </div>
-
-        <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-          A API Lomadee exige <code>LOMADEE_API_KEY</code> no servidor. Telegram/WhatsApp nao publicam no site automaticamente.
-        </div>
       </section>
 
       {error ? (
@@ -254,9 +290,14 @@ export default function LomadeeHubPage() {
       ) : null}
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {products.map((product) => (
+        {products.map((product) => {
+          const productKey = getProductKey(product);
+          const currentCopy = productCopies[productKey];
+          const isAiBusy = aiLoading === productKey;
+
+          return (
           <article
-            key={getProductKey(product)}
+            key={productKey}
             className="flex flex-col rounded-2xl border border-rs-border bg-white p-4 shadow-sm"
           >
             <div className="flex gap-4">
@@ -273,7 +314,7 @@ export default function LomadeeHubPage() {
                 </div>
               )}
               <div className="min-w-0 flex-1">
-                <p className="line-clamp-3 text-sm font-bold text-navy">{product.title}</p>
+                <p className="line-clamp-2 text-sm font-bold text-navy">{product.title}</p>
                 <p className="mt-1 text-xs text-slate-500">{product.seller}</p>
                 <p className="mt-2 text-2xl font-black text-navy">{formatBRL(product.price)}</p>
                 {product.original_price > product.price ? (
@@ -286,45 +327,50 @@ export default function LomadeeHubPage() {
 
             <div className="mt-4 flex flex-wrap gap-2 text-xs text-slate-500">
               <span className="rounded-full bg-slate-100 px-2 py-1">Lomadee</span>
-              <span className="rounded-full bg-slate-100 px-2 py-1">
+              <span className="rounded-full bg-emerald-100 px-2 py-1 text-emerald-700 font-bold">
                 {product.discount_pct}% OFF
-              </span>
-              <span className="rounded-full bg-slate-100 px-2 py-1">
-                {product.available ? "Disponivel" : "Indisponivel"}
               </span>
             </div>
 
+            {currentCopy && (
+                <div className="mt-3 rounded-xl bg-orange-100/50 p-3 italic text-xs text-slate-700 border border-orange-100">
+                  &ldquo;{currentCopy}&rdquo;
+                </div>
+              )}
+
             <div className="mt-4 grid gap-2">
-              <a
-                href={product.link}
-                target="_blank"
-                rel="noreferrer"
-                className="rounded-xl border border-slate-300 px-3 py-2 text-center text-sm font-semibold text-slate-700"
-              >
-                Ver produto
-              </a>
+              <button
+                  type="button"
+                  onClick={() => void handleGenerateAICopy(product)}
+                  disabled={isAiBusy || !!dispatching}
+                  className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-orange-100 text-xs font-bold text-orange-900 transition hover:bg-orange-200 disabled:opacity-50"
+                >
+                  {isAiBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                  {currentCopy ? "Regerar Copy IA" : "Gerar Copy IA"}
+                </button>
+
               <div className="grid grid-cols-3 gap-2">
                 <button
                   type="button"
-                  disabled={Boolean(dispatching)}
+                  disabled={!!dispatching}
                   onClick={() => void handleDispatch(product, "telegram")}
                   className="inline-flex items-center justify-center gap-1 rounded-xl bg-sky-500 px-2 py-2 text-xs font-bold text-white disabled:opacity-60"
                 >
-                  <Send className="h-3.5 w-3.5" />
+                  {dispatching === `telegram:${productKey}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
                   Telegram
                 </button>
                 <button
                   type="button"
-                  disabled={Boolean(dispatching)}
+                  disabled={!!dispatching}
                   onClick={() => void handleDispatch(product, "whatsapp")}
                   className="inline-flex items-center justify-center gap-1 rounded-xl bg-emerald-500 px-2 py-2 text-xs font-bold text-white disabled:opacity-60"
                 >
-                  <MessageSquare className="h-3.5 w-3.5" />
+                  {dispatching === `whatsapp:${productKey}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <MessageSquare className="h-3.5 w-3.5" />}
                   WhatsApp
                 </button>
                 <button
                   type="button"
-                  disabled={Boolean(dispatching)}
+                  disabled={!!dispatching}
                   onClick={() => setSiteModalProduct(product)}
                   className="inline-flex items-center justify-center gap-1 rounded-xl bg-green-700 px-2 py-2 text-xs font-bold text-white disabled:opacity-60"
                 >
@@ -334,7 +380,8 @@ export default function LomadeeHubPage() {
               </div>
             </div>
           </article>
-        ))}
+          );
+        })}
       </section>
 
       <div className="flex items-center justify-between">
@@ -347,7 +394,7 @@ export default function LomadeeHubPage() {
           Anterior
         </button>
         <span className="text-sm text-slate-500">
-          Pagina {meta?.page ?? page} de {meta?.totalPages ?? 1}
+          Página {meta?.page ?? page} de {meta?.totalPages ?? 1}
         </span>
         <button
           type="button"
@@ -355,7 +402,7 @@ export default function LomadeeHubPage() {
           onClick={() => void loadProducts(page + 1)}
           className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 disabled:opacity-50"
         >
-          Proxima
+          Próxima
         </button>
       </div>
 
@@ -371,7 +418,7 @@ export default function LomadeeHubPage() {
                 <button
                   key={item.slot}
                   type="button"
-                  disabled={Boolean(dispatching)}
+                  disabled={!!dispatching}
                   onClick={() => void handleDispatch(siteModalProduct, "site", item.slot)}
                   className="rounded-xl bg-green-700 px-4 py-3 text-sm font-bold text-white disabled:opacity-60"
                 >

@@ -1,6 +1,7 @@
-﻿import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { load } from "cheerio";
 import { fetch as undiciFetch } from "undici";
+import { requireAdmin } from "@/lib/admin-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -150,8 +151,8 @@ function parseJsonLd(html: string): ParsedData {
       const offersList = Array.isArray(offers)
         ? offers
         : offers && typeof offers === "object"
-        ? [offers]
-        : [];
+          ? [offers]
+          : [];
 
       const firstOffer = offersList[0] as Record<string, unknown> | undefined;
 
@@ -253,8 +254,8 @@ function pickByPriority(jsonLd: ParsedData, meta: ParsedData, dom: ParsedData, m
       marketplace === "amazon"
         ? normalizeAmazonImage(imageRaw)
         : marketplace === "mercadolivre"
-        ? normalizeMlImage(imageRaw)
-        : imageRaw,
+          ? normalizeMlImage(imageRaw)
+          : imageRaw,
     currency: jsonLd.currency ?? meta.currency ?? dom.currency ?? "BRL",
   };
 }
@@ -267,6 +268,44 @@ function detectLayer(jsonLd: ParsedData, meta: ParsedData, dom: ParsedData): Ext
     return "mixed";
   }
   return "none";
+}
+
+function isCompleteResult(input: {
+  title: string | null;
+  price: number | null;
+  image_url: string | null;
+}): boolean {
+  return Boolean(input.title && input.price && input.image_url);
+}
+
+function mergeBestResult(
+  base: {
+    title: string | null;
+    price: number | null;
+    old_price: number | null;
+    image_url: string | null;
+    currency: string | null;
+  },
+  incoming: Partial<{
+    title: string | null;
+    price: number | null;
+    old_price: number | null;
+    image_url: string | null;
+    currency: string | null;
+  }>,
+) {
+  return {
+    title: base.title ?? incoming.title ?? null,
+    price: base.price ?? incoming.price ?? null,
+    old_price: base.old_price ?? incoming.old_price ?? null,
+    image_url: base.image_url ?? incoming.image_url ?? null,
+    currency: base.currency ?? incoming.currency ?? null,
+  };
+}
+
+function buildProxyUrl(proxyBase: string, targetUrl: string): string {
+  const safeProxy = proxyBase.trim().replace(/\/+$/g, "");
+  return `${safeProxy}?url=${encodeURIComponent(targetUrl)}`;
 }
 
 async function fetchHtmlWithProfiles(url: string): Promise<{ html: string; finalUrl: string; attempts: AttemptLog[] }> {
@@ -310,8 +349,80 @@ async function fetchHtmlWithProfiles(url: string): Promise<{ html: string; final
   throw new Error(`${lastError} (profiles: ${attempts.map((a) => `${a.profile}:${a.status}`).join(", ")})`);
 }
 
+async function fetchHtmlViaProxy(url: string): Promise<{ html: string; finalUrl: string; status: number }> {
+  const proxyBase =
+    process.env.CORS_PROXY_URL?.trim() ||
+    process.env.NEXT_PUBLIC_CORS_PROXY?.trim() ||
+    "";
+
+  if (!proxyBase) {
+    throw new Error("CORS proxy nao configurado.");
+  }
+
+  const response = await undiciFetch(buildProxyUrl(proxyBase, url), {
+    method: "GET",
+    signal: AbortSignal.timeout(12000),
+  });
+
+  return {
+    html: await response.text(),
+    finalUrl: response.url || url,
+    status: response.status,
+  };
+}
+
+async function fetchMicrolinkMetadata(url: string): Promise<{
+  status: number;
+  title: string | null;
+  imageUrl: string | null;
+  finalUrl: string;
+}> {
+  const apiKey =
+    process.env.MICROLINK_API_KEY?.trim() ||
+    process.env.NEXT_PUBLIC_MICROLINK_API_KEY?.trim() ||
+    "";
+
+  if (!apiKey) {
+    throw new Error("Microlink API key nao configurada.");
+  }
+
+  const response = await undiciFetch(
+    `https://api.microlink.io/?url=${encodeURIComponent(url)}&meta=true&screenshot=false&video=false&audio=false`,
+    {
+      method: "GET",
+      headers: {
+        "x-api-key": apiKey,
+      },
+      signal: AbortSignal.timeout(12000),
+    },
+  );
+
+  const payload = (await response.json()) as {
+    data?: {
+      title?: unknown;
+      url?: unknown;
+      image?: { url?: unknown };
+      logo?: { url?: unknown };
+    };
+  };
+
+  return {
+    status: response.status,
+    title: toText(payload.data?.title),
+    imageUrl:
+      toText(payload.data?.image?.url) ??
+      toText(payload.data?.logo?.url),
+    finalUrl: toText(payload.data?.url) ?? url,
+  };
+}
+
 export async function POST(req: NextRequest) {
   try {
+    const adminGuard = await requireAdmin(req);
+    if (!adminGuard.ok) {
+      return NextResponse.json({ success: false, error: adminGuard.error }, { status: adminGuard.status });
+    }
+
     const body = (await req.json()) as { url?: string };
     const sourceUrl = String(body?.url ?? "").trim();
 
@@ -320,14 +431,86 @@ export async function POST(req: NextRequest) {
     }
 
     const marketplace = detectMarketplace(sourceUrl);
-    const { html, finalUrl, attempts } = await fetchHtmlWithProfiles(sourceUrl);
+    const attempts: AttemptLog[] = [];
+    let finalUrl = sourceUrl;
+    let extractionLayer: ExtractionLayer = "none";
+    let best = {
+      title: null as string | null,
+      price: null as number | null,
+      old_price: null as number | null,
+      image_url: null as string | null,
+      currency: "BRL" as string | null,
+    };
 
-    const jsonLd = parseJsonLd(html);
-    const meta = parseMeta(html);
-    const dom = parseDom(html, marketplace);
+    try {
+      const direct = await fetchHtmlWithProfiles(sourceUrl);
+      attempts.push(...direct.attempts);
+      finalUrl = direct.finalUrl;
 
-    const best = pickByPriority(jsonLd, meta, dom, marketplace);
-    const extractionLayer = detectLayer(jsonLd, meta, dom);
+      const jsonLd = parseJsonLd(direct.html);
+      const meta = parseMeta(direct.html);
+      const dom = parseDom(direct.html, marketplace);
+
+      best = pickByPriority(jsonLd, meta, dom, marketplace);
+      extractionLayer = detectLayer(jsonLd, meta, dom);
+    } catch {
+      attempts.push({ profile: "direct", status: 0, finalUrl: sourceUrl });
+    }
+
+    if (!isCompleteResult(best)) {
+      try {
+        const proxied = await fetchHtmlViaProxy(sourceUrl);
+        attempts.push({ profile: "proxy", status: proxied.status, finalUrl: proxied.finalUrl });
+
+        if (proxied.status >= 200 && proxied.status < 300 && proxied.html.length > 800) {
+          const jsonLd = parseJsonLd(proxied.html);
+          const meta = parseMeta(proxied.html);
+          const dom = parseDom(proxied.html, marketplace);
+          const proxiedBest = pickByPriority(jsonLd, meta, dom, marketplace);
+          best = mergeBestResult(best, proxiedBest);
+          if (extractionLayer === "none") {
+            extractionLayer = detectLayer(jsonLd, meta, dom);
+          }
+          finalUrl = proxied.finalUrl || finalUrl;
+        }
+      } catch {
+        attempts.push({ profile: "proxy", status: 0, finalUrl: sourceUrl });
+      }
+    }
+
+    if (!isCompleteResult(best)) {
+      try {
+        const microlink = await fetchMicrolinkMetadata(sourceUrl);
+        attempts.push({ profile: "microlink", status: microlink.status, finalUrl: microlink.finalUrl });
+        best = mergeBestResult(best, {
+          title: microlink.title,
+          image_url: microlink.imageUrl,
+        });
+        finalUrl = microlink.finalUrl || finalUrl;
+      } catch {
+        attempts.push({ profile: "microlink", status: 0, finalUrl: sourceUrl });
+      }
+    }
+
+    if (!isCompleteResult(best)) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Nao foi possivel extrair os dados apos as camadas do servidor.",
+          attempts,
+          data: {
+            source_url: sourceUrl,
+            product_url: finalUrl,
+            title: best.title,
+            price: best.price,
+            old_price: best.old_price,
+            image_url: best.image_url,
+            currency: best.currency,
+          },
+        },
+        { status: 422 },
+      );
+    }
 
     return NextResponse.json({
       success: true,

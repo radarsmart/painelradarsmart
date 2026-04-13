@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
+import { requireAdmin } from "@/lib/admin-auth";
 import { salvarOferta, supabaseAdmin } from "@/lib/supabase";
 
 type IncomingWebhookPayload = {
@@ -19,6 +20,10 @@ type IncomingWebhookPayload = {
   request_id?: unknown;
 };
 
+type WebhookAuthorizationResult =
+  | { ok: true; via: "secret" | "admin" }
+  | { ok: false; status: 401 | 403 | 503; error: string };
+
 function toText(value: unknown): string {
   return String(value ?? "").trim();
 }
@@ -33,37 +38,81 @@ function inferMarketplace(input: IncomingWebhookPayload): string {
   if (fromPayload.includes("mercado")) return "mercadolivre";
   if (fromPayload.includes("amazon")) return "amazon";
 
-  const source = toText(input.product_url || input.source_url || input.affiliate_url || input.affiliate_link).toLowerCase();
-  if (source.includes("mercadolivre") || source.includes("mercadolibre")) return "mercadolivre";
+  const source = toText(
+    input.product_url ||
+      input.source_url ||
+      input.affiliate_url ||
+      input.affiliate_link,
+  ).toLowerCase();
+
+  if (source.includes("mercadolivre") || source.includes("mercadolibre")) {
+    return "mercadolivre";
+  }
   if (source.includes("amazon.")) return "amazon";
   return "outro";
 }
 
 function inferCategory(title: string): string {
   const normalized = title.toLowerCase();
-  if (/monitor|tv|notebook|smartphone|iphone|teclado|mouse|gamer|ssd/.test(normalized)) return "Tecnologia";
-  if (/fritadeira|chaleira|cooktop|cafeteira|panela|geladeira|micro-ondas/.test(normalized)) return "Casa";
-  if (/halter|bike|esteira|fitness|academia|corrida|esporte/.test(normalized)) return "Fitness";
+  if (/monitor|tv|notebook|smartphone|iphone|teclado|mouse|gamer|ssd/.test(normalized)) {
+    return "Tecnologia";
+  }
+  if (/fritadeira|chaleira|cooktop|cafeteira|panela|geladeira|micro-ondas/.test(normalized)) {
+    return "Casa";
+  }
+  if (/halter|bike|esteira|fitness|academia|corrida|esporte/.test(normalized)) {
+    return "Fitness";
+  }
   return "Geral";
 }
 
-function isWebhookAuthorized(req: NextRequest): boolean {
-  const expected = toText(process.env.N8N_WEBHOOK_SECRET);
-  if (!expected) return true;
-
-  const provided =
+function extractWebhookSecret(req: NextRequest): string {
+  return (
     req.headers.get("x-radar-webhook-key") ??
     req.headers.get("x-webhook-secret") ??
     req.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ??
-    "";
+    ""
+  );
+}
 
-  return toText(provided) === expected;
+async function authorizeWebhookRequest(
+  req: NextRequest,
+): Promise<WebhookAuthorizationResult> {
+  const expectedSecret = toText(process.env.N8N_WEBHOOK_SECRET);
+  const providedSecret = toText(extractWebhookSecret(req));
+
+  if (expectedSecret && providedSecret === expectedSecret) {
+    return { ok: true, via: "secret" };
+  }
+
+  const adminGuard = await requireAdmin(req);
+  if (adminGuard.ok) {
+    return { ok: true, via: "admin" };
+  }
+
+  if (!expectedSecret) {
+    return {
+      ok: false,
+      status: 503,
+      error: "Webhook do n8n indisponivel: N8N_WEBHOOK_SECRET nao configurado.",
+    };
+  }
+
+  return {
+    ok: false,
+    status: adminGuard.status,
+    error: "Webhook nao autorizado.",
+  };
 }
 
 export async function POST(req: NextRequest) {
   try {
-    if (!isWebhookAuthorized(req)) {
-      return NextResponse.json({ ok: false, error: "Webhook não autorizado." }, { status: 401 });
+    const authorization = await authorizeWebhookRequest(req);
+    if (!authorization.ok) {
+      return NextResponse.json(
+        { ok: false, error: authorization.error },
+        { status: authorization.status },
+      );
     }
 
     const body = (await req.json()) as IncomingWebhookPayload;
@@ -78,7 +127,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           ok: false,
-          error: "Campos obrigatórios: title, price, image_url, affiliate_link e product_url/source_url.",
+          error:
+            "Campos obrigatorios: title, price, image_url, affiliate_link e product_url/source_url.",
         },
         { status: 400 },
       );
@@ -86,13 +136,20 @@ export async function POST(req: NextRequest) {
 
     const marketplace = inferMarketplace(body);
     const category = toText(body.category) || inferCategory(title);
-    const categorySlug = category.toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "");
+    const categorySlug = category
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/\p{Diacritic}/gu, "");
     const requestId = toText(body.request_id) || randomUUID();
     const discountPct =
-      oldPrice && oldPrice > price ? Math.round(((oldPrice - price) / oldPrice) * 100) : 0;
+      oldPrice && oldPrice > price
+        ? Math.round(((oldPrice - price) / oldPrice) * 100)
+        : 0;
 
     const rawData =
-      body.raw_data && typeof body.raw_data === "object" && !Array.isArray(body.raw_data)
+      body.raw_data &&
+      typeof body.raw_data === "object" &&
+      !Array.isArray(body.raw_data)
         ? (body.raw_data as Record<string, unknown>)
         : {};
 
@@ -105,7 +162,12 @@ export async function POST(req: NextRequest) {
       category,
       category_name: category,
       category_slug: categorySlug,
-      store: marketplace === "mercadolivre" ? "MERCADO LIVRE" : marketplace === "amazon" ? "AMAZON" : "LOJA",
+      store:
+        marketplace === "mercadolivre"
+          ? "MERCADO LIVRE"
+          : marketplace === "amazon"
+            ? "AMAZON"
+            : "LOJA",
       marketplace,
       platform: marketplace,
       product_url: sourceUrl,
@@ -134,7 +196,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       {
         ok: false,
-        error: error instanceof Error ? error.message : "Falha ao processar webhook do n8n.",
+        error:
+          error instanceof Error
+            ? error.message
+            : "Falha ao processar webhook do n8n.",
       },
       { status: 500 },
     );
@@ -143,10 +208,18 @@ export async function POST(req: NextRequest) {
 
 export async function GET(req: NextRequest) {
   try {
+    const authorization = await authorizeWebhookRequest(req);
+    if (!authorization.ok) {
+      return NextResponse.json(
+        { ok: false, error: authorization.error },
+        { status: authorization.status },
+      );
+    }
+
     const sourceUrl = toText(req.nextUrl.searchParams.get("source_url"));
     if (!sourceUrl) {
       return NextResponse.json(
-        { ok: false, error: "Parâmetro source_url é obrigatório." },
+        { ok: false, error: "Parametro source_url e obrigatorio." },
         { status: 400 },
       );
     }
@@ -154,7 +227,10 @@ export async function GET(req: NextRequest) {
     const selectFields =
       "id,title,price,old_price,image_url,product_url,affiliate_url,marketplace,status,created_at";
 
-    const candidates: Array<{ field: "origin_url" | "product_url" | "affiliate_url"; value: string }> = [
+    const candidates: Array<{
+      field: "origin_url" | "product_url" | "affiliate_url";
+      value: string;
+    }> = [
       { field: "origin_url", value: sourceUrl },
       { field: "product_url", value: sourceUrl },
       { field: "affiliate_url", value: sourceUrl },
@@ -185,7 +261,10 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(
       {
         ok: false,
-        error: error instanceof Error ? error.message : "Falha ao consultar retorno do webhook.",
+        error:
+          error instanceof Error
+            ? error.message
+            : "Falha ao consultar retorno do webhook.",
       },
       { status: 500 },
     );

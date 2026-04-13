@@ -16,6 +16,7 @@ export type LegacyDispatchInput = {
   channels?: DistributionChannel[];
   copyByChannel?: Partial<Record<DistributionChannel, string>>;
   allowRequeueSameDay?: boolean;
+  scheduleNow?: boolean;
 };
 
 export type LegacyDispatchResult = {
@@ -314,7 +315,7 @@ function alignToNextInterval(date: Date, timeZone = SEND_TIMEZONE): Date {
   );
 }
 
-async function getNextScheduledAt(channel: DistributionChannel): Promise<string> {
+export async function getNextScheduledAt(channel: DistributionChannel): Promise<string> {
   const now = new Date();
   const { data, error } = await supabaseAdmin.rpc("get_last_scheduled_at", {
     p_channel: channel,
@@ -334,7 +335,15 @@ async function getNextScheduledAt(channel: DistributionChannel): Promise<string>
 
 async function buildChannelSchedule(
   channels: DistributionChannel[],
+  scheduleNow = false,
 ): Promise<Partial<Record<DistributionChannel, string>>> {
+  if (scheduleNow) {
+    const now = new Date().toISOString();
+    return Object.fromEntries(channels.map((channel) => [channel, now])) as Partial<
+      Record<DistributionChannel, string>
+    >;
+  }
+
   const scheduleEntries = await Promise.all(
     channels.map(async (channel) => [channel, await getNextScheduledAt(channel)] as const),
   );
@@ -348,6 +357,7 @@ async function queueDirectlyOnPostQueue(input: {
   copyByChannel: Partial<Record<DistributionChannel, string>>;
   affiliateUrl?: string | null;
   allowRequeueSameDay: boolean;
+  scheduleNow?: boolean;
 }): Promise<LegacyDispatchResult> {
   const { data: offer, error: offerError } = await supabaseAdmin
     .from("offers")
@@ -378,7 +388,7 @@ async function queueDirectlyOnPostQueue(input: {
     throw new Error("Nenhum target ativo encontrado para os canais selecionados.");
   }
 
-  const channelSchedule = await buildChannelSchedule(input.channels);
+  const channelSchedule = await buildChannelSchedule(input.channels, input.scheduleNow === true);
 
   const details: Array<Record<string, unknown>> = [];
   let queued = 0;
@@ -567,16 +577,20 @@ export async function dispatchLegacyOffer(
 
   const copyByChannel = normalizeCopyByChannel(input.copyByChannel);
   const allowRequeueSameDay = input.allowRequeueSameDay ?? true;
-  const scheduleByChannel = await buildChannelSchedule(channels);
+  const scheduleNow = input.scheduleNow === true;
+  const scheduleByChannel = await buildChannelSchedule(channels, scheduleNow);
   const payload: Record<string, unknown> = {
     offer_id: offerId,
     channels,
     allow_requeue_same_day: allowRequeueSameDay,
     auto_approve_if_needed: false,
     force_admin_dispatch: true,
-    schedule_now: false,
-    schedule: scheduleByChannel,
+    schedule_now: scheduleNow,
   };
+
+  if (!scheduleNow) {
+    payload.schedule = scheduleByChannel;
+  }
 
   if (Object.keys(copyByChannel).length > 0) {
     payload.skip_ai = true;
@@ -597,6 +611,7 @@ export async function dispatchLegacyOffer(
         copyByChannel,
         affiliateUrl,
         allowRequeueSameDay,
+        scheduleNow,
       });
     }
     throw new Error(errorMessage);

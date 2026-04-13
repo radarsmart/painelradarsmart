@@ -9,8 +9,11 @@ import {
   ChevronLeft,
   ChevronRight,
   Loader2,
+  MessageSquare,
   PackagePlus,
   Search,
+  Send,
+  Sparkles,
 } from "lucide-react";
 
 import { supabase } from "@/lib/supabase";
@@ -48,14 +51,6 @@ function formatMoney(value: number, currency: string) {
   }).format(value || 0);
 }
 
-function formatOriginalMoney(product: AwinProduct) {
-  if (!product.originalCurrency || product.originalCurrency === "BRL") return "";
-  return new Intl.NumberFormat("pt-BR", {
-    style: "currency",
-    currency: product.originalCurrency,
-  }).format(product.originalSearchPrice || 0);
-}
-
 function getProductKey(product: AwinProduct) {
   return `${product.id}:${product.merchantProductId}`;
 }
@@ -84,6 +79,8 @@ export default function HubAwinProductsPage() {
   const [categoryDraft, setCategoryDraft] = useState(category);
   const [sortDraft, setSortDraft] = useState<SortType>(sort);
   const [categories, setCategories] = useState<string[]>([]);
+  const [aiLoading, setAiLoading] = useState<string | null>(null);
+  const [productCopies, setProductCopies] = useState<Record<string, string>>({});
 
   function buildUrl(nextParams: {
     search?: string;
@@ -110,7 +107,7 @@ export default function HubAwinProductsPage() {
     const { data, error: sessionError } = await supabase.auth.getSession();
     const token = data.session?.access_token;
     if (sessionError || !token) {
-      throw new Error("Sessao expirada. Faca login novamente.");
+      throw new Error("Sessão expirada. Faça login novamente.");
     }
     return token;
   }
@@ -159,14 +156,51 @@ export default function HubAwinProductsPage() {
     router.push(buildUrl({ search: searchDraft, category: categoryDraft, sort: sortDraft, page: 1 }));
   }
 
-  async function handleAddToOffer(product: AwinProduct, slotType: SlotType) {
+  async function handleGenerateAICopy(product: AwinProduct) {
     const productKey = getProductKey(product);
-    setDispatching(productKey);
+    setAiLoading(productKey);
+    setError("");
+
+    try {
+      const token = await getAccessToken();
+      const response = await fetch("/api/admin/ai/copy", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          productName: product.productName,
+          price: product.searchPrice,
+          oldPrice: product.originalSearchPrice,
+          marketplace: product.merchantName || "AWIN",
+        }),
+      });
+
+      const payload = (await response.json()) as { copy?: string; error?: string };
+      if (!response.ok || !payload.copy) {
+        throw new Error(payload.error || "Falha ao gerar copy com IA.");
+      }
+
+      setProductCopies((prev) => ({ ...prev, [productKey]: payload.copy! }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro na IA.");
+    } finally {
+      setAiLoading(null);
+    }
+  }
+
+  async function handleDispatch(product: AwinProduct, action: "telegram" | "whatsapp" | "site", slotType?: SlotType) {
+    const productKey = getProductKey(product);
+    const dispatchKey = `${action}:${productKey}`;
+    setDispatching(dispatchKey);
     setFeedback("");
     setError("");
 
     try {
       const token = await getAccessToken();
+      const copy = productCopies[productKey] || "";
+
       const response = await fetch("/api/admin/extrator/dispatch", {
         method: "POST",
         headers: {
@@ -176,35 +210,28 @@ export default function HubAwinProductsPage() {
         body: JSON.stringify({
           title: product.productName,
           price: product.searchPrice,
+          old_price: product.originalSearchPrice,
           image_url: product.merchantImageUrl,
           product_url: product.awDeepLink,
           affiliate_url: product.awDeepLink,
           marketplace: "awin",
-          slot_type: slotType,
-          channels: [],
+          slot_type: slotType || "best",
+          copy_text: copy,
+          channels: action === "site" ? [] : [action],
         }),
       });
 
-      const payload = (await response.json()) as {
-        success?: boolean;
-        message?: string;
-        error?: string;
-      };
-
+      const payload = (await response.json()) as { success?: boolean; message?: string; error?: string };
       if (!response.ok || !payload.success) {
-        throw new Error(payload.error || payload.message || "Falha ao adicionar produto AWIN a oferta.");
+        throw new Error(payload.error || payload.message || "Falha no despacho.");
       }
 
-      const slotLabels: Record<SlotType, string> = {
-        flash: "Ofertas Relampago",
-        best: "Melhores Ofertas",
-        comparator: "Comparador",
-      };
-
-      setAddedProducts((current) => ({ ...current, [productKey]: true }));
-      setFeedback(`Enviado para: ${slotLabels[slotType]}`);
+      if (action === "site") {
+        setAddedProducts((current) => ({ ...current, [productKey]: true }));
+      }
+      setFeedback(`Sucesso: ${payload.message || "Oferta processada"}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Falha ao adicionar produto AWIN a oferta.");
+      setError(err instanceof Error ? err.message : "Falha no despacho.");
     } finally {
       setDispatching(null);
       setSiteModalProduct(null);
@@ -231,10 +258,10 @@ export default function HubAwinProductsPage() {
             Voltar para anunciantes
           </Link>
           <h1 className="text-3xl font-bold tracking-tight text-[#1A1A1A]">
-            Produtos AWIN
+            Produtos AWIN <span className="ml-2 rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-700">Brasil Ativo</span>
           </h1>
           <p className="mt-1 text-sm font-medium text-muted-foreground">
-            Feed do anunciante ID {advertiserId}. Selecione um produto e escolha o bloco de destino.
+            Feed do anunciante ID {advertiserId}. Use a IA para gerar copies persuasivas.
           </p>
         </div>
 
@@ -296,7 +323,7 @@ export default function HubAwinProductsPage() {
         </div>
       ) : null}
 
-      {!error && feedback ? (
+      {feedback ? (
         <div className="rounded-3xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm font-medium text-emerald-700">
           {feedback}
         </div>
@@ -321,12 +348,13 @@ export default function HubAwinProductsPage() {
           {products.map((product) => {
             const productKey = getProductKey(product);
             const isAdded = Boolean(addedProducts[productKey]);
-            const isDispatching = dispatching === productKey;
+            const isAiBusy = aiLoading === productKey;
+            const currentCopy = productCopies[productKey];
 
             return (
             <article
               key={productKey}
-              className="rounded-3xl border border-rs-border bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg"
+              className="flex flex-col rounded-3xl border border-rs-border bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg"
             >
               <div className="flex h-48 items-center justify-center overflow-hidden rounded-2xl bg-slate-50">
                 {product.merchantImageUrl ? (
@@ -350,38 +378,79 @@ export default function HubAwinProductsPage() {
                 </span>
               </div>
 
-              <h2 className="mt-3 line-clamp-3 min-h-[72px] text-sm font-bold leading-6 text-[#1A1A1A]">
+              <h2 className="mt-3 line-clamp-2 text-sm font-bold leading-6 text-[#1A1A1A]">
                 {product.productName}
               </h2>
 
-              <p className="mt-3 text-2xl font-black text-navy">
-                {formatMoney(product.searchPrice, product.currency)}
-              </p>
-              {product.originalCurrency && product.originalCurrency !== "BRL" ? (
-                <p className="mt-1 text-xs font-semibold text-slate-500">
-                  Convertido de {formatOriginalMoney(product)}
+              <div className="mt-2 flex items-baseline gap-2">
+                <p className="text-2xl font-black text-navy">
+                  {formatMoney(product.searchPrice, product.currency)}
                 </p>
-              ) : null}
-
-              <button
-                type="button"
-                onClick={() => setSiteModalProduct(product)}
-                disabled={isAdded || dispatching !== null}
-                className={`mt-5 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl px-4 text-sm font-semibold transition disabled:cursor-not-allowed ${
-                  isAdded
-                    ? "bg-emerald-50 text-emerald-700"
-                    : "bg-slate-900 text-white hover:bg-black disabled:bg-slate-100 disabled:text-slate-500"
-                }`}
-              >
-                {isDispatching ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : isAdded ? (
-                  <CheckCircle2 className="h-4 w-4" />
-                ) : (
-                  <PackagePlus className="h-4 w-4" />
+                {product.originalSearchPrice > product.searchPrice && (
+                   <p className="text-xs text-slate-400 line-through">
+                    {formatMoney(product.originalSearchPrice, product.currency)}
+                  </p>
                 )}
-                {isAdded ? "Adicionado" : "Adicionar a Oferta"}
-              </button>
+              </div>
+              
+              {currentCopy && (
+                <div className="mt-3 rounded-2xl bg-[#FFDA00]/10 p-3 italic text-xs text-slate-700">
+                  &ldquo;{currentCopy}&rdquo;
+                </div>
+              )}
+
+              <div className="mt-5 grid gap-2">
+                <button
+                  type="button"
+                  onClick={() => void handleGenerateAICopy(product)}
+                  disabled={isAiBusy || !!dispatching}
+                  className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-orange-100 text-sm font-bold text-orange-900 transition hover:bg-orange-200 disabled:opacity-50"
+                >
+                  {isAiBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                  {currentCopy ? "Regerar Copy IA" : "Gerar Copy IA"}
+                </button>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void handleDispatch(product, "telegram")}
+                    disabled={!!dispatching}
+                    className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-[#0088CC] text-xs font-bold text-white transition hover:brightness-95 disabled:opacity-50"
+                  >
+                    {dispatching === `telegram:${productKey}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                    Telegram
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleDispatch(product, "whatsapp")}
+                    disabled={!!dispatching}
+                    className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-[#25D366] text-xs font-bold text-white transition hover:brightness-95 disabled:opacity-50"
+                  >
+                    {dispatching === `whatsapp:${productKey}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <MessageSquare className="h-4 w-4" />}
+                    WhatsApp
+                  </button>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setSiteModalProduct(product)}
+                  disabled={isAdded || !!dispatching}
+                  className={`inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl px-4 text-sm font-bold transition disabled:cursor-not-allowed ${
+                    isAdded
+                      ? "bg-emerald-50 text-emerald-700"
+                      : "bg-slate-900 text-white hover:bg-black disabled:bg-slate-100 disabled:text-slate-500"
+                  }`}
+                >
+                  {dispatching === `site:${productKey}` ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : isAdded ? (
+                    <CheckCircle2 className="h-4 w-4" />
+                  ) : (
+                    <PackagePlus className="h-4 w-4" />
+                  )}
+                  {isAdded ? "Adicionado" : "Aprovar no Site"}
+                </button>
+              </div>
             </article>
             );
           })}
@@ -399,43 +468,45 @@ export default function HubAwinProductsPage() {
       )}
 
       <div className="flex items-center justify-between rounded-3xl bg-white p-4 shadow-sm">
-        <Link
-          href={buildUrl({ page: Math.max(1, page - 1) })}
-          aria-disabled={page <= 1}
+        <button
+          type="button"
+          onClick={() => router.push(buildUrl({ page: Math.max(1, page - 1) }))}
+          disabled={page <= 1}
           className={`inline-flex h-11 items-center justify-center gap-2 rounded-xl px-4 text-sm font-bold ${
             page <= 1
-              ? "pointer-events-none bg-slate-100 text-slate-400"
+              ? "bg-slate-100 text-slate-400"
               : "bg-slate-900 text-white hover:bg-black"
           }`}
         >
           <ChevronLeft className="h-4 w-4" />
           Anterior
-        </Link>
-        <span className="text-sm font-semibold text-slate-600">Pagina {page}</span>
-        <Link
-          href={buildUrl({ page: page + 1 })}
+        </button>
+        <span className="text-sm font-semibold text-slate-600">Página {page}</span>
+        <button
+          type="button"
+          onClick={() => router.push(buildUrl({ page: page + 1 }))}
           className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 text-sm font-bold text-white hover:bg-black"
         >
-          Proxima
+          Próxima
           <ChevronRight className="h-4 w-4" />
-        </Link>
+        </button>
       </div>
 
       {siteModalProduct ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-xl">
+          <div className="w-full max-md:max-w-md rounded-3xl bg-white p-6 shadow-xl">
             <h3 className="mb-4 text-lg font-bold text-gray-900">Escolha o bloco de destino</h3>
             <div className="space-y-3">
               {[
-                { slot: "flash", label: "Ofertas Relampago", tone: "bg-orange-100 text-orange-900" },
+                { slot: "flash", label: "Ofertas Relâmpago", tone: "bg-orange-100 text-orange-900" },
                 { slot: "best", label: "Melhores Ofertas", tone: "bg-blue-100 text-blue-900" },
                 { slot: "comparator", label: "Comparador", tone: "bg-green-100 text-green-900" },
               ].map((item) => (
                 <button
                   key={item.slot}
                   type="button"
-                  onClick={() => void handleAddToOffer(siteModalProduct, item.slot as SlotType)}
-                  disabled={dispatching !== null}
+                  onClick={() => handleDispatch(siteModalProduct, "site", item.slot as SlotType)}
+                  disabled={!!dispatching}
                   className={`flex w-full items-center gap-3 rounded-2xl p-4 text-left hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60 ${item.tone}`}
                 >
                   <CheckCircle2 className="h-5 w-5" />
@@ -449,7 +520,7 @@ export default function HubAwinProductsPage() {
             <button
               type="button"
               onClick={() => setSiteModalProduct(null)}
-              disabled={dispatching !== null}
+              disabled={!!dispatching}
               className="mt-4 w-full rounded-2xl bg-gray-100 py-3 font-semibold text-gray-700 hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-60"
             >
               Cancelar

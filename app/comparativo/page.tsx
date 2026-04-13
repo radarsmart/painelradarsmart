@@ -1,10 +1,11 @@
-﻿import type { Metadata } from "next";
+import type { Metadata } from "next";
 import Header from "@/components/layout/Header";
 import Footer from "@/components/layout/Footer";
 import ComparativoClient, {
   type CompareOffer,
 } from "@/components/comparativo/ComparativoClient";
 import { isOfferVisibleOnSite } from "@/lib/offers/site-visibility";
+import { toAbsoluteSiteUrl } from "@/lib/site";
 import { supabaseAdmin } from "@/lib/supabase";
 
 type OfferRow = {
@@ -32,10 +33,27 @@ type OfferRow = {
   manual_copy?: unknown;
 };
 
+const PAGE_TITLE = "Comparador Inteligente de Preços";
+const PAGE_DESCRIPTION =
+  "Compare dois produtos lado a lado e descubra qual oferta tem melhor custo-benefício no Radar Smart.";
+
 export const metadata: Metadata = {
-  title: "Comparador Inteligente de Preços - Radar Smart",
-  description:
-    "Compare dois produtos lado a lado e descubra qual oferta tem melhor custo-benefício no Radar Smart.",
+  title: `${PAGE_TITLE} - Radar Smart`,
+  description: PAGE_DESCRIPTION,
+  alternates: {
+    canonical: toAbsoluteSiteUrl("/comparativo"),
+  },
+  openGraph: {
+    title: `${PAGE_TITLE} - Radar Smart`,
+    description: PAGE_DESCRIPTION,
+    url: toAbsoluteSiteUrl("/comparativo"),
+    type: "website",
+  },
+  twitter: {
+    card: "summary",
+    title: `${PAGE_TITLE} - Radar Smart`,
+    description: PAGE_DESCRIPTION,
+  },
 };
 
 export const revalidate = 120;
@@ -130,5 +148,3 @@ export default async function ComparativoPage() {
     </>
   );
 }
-
-

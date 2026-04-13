@@ -182,6 +182,26 @@ function resolveOfficialAffiliateUrl(offer: OfferRow): string {
   return productUrl || currentAffiliate;
 }
 
+/**
+ * Marketplaces onde o link de afiliado PRECISA ser gerado manualmente
+ * pelo admin no portal oficial (Amazon Associates, ML Afiliados).
+ * Nesses casos, auto-gerar um link appending ?tag= ou ?matt_tool=
+ * nao garante comissionamento — o admin deve sempre colar o link.
+ */
+function requiresManualAffiliateUrl(marketplace: string | null): boolean {
+  const mp = String(marketplace ?? "").toLowerCase().trim();
+  return mp.includes("amazon") || mp.includes("mercado");
+}
+
+function hasValidTrackedAffiliateUrl(offer: OfferRow): boolean {
+  const affiliate = normalizeBaseUrl(offer.affiliate_url);
+  const product = normalizeBaseUrl(offer.product_url);
+
+  if (!affiliate) return false;
+  if (!product) return true;
+  return affiliate !== product;
+}
+
 function formatBRL(value: number | null): string {
   if (value === null) return "R$ 0,00";
   return new Intl.NumberFormat("pt-BR", {
@@ -450,6 +470,20 @@ export async function POST(req: NextRequest) {
         }
 
         try {
+          if (
+            !affiliateOverride &&
+            requiresManualAffiliateUrl(offer.marketplace) &&
+            !hasValidTrackedAffiliateUrl(offer)
+          ) {
+            results.push({
+              id,
+              ok: false,
+              error:
+                "Link de afiliado obrigatorio para Amazon e Mercado Livre. Gere o link oficial antes de aprovar em lote.",
+            });
+            continue;
+          }
+
           const officialAffiliateUrl =
             affiliateOverride || resolveOfficialAffiliateUrl(offer);
           const publishPayload = payloadByDestination(
@@ -489,6 +523,20 @@ export async function POST(req: NextRequest) {
       affiliateOverride || resolveOfficialAffiliateUrl(offer);
 
     if (action === "prepare_group") {
+      // Melhoria A: bloquear fallback auto-gerado para Amazon e ML.
+      // Nesses marketplaces o link precisa vir do portal de afiliados oficial.
+      // Sem affiliateOverride, a funcao resolveOfficialAffiliateUrl nao garante
+      // comissionamento — rejeitar em vez de salvar link sem rastreamento.
+      if (!affiliateOverride && requiresManualAffiliateUrl(offer.marketplace)) {
+        return NextResponse.json(
+          {
+            error:
+              "Link de afiliado obrigatorio para Amazon e Mercado Livre. Gere o link no portal de afiliados do marketplace e cole no campo antes de prosseguir.",
+          },
+          { status: 400 },
+        );
+      }
+
       if (officialAffiliateUrl && officialAffiliateUrl !== offer.affiliate_url) {
         await updateOfferWithFallback(offerId, {
           affiliate_url: officialAffiliateUrl,
@@ -532,6 +580,7 @@ export async function POST(req: NextRequest) {
       destination_block: destinationBlock,
       affiliate_url: officialAffiliateUrl,
       offer: updated,
+      copy_text: buildAidaCopy(updated, officialAffiliateUrl),
     });
   } catch (error) {
     return NextResponse.json(

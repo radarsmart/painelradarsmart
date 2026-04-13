@@ -17,7 +17,8 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const advertisers = await fetchAwinAdvertisers();
+    const countryCode = req.nextUrl.searchParams.get("country") || "BR";
+    const advertisers = await fetchAwinAdvertisers(countryCode);
     return NextResponse.json(advertisers, {
       headers: {
         "Cache-Control": "no-store, max-age=0",

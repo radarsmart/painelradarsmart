@@ -1,7 +1,12 @@
+import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
+import { requireAdmin } from "@/lib/admin-auth";
+import { resolveSiteUrl } from "@/lib/site";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+const ML_OAUTH_STATE_COOKIE = "radar_ml_oauth_state";
+const ML_OAUTH_STATE_TTL_SECONDS = 10 * 60;
 
 function cleanEnv(value?: string): string {
   return (value ?? "")
@@ -17,15 +22,23 @@ function getMlAuthConfig() {
     cleanEnv(process.env.MERCADOLIVRE_CLIENT_ID) ||
     "";
 
+  const configuredRedirectUri = cleanEnv(process.env.MERCADOLIVRE_REDIRECT_URI);
+  const canonicalRedirectUri = `${resolveSiteUrl()}/api/admin/ml/callback`;
   const redirectUri =
-    cleanEnv(process.env.MERCADOLIVRE_REDIRECT_URI) ||
-    "https://radar-smart.vercel.app/api/admin/ml/callback";
+    !configuredRedirectUri || configuredRedirectUri.includes("radar-smart.vercel.app")
+      ? canonicalRedirectUri
+      : configuredRedirectUri;
 
   return { clientId, redirectUri };
 }
 
 export async function GET(req: NextRequest) {
   const origin = req.nextUrl.origin;
+  const adminGuard = await requireAdmin(req);
+  if (!adminGuard.ok) {
+    return NextResponse.redirect(`${origin}/admin/login`, { status: 302 });
+  }
+
   const { clientId, redirectUri } = getMlAuthConfig();
 
   // Safe debug log: does not expose secrets.
@@ -43,9 +56,22 @@ export async function GET(req: NextRequest) {
   }
 
   const authUrl = new URL("https://auth.mercadolivre.com.br/authorization");
+  const state = randomUUID();
   authUrl.searchParams.set("response_type", "code");
   authUrl.searchParams.set("client_id", clientId);
   authUrl.searchParams.set("redirect_uri", redirectUri);
+  authUrl.searchParams.set("state", state);
 
-  return NextResponse.redirect(authUrl.toString(), { status: 302 });
+  const response = NextResponse.redirect(authUrl.toString(), { status: 302 });
+  response.cookies.set({
+    name: ML_OAUTH_STATE_COOKIE,
+    value: state,
+    httpOnly: true,
+    sameSite: "lax",
+    secure: req.nextUrl.protocol === "https:",
+    path: "/api/admin/ml/callback",
+    maxAge: ML_OAUTH_STATE_TTL_SECONDS,
+  });
+
+  return response;
 }

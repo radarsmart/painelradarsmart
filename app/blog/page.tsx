@@ -8,6 +8,28 @@ import Header from "@/components/layout/Header";
 import { formatBRL } from "@/lib/formatters";
 import { supabaseAdmin } from "@/lib/supabase";
 
+export const metadata = {
+  title: "Guias e blog de compras | Radar Smart",
+  description:
+    "Guias de compra, reviews, comparativos e análises editoriais do Radar Smart para comprar com mais segurança.",
+  alternates: {
+    canonical: "https://radarsmart.com.br/blog",
+  },
+  openGraph: {
+    title: "Guias e blog de compras | Radar Smart",
+    description:
+      "Guias de compra, reviews, comparativos e análises editoriais do Radar Smart para comprar com mais segurança.",
+    url: "https://radarsmart.com.br/blog",
+    type: "website",
+  },
+  twitter: {
+    card: "summary",
+    title: "Guias e blog de compras | Radar Smart",
+    description:
+      "Guias de compra, reviews, comparativos e análises editoriais do Radar Smart para comprar com mais segurança.",
+  },
+};
+
 type BlogPostRow = {
   id: number | string;
   slug: string | null;

@@ -1,11 +1,11 @@
 {
-  "name": "Radar Smart - Ofertas",
+  "name": "Radar Smart - Melhores Ofertas do Brasil",
   "short_name": "RadarSmart",
-  "description": "O seu radar de ofertas inteligentes em tempo real.",
+  "description": "Curadoria inteligente das melhores ofertas de eletrônicos, casa, beleza e muito mais. Economize com o Radar Smart.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#ffffff",
-  "theme_color": "#2563eb",
+  "background_color": "#0A0F1E",
+  "theme_color": "#0A0F1E",
   "icons": [
     {
       "src": "/icon-192x192.png",
@@ -16,6 +16,11 @@
     {
       "src": "/icon-512x512.png",
       "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "/apple-touch-icon.png",
+      "sizes": "180x180",
       "type": "image/png"
     }
   ]

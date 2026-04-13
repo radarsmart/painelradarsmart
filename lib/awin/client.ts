@@ -945,9 +945,10 @@ export async function fetchAwinProgrammes(params: {
   return programmes as NormalizedAwinProgramme[];
 }
 
-export async function fetchAwinAdvertisers() {
+export async function fetchAwinAdvertisers(countryCode?: string) {
   const programmes = await fetchAwinProgrammes({
     relationship: "joined",
+    countryCode: countryCode || undefined,
   });
 
   return programmes.map((programme) => ({

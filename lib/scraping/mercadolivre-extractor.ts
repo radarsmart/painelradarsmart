@@ -97,6 +97,11 @@ function computeDiscountPct(price: number | null, oldPrice: number | null): numb
 function normalizeMercadoLivreImageUrl(rawUrl: string | null): string | null {
   const value = String(rawUrl ?? "").trim();
   if (!value) return null;
+
+  if (value.includes("{") || value.includes("}")) {
+    return null;
+  }
+
   const noHash = value.split("#")[0];
   const noQuery = noHash.split("?")[0];
   const normalized = noQuery
@@ -678,8 +683,6 @@ export async function extractMercadoLivreOffer(input: {
   const normalizedUrl = normalizeMercadoLivreUrl(input.url);
   const itemId = extractItemIdFromUrl(normalizedUrl);
   const htmlSnapshot = await fetchHtml(normalizedUrl);
-  const htmlPayload = htmlSnapshot?.html ?? "";
-  console.log("[ML htmlPayload]", htmlPayload);
 
   const htmlParsed = htmlSnapshot
     ? parseHtmlSnapshot(htmlSnapshot.html, htmlSnapshot.finalUrl)

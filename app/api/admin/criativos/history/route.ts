@@ -26,6 +26,14 @@ type BriefingPayload = {
   checklist?: string[];
 };
 
+type WhatsAppCopyPayload = {
+  hook?: string;
+  short?: string;
+  medium?: string;
+  long?: string;
+  imageUrl?: string;
+};
+
 function toText(value: unknown): string {
   return String(value ?? "").trim();
 }
@@ -67,6 +75,17 @@ function normalizeBriefing(value: unknown): BriefingPayload {
   };
 }
 
+function normalizeWhatsAppCopy(value: unknown): WhatsAppCopyPayload {
+  const copy = (value && typeof value === "object" ? value : {}) as Record<string, unknown>;
+  return {
+    hook: toText(copy.hook),
+    short: toText(copy.short),
+    medium: toText(copy.medium),
+    long: toText(copy.long),
+    imageUrl: toText(copy.imageUrl ?? copy.image_url),
+  };
+}
+
 export async function GET(req: NextRequest) {
   const adminGuard = await requireAdmin(req);
   if (!adminGuard.ok) {
@@ -77,7 +96,7 @@ export async function GET(req: NextRequest) {
     const { data, error } = await supabaseAdmin
       .from("ugc_creatives")
       .select(
-        "id,campaign_name,ugc_type,voice_key,title,marketplace,category,product_url,price,original_price,generated_script,briefing,created_at,offer_id,landing_page_id,project_id,persona_id,template_id,angle_id,voice_direction,behavior_direction,created_by_email",
+        "id,campaign_name,ugc_type,voice_key,title,marketplace,category,product_url,price,original_price,generated_script,briefing,whatsapp_copy,created_at,offer_id,landing_page_id,project_id,persona_id,template_id,angle_id,voice_direction,behavior_direction,created_by_email",
       )
       .order("created_at", { ascending: false })
       .limit(40);
@@ -114,12 +133,16 @@ export async function POST(req: NextRequest) {
     const productUrl = toText(body.productUrl);
     const script = normalizeGeneratedScript(body.script);
     const briefing = normalizeBriefing(body.briefing);
+    const whatsappCopy = normalizeWhatsAppCopy(body.whatsappCopy);
 
-    if (!campaignName || !ugcType || !voiceKey || !title || !productUrl || !script.full_text) {
+    const hasScript = Boolean(script.full_text);
+    const hasWhatsAppCopy = Boolean(whatsappCopy.short || whatsappCopy.medium || whatsappCopy.long);
+
+    if (!campaignName || !ugcType || !voiceKey || !title || !productUrl || (!hasScript && !hasWhatsAppCopy)) {
       return NextResponse.json(
         {
           error:
-            "Campanha, modelo, voz, título, URL do produto e roteiro completo são obrigatórios para salvar no histórico.",
+            "Campanha, modelo, voz, título, URL do produto e um roteiro ou copy são obrigatórios para salvar no histórico.",
         },
         { status: 400 },
       );
@@ -149,6 +172,7 @@ export async function POST(req: NextRequest) {
       original_price: toNumberOrNull(body.originalPrice),
       generated_script: script,
       briefing,
+      whatsapp_copy: whatsappCopy,
       source_context:
         body.sourceContext && typeof body.sourceContext === "object"
           ? body.sourceContext
@@ -162,7 +186,7 @@ export async function POST(req: NextRequest) {
       .from("ugc_creatives")
       .insert(payload)
       .select(
-        "id,campaign_name,ugc_type,voice_key,title,marketplace,category,product_url,price,original_price,generated_script,briefing,created_at,offer_id,landing_page_id,project_id,persona_id,template_id,angle_id,voice_direction,behavior_direction,created_by_email",
+        "id,campaign_name,ugc_type,voice_key,title,marketplace,category,product_url,price,original_price,generated_script,briefing,whatsapp_copy,created_at,offer_id,landing_page_id,project_id,persona_id,template_id,angle_id,voice_direction,behavior_direction,created_by_email",
       )
       .single();
 

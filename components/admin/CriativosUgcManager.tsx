@@ -116,6 +116,14 @@ type HistoryRow = {
   voice_direction?: UGCVoiceDirection | null;
   behavior_direction?: UGCBehaviorDirection | null;
   generated_script: UGCScript | null;
+  whatsapp_copy?: {
+    hook?: string;
+    short?: string;
+    medium?: string;
+    long?: string;
+    imageUrl?: string;
+    image_url?: string;
+  } | null;
 };
 
 type AssetRow = {
@@ -343,6 +351,7 @@ export default function CriativosUgcManager() {
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [generatingWhatsAppCopy, setGeneratingWhatsAppCopy] = useState(false);
+  const [savingWhatsAppCopy, setSavingWhatsAppCopy] = useState(false);
   const [savingProject, setSavingProject] = useState(false);
   const [savingHistory, setSavingHistory] = useState(false);
   const [generatingAudio, setGeneratingAudio] = useState(false);
@@ -920,6 +929,81 @@ export default function CriativosUgcManager() {
     }
   }
 
+  async function handleSaveWhatsAppCopy() {
+    if (!whatsappCopy) {
+      setError("Gere a copy antes de salvar no histórico.");
+      return;
+    }
+
+    const currentOffer = selectedOffer ?? null;
+    if (!currentOffer?.title || !currentOffer.marketplace || !currentOffer.affiliate_url || !currentOffer.price) {
+      setError("Selecione uma oferta válida antes de salvar a copy.");
+      return;
+    }
+
+    setSavingWhatsAppCopy(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const whatsappScript = {
+        hook: whatsappCopy.hook,
+        body: whatsappCopy.medium,
+        cta: `Ver em Radar Smart: ${currentOffer.affiliate_url}`,
+        full_text: whatsappCopy.long,
+        tone: "whatsapp-telegram-copy",
+        part1: whatsappCopy.short,
+        part2: whatsappCopy.medium,
+        part3: whatsappCopy.long,
+      };
+
+      const res = await adminFetch("/api/admin/criativos/history", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          offerId: selectedOfferId || undefined,
+          landingPageId: selectedLandingPageId || undefined,
+          projectId: selectedProjectId || undefined,
+          personaId: selectedPersonaId || undefined,
+          templateId: selectedTemplateId || undefined,
+          angleId: selectedAngleId || undefined,
+          campaignName: campaignName || currentOffer.title,
+          ugcType,
+          voiceKey,
+          title: currentOffer.title,
+          marketplace: currentOffer.marketplace,
+          category: currentOffer.category || category || undefined,
+          productUrl: currentOffer.product_url || productUrl || currentOffer.affiliate_url,
+          price: currentOffer.price,
+          originalPrice: currentOffer.original_price || currentOffer.old_price || undefined,
+          script: whatsappScript,
+          briefing: generatedBriefing,
+          whatsappCopy: {
+            hook: whatsappCopy.hook,
+            short: whatsappCopy.short,
+            medium: whatsappCopy.medium,
+            long: whatsappCopy.long,
+            imageUrl: currentOffer.image_url || imageUrl || undefined,
+          },
+          voiceDirection: currentVoiceDirection,
+          behaviorDirection: currentBehaviorDirection,
+          sourceContext: {
+            affiliateUrl: currentOffer.affiliate_url,
+            imageUrl: currentOffer.image_url || imageUrl || undefined,
+            objective,
+          },
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(asText(json.error) || "Erro ao salvar copy no histórico.");
+      setMessage("Copy WhatsApp/Telegram salva no histórico.");
+      await loadAll();
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Erro ao salvar copy no histórico.");
+    } finally {
+      setSavingWhatsAppCopy(false);
+    }
+  }
+
   function clearBriefing() {
     setSelectedOfferId("");
     setSelectedLandingPageId("");
@@ -1134,9 +1218,22 @@ export default function CriativosUgcManager() {
                         )
                       }
                       className="inline-flex items-center gap-2 rounded-2xl border border-orange-200 bg-orange-50 px-4 py-3 text-sm font-semibold text-orange-700 transition hover:bg-orange-100"
+                      >
+                        <Copy className="h-4 w-4" />
+                        Copiar com imagem
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSaveWhatsAppCopy}
+                      disabled={savingWhatsAppCopy}
+                      className="inline-flex items-center gap-2 rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-60"
                     >
-                      <Copy className="h-4 w-4" />
-                      Copiar com imagem
+                      {savingWhatsAppCopy ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Save className="h-4 w-4" />
+                      )}
+                      Salvar no histórico
                     </button>
                   </div>
                 </div>

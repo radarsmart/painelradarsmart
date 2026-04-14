@@ -89,11 +89,21 @@ async function adminFetch<T>(url: string, init?: RequestInit): Promise<T> {
     cache: "no-store",
   });
 
-  const payload = (await response.json().catch(() => ({}))) as T & { error?: string };
-  if (!response.ok) {
-    throw new Error(payload.error || `Falha na requisicao (${response.status}).`);
+  const contentType = response.headers.get("content-type") || "";
+  if (contentType.includes("application/json")) {
+    const payload = (await response.json().catch(() => ({}))) as T & { error?: string };
+    if (!response.ok) {
+      throw new Error(payload.error || `Falha na requisicao (${response.status}).`);
+    }
+    return payload;
   }
-  return payload;
+
+  if (!response.ok) {
+    throw new Error(`Erro do servidor (${response.status}).`);
+  }
+
+  // Fallback para caso não seja JSON mas a resposta seja 200 OK (improvável aqui mas seguro)
+  return {} as T;
 }
 
 function StatCard({
@@ -247,8 +257,11 @@ export default function AdminChannelsPage() {
       </div>
 
       {globalError ? (
-        <div className="rounded-3xl border border-red-200 bg-red-50 px-5 py-4 text-sm font-medium text-red-700">
-          {globalError}
+        <div className="rounded-3xl border border-red-200 bg-red-50 px-5 py-4 text-sm font-medium text-red-700 overflow-hidden break-words">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="h-4 w-4 shrink-0" />
+            <span>{globalError.length > 500 ? `${globalError.substring(0, 500)}...` : globalError}</span>
+          </div>
         </div>
       ) : null}
 
@@ -279,7 +292,17 @@ export default function AdminChannelsPage() {
 
           {whatsApp?.error ? (
             <div className="mt-5 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-              {whatsApp.error}
+              <div className="flex items-start gap-2">
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                <div className="overflow-hidden break-words">
+                  <p className="font-bold">Falha no serviço de WhatsApp</p>
+                  <p className="mt-0.5 opacity-90">
+                    {whatsApp.error.length > 500
+                      ? `${whatsApp.error.substring(0, 500)}...`
+                      : whatsApp.error}
+                  </p>
+                </div>
+              </div>
             </div>
           ) : null}
 
@@ -378,7 +401,17 @@ export default function AdminChannelsPage() {
 
           {telegram?.error ? (
             <div className="mt-5 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-              {telegram.error}
+              <div className="flex items-start gap-2">
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                <div className="overflow-hidden break-words">
+                  <p className="font-bold">Falha no serviço de Telegram</p>
+                  <p className="mt-0.5 opacity-90">
+                    {telegram.error.length > 500
+                      ? `${telegram.error.substring(0, 500)}...`
+                      : telegram.error}
+                  </p>
+                </div>
+              </div>
             </div>
           ) : null}
 

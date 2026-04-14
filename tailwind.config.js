@@ -13,6 +13,8 @@ module.exports = {
           yellow: "#FFD814",
           muted: "#8892A0",
           border: "#232F3E",
+          gold: "#C9973A",
+          dark: "#0A0F1E",
         },
       },
       fontFamily: {

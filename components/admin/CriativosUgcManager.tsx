@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -13,6 +13,9 @@ import {
   Sparkles,
   UserRound,
   Wand2,
+  Video,
+  ExternalLink,
+  CheckCircle2,
 } from "lucide-react";
 
 import type {
@@ -328,6 +331,7 @@ export default function CriativosUgcManager() {
   const [savingProject, setSavingProject] = useState(false);
   const [savingHistory, setSavingHistory] = useState(false);
   const [generatingAudio, setGeneratingAudio] = useState(false);
+  const [generatingVideo, setGeneratingVideo] = useState(false);
 
   const selectedPersona = useMemo(
     () => personas.find((persona) => persona.id === selectedPersonaId) ?? null,
@@ -406,9 +410,9 @@ export default function CriativosUgcManager() {
       if (!landingRes.ok) throw new Error(asText(landingJson.error) || "Erro ao carregar landings.");
       if (!personasRes.ok) throw new Error(asText(personasJson.error) || "Erro ao carregar personas.");
       if (!templatesRes.ok) throw new Error(asText(templatesJson.error) || "Erro ao carregar templates.");
-      if (!anglesRes.ok) throw new Error(asText(anglesJson.error) || "Erro ao carregar Ã¢ngulos.");
+      if (!anglesRes.ok) throw new Error(asText(anglesJson.error) || "Erro ao carregar ângulos.");
       if (!projectsRes.ok) throw new Error(asText(projectsJson.error) || "Erro ao carregar projetos.");
-      if (!historyRes.ok) throw new Error(asText(historyJson.error) || "Erro ao carregar histÃ³rico.");
+      if (!historyRes.ok) throw new Error(asText(historyJson.error) || "Erro ao carregar histórico.");
 
       setOffers(Array.isArray(offersJson.offers) ? offersJson.offers : []);
       setLandingPages(Array.isArray(landingJson.landingPages) ? landingJson.landingPages : []);
@@ -510,7 +514,7 @@ export default function CriativosUgcManager() {
   async function loadAssets(projectId: string) {
     try {
       const res = await adminFetch(
-        `/api/admin/criativos/assets?projectId=${projectId}&assetType=audio`,
+        `/api/admin/criativos/assets?projectId=${projectId}`,
       );
       const json = await res.json();
       if (!res.ok) {
@@ -688,7 +692,7 @@ export default function CriativosUgcManager() {
 
   async function handleSaveToHistory() {
     if (!generatedScript?.full_text) {
-      setError("Gere um roteiro antes de salvar no histÃ³rico.");
+      setError("Gere um roteiro antes de salvar no histórico.");
       return;
     }
     setSavingHistory(true);
@@ -726,11 +730,11 @@ export default function CriativosUgcManager() {
         }),
       });
       const json = await res.json();
-      if (!res.ok) throw new Error(asText(json.error) || "Erro ao salvar no histÃ³rico.");
-      setMessage("Criativo salvo no histÃ³rico.");
+      if (!res.ok) throw new Error(asText(json.error) || "Erro ao salvar no histórico.");
+      setMessage("Criativo salvo no histórico.");
       await loadAll();
     } catch (historyError) {
-      setError(historyError instanceof Error ? historyError.message : "Erro ao salvar no histÃ³rico.");
+      setError(historyError instanceof Error ? historyError.message : "Erro ao salvar no histórico.");
     } finally {
       setSavingHistory(false);
     }
@@ -738,13 +742,13 @@ export default function CriativosUgcManager() {
 
   async function handleGenerateAudio() {
     if (!selectedProjectId) {
-      setError("Salve o projeto antes de gerar Ã¡udio.");
+      setError("Salve o projeto antes de gerar áudio.");
       return;
     }
 
     const scriptForAudio = generatedScript ?? selectedProject?.current_script ?? null;
     if (!scriptForAudio?.full_text) {
-      setError("Gere ou carregue um roteiro antes de gerar Ã¡udio.");
+      setError("Gere ou carregue um roteiro antes de gerar áudio.");
       return;
     }
 
@@ -765,21 +769,52 @@ export default function CriativosUgcManager() {
       });
       const json = await res.json();
       if (!res.ok) {
-        throw new Error(asText(json.error) || "Erro ao gerar Ã¡udio.");
+        throw new Error(asText(json.error) || "Erro ao gerar áudio.");
       }
-      setMessage("Ãudio gerado com sucesso.");
+      setMessage("Áudio gerado com sucesso.");
       await loadAssets(selectedProjectId);
       await loadAll();
     } catch (audioError) {
-      setError(audioError instanceof Error ? audioError.message : "Erro ao gerar Ã¡udio.");
+      setError(audioError instanceof Error ? audioError.message : "Erro ao gerar áudio.");
     } finally {
       setGeneratingAudio(false);
     }
   }
 
+  async function handleGenerateVideo() {
+    if (!selectedProjectId) {
+        setError("Salve o projeto antes de gerar vídeo.");
+        return;
+    }
+
+    setGeneratingVideo(true);
+    setError(null);
+    setMessage(null);
+    
+    try {
+        const res = await adminFetch("/api/admin/criativos/video", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ projectId: selectedProjectId })
+        });
+        const json = await res.json();
+        
+        if (!res.ok) {
+            throw new Error(asText(json.error) || "Erro ao gerar vídeo.");
+        }
+        
+        setMessage("Renderização de vídeo iniciada/concluída com sucesso.");
+        await loadAssets(selectedProjectId);
+    } catch (videoError) {
+        setError(videoError instanceof Error ? videoError.message : "Erro ao gerar vídeo.");
+    } finally {
+        setGeneratingVideo(false);
+    }
+  }
+
   async function copyText(value: string) {
     await navigator.clipboard.writeText(value);
-    setMessage("Conteudo copiado.");
+    setMessage("Conteúdo copiado.");
   }
 
   function clearBriefing() {
@@ -831,20 +866,24 @@ export default function CriativosUgcManager() {
   return (
     <div className="space-y-6">
       <div className="space-y-2">
-        <h1 className="text-3xl font-bold tracking-tight text-slate-900">Criativos UGC</h1>
+        <h1 className="text-3xl font-bold tracking-tight text-slate-900 flex items-center gap-3">
+            <Clapperboard className="text-orange-500 h-8 w-8" /> Criativos UGC
+        </h1>
         <p className="text-sm text-slate-600">
           Monte projetos de criativos a partir de ofertas, landing pages e personas.
         </p>
       </div>
 
       {error ? (
-        <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          {error}
+        <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 flex items-center justify-between">
+          <span>{error}</span>
+          <button onClick={() => setError(null)}><CheckCircle2 className="h-4 w-4" /></button>
         </div>
       ) : null}
       {message ? (
-        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
-          {message}
+        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 flex items-center justify-between">
+          <span>{message}</span>
+          <button onClick={() => setMessage(null)}><CheckCircle2 className="h-4 w-4" /></button>
         </div>
       ) : null}
 
@@ -1066,9 +1105,9 @@ export default function CriativosUgcManager() {
                   onChange={(e) => setUgcType(e.target.value as UGCType)}
                   className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-orange-400"
                 >
-                  <option value="model-a">Model A</option>
-                  <option value="model-b">Model B</option>
-                  <option value="model-c">Model C</option>
+                  <option value="model-a">Model A (Multi-cena)</option>
+                  <option value="model-b">Model B (Pexels Stock)</option>
+                  <option value="model-c">Model C (Screen Record)</option>
                 </select>
               </label>
               <label className="space-y-2 text-sm text-slate-700">
@@ -1432,27 +1471,43 @@ export default function CriativosUgcManager() {
                   </div>
                 ) : null}
 
+                <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={handleSaveToHistory}
+                      disabled={savingHistory}
+                      className="inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-60"
+                    >
+                      {savingHistory ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                      Salvar Histórico
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleGenerateAudio}
+                      disabled={generatingAudio || !selectedProjectId}
+                      className="inline-flex items-center justify-center gap-2 rounded-2xl bg-indigo-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:opacity-60"
+                    >
+                      {generatingAudio ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Mic2 className="h-4 w-4" />
+                      )}
+                      Gerar Áudio
+                    </button>
+                </div>
+
                 <button
                   type="button"
-                  onClick={handleSaveToHistory}
-                  disabled={savingHistory}
-                  className="inline-flex items-center gap-2 rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-60"
+                  onClick={handleGenerateVideo}
+                  disabled={generatingVideo || !selectedProjectId}
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-rs-gold px-4 py-4 text-sm font-black text-white transition hover:brightness-110 disabled:opacity-60 uppercase tracking-widest shadow-lg shadow-rs-gold/20"
                 >
-                  {savingHistory ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                  Salvar no histórico
-                </button>
-                <button
-                  type="button"
-                  onClick={handleGenerateAudio}
-                  disabled={generatingAudio || !selectedProjectId}
-                  className="inline-flex items-center gap-2 rounded-2xl bg-indigo-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:opacity-60"
-                >
-                  {generatingAudio ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
+                  {generatingVideo ? (
+                    <Loader2 className="h-5 w-5 animate-spin" />
                   ) : (
-                    <AudioLines className="h-4 w-4" />
+                    <Video className="h-5 w-5" />
                   )}
-                  Gerar áudio
+                  Renderizar Vídeo Final UGC
                 </button>
               </div>
             ) : (
@@ -1463,30 +1518,42 @@ export default function CriativosUgcManager() {
           <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-slate-900">
               <AudioLines className="h-4 w-4 text-orange-500" />
-              Audios do projeto
+              Assets do Projeto (Vídeo/Áudio)
             </div>
             {!selectedProjectId ? (
-              <p className="text-sm text-slate-500">Salve e selecione um projeto para gerar e listar áudios.</p>
+              <p className="text-sm text-slate-500">Salve e selecione um projeto para gerar e listar assets.</p>
             ) : assets.length === 0 ? (
-              <p className="text-sm text-slate-500">Nenhum áudio gerado para este projeto.</p>
+              <p className="text-sm text-slate-500">Nenhum asset gerado para este projeto.</p>
             ) : (
-              <div className="space-y-3">
+              <div className="space-y-4">
                 {assets.map((asset) => (
-                  <div key={asset.id} className="rounded-2xl border border-slate-200 p-4">
-                    <div className="mb-2 flex items-start justify-between gap-4">
-                      <div>
-                        <div className="font-semibold text-slate-900">
-                          {asText(asset.metadata?.voiceName) || "Audio"}
-                        </div>
-                        <div className="text-xs text-slate-500">
-                          {asset.provider || "-"}  -  {formatDate(asset.created_at)}
+                  <div key={asset.id} className="rounded-2xl border border-slate-200 p-4 bg-slate-50/50">
+                    <div className="mb-3 flex items-start justify-between gap-4">
+                      <div className="flex items-center gap-2">
+                        {asset.asset_type === 'video' ? <Video className="h-4 w-4 text-orange-500" /> : <Mic2 className="h-4 w-4 text-indigo-500" />}
+                        <div>
+                            <div className="font-bold text-slate-900 uppercase text-[10px] tracking-wider">
+                                {asset.asset_type === 'video' ? 'VÍDEO FINAL' : 'NARRAÇÃO IA'}
+                            </div>
+                            <div className="text-[10px] text-slate-500">
+                                {asset.provider || "-"}  •  {formatDate(asset.created_at)}
+                            </div>
                         </div>
                       </div>
-                      <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
-                        {asset.status}
-                      </span>
+                      <a 
+                        href={asset.public_url || '#'} 
+                        target="_blank" 
+                        rel="noreferrer"
+                        className="p-2 bg-white rounded-full border border-slate-200 text-slate-400 hover:text-orange-500 transition shadow-sm"
+                      >
+                        <ExternalLink className="h-3.5 w-3.5" />
+                      </a>
                     </div>
-                    {asset.public_url ? (
+                    {asset.asset_type === 'video' && asset.public_url ? (
+                      <video controls className="w-full rounded-xl shadow-md bg-black max-h-60">
+                        <source src={asset.public_url} type={asset.mime_type || "video/mp4"} />
+                      </video>
+                    ) : asset.asset_type === 'audio' && asset.public_url ? (
                       <audio controls className="w-full">
                         <source src={asset.public_url} type={asset.mime_type || "audio/mpeg"} />
                       </audio>
@@ -1538,7 +1605,7 @@ export default function CriativosUgcManager() {
         <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-slate-900">
             <Mic2 className="h-4 w-4 text-orange-500" />
-            Historico recente
+            Histórico recente
           </div>
           <div className="space-y-3">
             {history.length === 0 ? (
@@ -1572,4 +1639,3 @@ export default function CriativosUgcManager() {
     </div>
   );
 }
-

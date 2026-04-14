@@ -1,125 +1,269 @@
+Substitua completamente o conteúdo do arquivo 
+.agent/skills/criativos/SKILL.md pelo conteúdo abaixo.
+NÃO altere nada — copie exatamente como está:
+
 ---
 name: criativos
-description: Usar ao criar qualquer conteúdo visual, script, vídeo ou criativo para a Radar Smart nas redes sociais.
+description: Usar ao criar qualquer criativo, script, 
+vídeo, imagem ou anúncio para a Radar Smart. 
+Esta skill contém toda a metodologia de criativo 
+de alta conversão para afiliados brasileiros.
 ---
 
-## Identidade da Radar Smart
+# Radar Smart — Metodologia de Criativos de Alta Conversão
 
-A Radar Smart é uma plataforma brasileira de curadoria inteligente de ofertas. O tom de voz oficial é masculino (Avatar Mateus), casual, empolgado e autêntico. O objetivo é que o usuário sinta que está falando com um amigo/curador real.
+## O objetivo de cada criativo
+Cada criativo tem UMA missão: fazer o usuário parar 
+o scroll nos primeiros 2 segundos e clicar no link 
+da bio ou swipe up. Não é entreter. Não é informar. 
+É CONVERTER.
 
-## Realismo e Humanização (UGC)
+## Os 3 segundos que decidem tudo
+O usuário decide em 0.4 segundos se continua assistindo.
+O que retém atenção nos primeiros 3 segundos:
+1. SURPRESA — algo inesperado ou chocante
+2. CURIOSIDADE — pergunta que ele quer responder
+3. IDENTIFICAÇÃO — "isso sou eu" ou "isso é pra mim"
+4. PROVA SOCIAL — "todo mundo está comprando"
+5. URGÊNCIA REAL — escassez verdadeira, não fake
 
-Para evitar o "aspecto de IA" e parecer um criador real (estilo Konverter IA):
-1. **Avatar Masculino Oficial (Mateus):** 
-   - Use o ID: `5d8e2be335a9495db883c05111759ba4`
-2. **Ambientação:** Use sempre backgrounds de ambientes reais (Home Office, Sala, Rua com Bokeh) em vez de cenários abstratos ou cores sólidas.
-3. **Scripts Humanos:** Use hesitações como "hã...", "tipo...", "sério gente" e repetições leves ("p-preço") para quebrar a perfeição da IA.
-4. **Motion:** Utilize modelos com a tag `expressive` para garantir micro-expressões e movimentos de corpo naturais.
+## Os 7 gatilhos que fazem comprar em segundos
 
-## Público-alvo
+### 1. Gatilho da Descoberta
+"Achei algo que ninguém sabe ainda"
+Exemplo: "Cara, isso tá ESCONDIDO no site..."
 
-Brasileiro de 25-45 anos, conectado, compra online regularmente, compara preços antes de comprar, usa WhatsApp e Instagram diariamente.
-Perfil: quer economizar mas não quer perder tempo procurando — quer que alguém de confiança já faça isso por ele.
+### 2. Gatilho da Escassez Real
+"Está acabando de verdade"
+Exemplo: "Só 3 em estoque quando fui ver"
 
-## Tom de voz
+### 3. Gatilho da Comparação de Preço
+"Você estava pagando caro demais"
+Exemplo: "Vi esse mesmo produto por R$150 ontem.
+Aqui tá R$67. Eu não acredito."
 
-SEMPRE casual, empolgado e autêntico.
-Como um amigo que achou uma oferta incrível e quer compartilhar antes que acabe.
+### 4. Gatilho da Identidade
+"Pessoas como você compram isso"
+Exemplo: "Todo mundo que tem casa pequena
+precisa desse organizador"
 
-NUNCA formal, corporativo ou exagerado.
-NUNCA parecer propaganda óbvia.
-SEMPRE parecer descoberta genuína.
+### 5. Gatilho da Prova Social
+"Muita gente já comprou e aprovou"
+Exemplo: "4.8 estrelas, mais de 2000 avaliações"
 
-Exemplos de tom CERTO:
-- "Cara, não acredito no que eu achei..."
-- "Gente, olha isso aqui, é sério?"
-- "Tava procurando isso faz tempo e achei por esse preço?"
+### 6. Gatilho da Autoridade Curada
+"Eu garimpei pra você"
+Exemplo: "Passei horas procurando a melhor oferta
+e essa ganhou fácil"
 
-Exemplos de tom ERRADO:
-- "Aproveite esta incrível oportunidade!"
-- "Oferta imperdível por tempo limitado!"
-- "Adquira agora com desconto exclusivo!"
+### 7. Gatilho da Urgência de Oportunidade
+"Essa chance não volta"
+Exemplo: "Desconto assim só acontece uma vez.
+Quando acabar, acabou."
 
-## Estrutura obrigatória do script UGC
+## Estrutura dos formatos que mais convertem
 
-1. **HOOK (0-3s):** Reação genuína de surpresa ou descoberta.
-2. **PROBLEMA (3-8s):** Contexto do produto — para que serve, quem precisa, situação do dia a dia.
-3. **SOLUÇÃO (8-18s):** O produto como resposta, mostrar o preço atual vs original, destacar o desconto real.
-4. **PROVA (18-23s):** Social proof — "já tem X pessoas comprando", avaliações, ou resultado esperado.
-5. **CTA (23-30s):** SEMPRE terminar com: "Entra no Radar Smart pelo link na bio e garante antes de esgotar!"
+### Formato 1 — O Achado Chocante (melhor para Reels)
+Duração: 15-20 segundos
 
-## Regras de script
+[0-2s] HOOK DE CHOQUE
+Reação genuína de quem acabou de ver o preço
+"NÃO É POSSÍVEL esse preço..."
 
-1. Máximo 30 segundos de fala (150-180 palavras).
-2. Incluir hesitações naturais: "é...", "tipo...", "hã...".
-3. Gaguejadas leves em momentos de surpresa: "p-preço", "t-tá".
-4. NUNCA mencionar ML, Shopee, Amazon ou marketplace no script.
-5. SEMPRE mencionar "Radar Smart" no CTA.
-6. Preço sempre em reais: "R$ 24,56" (nunca "24 reais").
-7. Desconto sempre em %: "21% OFF" ou "21% de desconto".
+[2-5s] IDENTIFICAÇÃO
+Para quem é esse produto, situação do dia a dia
+"Se você tem [situação comum]..."
 
-## Diretrizes visuais
+[5-12s] REVELAÇÃO
+Mostrar o produto + preço antigo riscado + novo
+"Esse [produto] que tava R$[X] agora tá R$[Y]"
 
-Cores da marca:
-- **Fundo principal:** #0A0F1E (dark navy)
-- **Dourado/destaque:** #C9973A
-- **Branco:** #FFFFFF
-- **Vermelho badge:** #E74C3C
+[12-17s] PROVA RÁPIDA
+Avaliações, estoque, quantidade vendida
+"[N] pessoas já garantiram o delas"
 
-- **Logo:** sempre no canto inferior direito, tamanho discreto.
-- **Formato:** sempre 9:16 vertical (1080x1920).
-- **Qualidade:** mínimo 1080p.
+[17-20s] CTA URGENTE
+"Corre no Radar Smart pelo link na bio
+ANTES que acabe o estoque"
 
-## Tipos de criativo por canal
+### Formato 2 — A Comparação (melhor para Stories/Ads)
+Duração: 10-15 segundos
 
-### Instagram Reels (principal)
-- Duração: 15-30 segundos.
-- Avatar ou tela de celular.
-- Legenda automática obrigatória.
-- Música de fundo baixa (30% volume).
+[0-3s] PROBLEMA FAMILIAR
+Mostrar o problema que o produto resolve
 
-### Stories
-- Duração: 8-15 segundos.
-- Card estático ou animação simples.
-- Swipe up / link na bio.
-- Texto grande e direto.
+[3-8s] SOLUÇÃO + PREÇO
+Produto aparece com preço em destaque
+
+[8-12s] CTA DIRETO
+Link na bio, swipe up
+
+### Formato 3 — A Prova Social (melhor para Feed)
+Duração: 20-30 segundos
+
+[0-3s] NÚMERO IMPRESSIONANTE
+"Mais de 5000 pessoas compraram isso essa semana"
+
+[3-10s] POR QUÊ todo mundo está comprando
+Mostrar o produto e benefício principal
+
+[10-20s] PREÇO + DESCONTO
+Comparação visual de preço
+
+[20-25s] CTA
+
+### Formato 4 — O Card de Oferta (WhatsApp/Telegram)
+Duração: 8-10 segundos, sem fala necessária
+Texto grande: NOME DO PRODUTO
+Preço antigo riscado
+Preço novo em dourado GRANDE
+Badge: X% OFF
+Logo Radar Smart
+CTA: "Link na bio 👆"
+
+## Scripts de hook que param o scroll
+
+### Hooks de choque (maior retenção):
+- "Não acredito no que acabei de ver..."
+- "Para tudo! Olha o p-preço disso..."
+- "Isso não pode tá certo... mas tá"
+- "Alguém me explica como esse preço é possível"
+- "Eu tava procurando isso faz MESES"
+
+### Hooks de identificação:
+- "Pra quem tem [problema comum]..."
+- "Se você sempre quis [desejo] mas achava caro..."
+- "Isso é pra quem [situação do dia a dia]..."
+
+### Hooks de urgência:
+- "Tá acabando AGORA enquanto você assiste"
+- "Ontem tinha 50 em estoque, hoje tem [N]"
+- "Esse preço some quando a promoção acabar"
+
+## O que NUNCA fazer
+
+- Tom corporativo: "Aproveite esta incrível oportunidade"
+- Promessa falsa: "Mude sua vida com..."
+- Exagero óbvio: "O melhor produto de todos os tempos"
+- Fala lenta ou monótona sem energia
+- Começar com logo ou nome da marca
+- Texto demais na tela ao mesmo tempo
+- Menção ao marketplace (ML, Shopee, Amazon)
+- Prometer resultado específico de economia
+
+## Especificações técnicas por canal
+
+### Instagram Reels
+- Formato: 9:16 vertical 1080x1920
+- Duração ideal: 15-25 segundos
+- Legenda automática obrigatória
+- Música de fundo: trending, volume 20-30%
+- Primeira frame: produto ou expressão de choque
+
+### Instagram Stories
+- Formato: 9:16 vertical
+- Duração: 8-15 segundos
+- Sticker de link obrigatório
+- Texto grande e legível
+
+### TikTok
+- Hook nos primeiros 1.5 segundos
+- Trending sounds aumentam alcance orgânico
+
+### Facebook/Meta Ads
+- Primeiros 3s sem áudio (muitos assistem mutado)
+- Legenda sempre ativa
+- CTA claro na tela, não só falado
 
 ### WhatsApp/Telegram
-- Vídeo curto: 10-15 segundos.
-- Ou card estático com preço.
-- Mensagem de texto junto com link afiliado.
+- Vídeo curto: 10-15s ou card estático
+- Mensagem de texto junto:
+  "🔥 [PRODUTO] com [X]% OFF
+   De R$[X] por R$[Y]
+   👉 [LINK AFILIADO]"
 
-## Produtos que mais convertem
+### Google Shopping/Display
+- Imagem estática: 1200x628 ou 1080x1080
+- Produto centralizado, fundo limpo
+- Preço em destaque
+- Logo Radar Smart discreto
 
-Categorias de maior conversão histórica:
-1. Eletrônicos com desconto acima de 20%.
-2. Produtos de casa e organização.
-3. Beleza e cuidados pessoais.
-4. Gadgets e acessórios tech.
+## Avatars e vozes oficiais
 
-**Ticket ideal para UGC:** R$20 a R$150 (fácil decisão de compra, não precisa muito convencimento).
+Voz oficial: Mateus Moretti
+ElevenLabs ID: F7823wtD50WK1gnmgBk5
+Configuração: stability 0.4, similarity_boost 0.8,
+style 0.5, use_speaker_boost true
 
-## Exemplos de scripts aprovados
+Avatar oficial HeyGen: Adrian_public_20240312
+Estilo: casual, fundo real de ambiente
 
-**EXEMPLO 1 - Produto de casa (R$24,56):**
-"Cara, não acredito no que eu achei aqui no Radar Smart... é esse limpador de vidro magnético, você coloca de um lado e o outro fica do lado de fora segurando pelo ímã — nunca mais precisar abrir a janela! E olha o preço... de R$30 por R$24,56. Vinte e um por cento de desconto é sério isso? Corre lá, entra no Radar Smart pelo link na bio e garante antes de esgotar!"
+## Personas por tipo de produto
 
-**EXEMPLO 2 - Eletrônico (R$89,90):**
-"Gente, olha esse fone aqui... é.. bluetooth, cancelamento de ruído, e tá saindo por R$89,90 no Radar Smart. Cara, esse mesmo fone eu vi ontem por R$150 em outro lugar. É quase 40% de desconto, não tô acreditando. Entra no Radar Smart pelo link na bio — garante antes que acabe!"
+Para produtos de casa/organização:
+Avatar feminino 28-38 anos, casual,
+tom de descoberta empolgada
 
-## Avatars recomendados para UGC
+Para eletrônicos/tech:
+Avatar masculino 25-35 anos, casual,
+tom de "cara, olha isso"
 
-Perfil ideal do avatar:
-- Aparência jovem (25-35 anos).
-- Estilo casual — camiseta, fundo de casa ou quarto.
-- Expressão animada e genuína.
-- Gesticula naturalmente enquanto fala.
-- **NÃO** usar avatar corporativo ou formal.
+Para produtos gerais:
+Mateus (ElevenLabs) como voz,
+Adrian (HeyGen) como visual
 
-## Métricas de qualidade do criativo
+## Roteiro de produção semanal sugerido
 
-Um bom criativo da Radar Smart deve:
-- Parar o scroll nos primeiros 2 segundos.
-- Comunicar o produto e preço em menos de 5 segundos.
-- Gerar vontade de clicar no link da bio.
-- **NÃO** parecer propaganda — parecer indicação de amigo.
+Segunda: 2 criativos Achado Chocante
+Terça: 2 criativos Card de Oferta
+Quarta: 1 criativo Comparação
+Quinta: 2 criativos Achado Chocante
+Sexta: 1 criativo para Stories
+Sábado: 1 criativo para WhatsApp/Telegram
+Domingo: análise do melhor da semana
+
+Total: 9 criativos por semana
+Meta: 1-2 publicados por dia
+
+## CTAs oficiais da Radar Smart
+
+SEMPRE usar uma destas variações:
+1. "Entra no Radar Smart pelo link na bio
+    e garante antes de esgotar!"
+2. "Corre no Radar Smart — link na bio —
+    antes que acabe o estoque!"
+3. "Acessa o Radar Smart agora pelo link na bio
+    que tá com preço de hoje ainda!"
+
+NUNCA mencionar marketplace no CTA.
+SEMPRE mencionar Radar Smart.
+SEMPRE criar urgência real no final.
+
+## Métricas de sucesso
+
+Criativo BOM:
+- Retenção acima de 40% no Reels
+- CTR acima de 2%
+- CPC abaixo de R$0,80 em ads pagos
+- Compartilhado ou salvo pelo usuário
+
+Criativo RUIM:
+- Usuário pula antes de 3 segundos
+- Nenhuma interação
+- Taxa de saída acima de 80% antes do CTA
+
+## Identidade visual
+
+Cores:
+- Fundo: #0A0F1E
+- Dourado: #C9973A
+- Branco: #FFFFFF
+- Badge desconto: #E74C3C
+
+Logo: canto inferior direito, discreto
+Formato: sempre 9:16 vertical 1080x1920
+Qualidade: mínimo 1080p
+
+Após salvar o arquivo faça commit:
+"feat(skills): atualiza skill criativos com 
+metodologia completa de alta conversao"

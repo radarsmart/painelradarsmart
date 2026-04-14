@@ -34,7 +34,16 @@ type AwinProduct = {
   originalCurrency: string;
   merchantName: string;
   categoryName: string;
-  deliveryCost?: number;
+  deliveryCost?: number | null;
+  commissionLabel?: string;
+  isBrazilDomestic?: boolean;
+  brazilSignalSummary?: string;
+  brazilSignalConfidence?: string;
+  brazilSignalSource?: string;
+  isFreeShipping?: boolean;
+  shippingSignalSummary?: string;
+  shippingSignalConfidence?: string;
+  shippingSignalSource?: string;
 };
 
 type FeedResponse = {
@@ -71,6 +80,7 @@ export default function HubAwinProductsPage() {
   const priceMin = searchParams.get("priceMin") ?? "";
   const priceMax = searchParams.get("priceMax") ?? "";
   const freeShipping = searchParams.get("freeShipping") === "true";
+  const brazilOnly = searchParams.get("brazilOnly") === "true";
 
   const [products, setProducts] = useState<AwinProduct[]>([]);
   const [total, setTotal] = useState(0);
@@ -91,11 +101,12 @@ export default function HubAwinProductsPage() {
   const [priceMinDraft, setPriceMinDraft] = useState(priceMin);
   const [priceMaxDraft, setPriceMaxDraft] = useState(priceMax);
   const [freeShippingDraft, setFreeShippingDraft] = useState(freeShipping);
+  const [brazilOnlyDraft, setBrazilOnlyDraft] = useState(brazilOnly);
 
   const [categories, setCategories] = useState<string[]>([]);
   const [aiLoading, setAiLoading] = useState<string | null>(null);
   const [productCopies, setProductCopies] = useState<Record<string, string>>({});
-  const [showAdvanced, setShowAdvanced] = useState(priceMin || priceMax || freeShipping ? true : false);
+  const [showAdvanced, setShowAdvanced] = useState(priceMin || priceMax || freeShipping || brazilOnly ? true : false);
 
   function buildUrl(nextParams: {
     search?: string;
@@ -104,6 +115,7 @@ export default function HubAwinProductsPage() {
     priceMin?: string;
     priceMax?: string;
     freeShipping?: boolean;
+    brazilOnly?: boolean;
     page?: number;
   }) {
     const query = new URLSearchParams();
@@ -114,6 +126,7 @@ export default function HubAwinProductsPage() {
     const nextPriceMin = nextParams.priceMin ?? priceMin;
     const nextPriceMax = nextParams.priceMax ?? priceMax;
     const nextFreeShipping = nextParams.freeShipping ?? freeShipping;
+    const nextBrazilOnly = nextParams.brazilOnly ?? brazilOnly;
     const nextPage = nextParams.page ?? page;
 
     if (nextSearch.trim()) query.set("search", nextSearch.trim());
@@ -122,6 +135,7 @@ export default function HubAwinProductsPage() {
     if (nextPriceMin) query.set("priceMin", nextPriceMin);
     if (nextPriceMax) query.set("priceMax", nextPriceMax);
     if (nextFreeShipping) query.set("freeShipping", "true");
+    if (nextBrazilOnly) query.set("brazilOnly", "true");
     if (nextPage > 1) query.set("page", String(nextPage));
 
     const queryString = query.toString();
@@ -150,6 +164,7 @@ export default function HubAwinProductsPage() {
       if (priceMin) query.set("priceMin", priceMin);
       if (priceMax) query.set("priceMax", priceMax);
       if (freeShipping) query.set("freeShipping", "true");
+      if (brazilOnly) query.set("brazilOnly", "true");
       query.set("page", String(page));
 
       const response = await fetch(
@@ -188,6 +203,7 @@ export default function HubAwinProductsPage() {
       priceMin: priceMinDraft,
       priceMax: priceMaxDraft,
       freeShipping: freeShippingDraft,
+      brazilOnly: brazilOnlyDraft,
       page: 1 
     }));
   }
@@ -289,9 +305,10 @@ export default function HubAwinProductsPage() {
     setPriceMinDraft(priceMin);
     setPriceMaxDraft(priceMax);
     setFreeShippingDraft(freeShipping);
+    setBrazilOnlyDraft(brazilOnly);
     void loadProducts();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [advertiserId, search, category, sort, priceMin, priceMax, freeShipping, page]);
+  }, [advertiserId, search, category, sort, priceMin, priceMax, freeShipping, brazilOnly, page]);
 
   return (
     <div className="min-h-screen flex-1 space-y-8 bg-[#F5F1ED] p-8 pt-6">
@@ -410,13 +427,32 @@ export default function HubAwinProductsPage() {
               </label>
             </div>
             
-            <div className="text-right">
+            <div className="md:col-span-1">
+              <label className="inline-flex items-center cursor-pointer gap-3">
+                <input
+                  type="checkbox"
+                  checked={brazilOnlyDraft}
+                  onChange={(e) => setBrazilOnlyDraft(e.target.checked)}
+                  className="peer sr-only"
+                />
+                <div className="relative h-6 w-11 rounded-full bg-slate-200 after:absolute after:start-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:border after:border-gray-300 after:bg-white after:transition-all after:content-[''] peer-checked:bg-blue-600 peer-checked:after:translate-x-full peer-checked:after:border-white peer-focus:outline-none forced-colors:hidden"></div>
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-sm font-bold text-slate-700">Somente Brasil</span>
+                  <span className="text-[11px] font-medium text-slate-500">
+                    Beta: exige sinal explícito de estoque/envio do Brasil
+                  </span>
+                </div>
+              </label>
+            </div>
+
+            <div className="text-right md:col-span-4">
               <button
                 type="button"
                 onClick={() => {
                   setPriceMinDraft("");
                   setPriceMaxDraft("");
                   setFreeShippingDraft(false);
+                  setBrazilOnlyDraft(false);
                 }}
                 className="text-xs font-bold text-slate-400 hover:text-red-500 transition"
               >
@@ -460,10 +496,10 @@ export default function HubAwinProductsPage() {
           {products.map((product) => {
             const productKey = getProductKey(product);
             const isAdded = Boolean(addedProducts[productKey]);
-            const isDispatching = dispatching?.includes(productKey);
             const isAiBusy = aiLoading === productKey;
             const currentCopy = productCopies[productKey];
-            const isFreeShipping = product.deliveryCost === 0;
+            const isFreeShipping = product.deliveryCost === 0 || product.isFreeShipping === true;
+            const isBrazilDomestic = product.isBrazilDomestic === true;
 
             return (
             <article
@@ -488,6 +524,11 @@ export default function HubAwinProductsPage() {
                     Frete Grátis
                   </div>
                 )}
+                {isBrazilDomestic && (
+                  <div className="absolute left-3 top-3 rounded-full border border-blue-200/70 bg-blue-100 px-3 py-1 text-[10px] font-black uppercase text-blue-700 shadow-sm">
+                    Brasil
+                  </div>
+                )}
               </div>
 
               <div className="mt-4 flex flex-wrap gap-2 text-[10px] font-black uppercase tracking-widest">
@@ -497,6 +538,11 @@ export default function HubAwinProductsPage() {
                 <span className="rounded-full bg-slate-100 px-2.5 py-1 text-slate-600 line-clamp-1">
                   {product.categoryName || "Sem categoria"}
                 </span>
+                {product.commissionLabel ? (
+                  <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-emerald-700">
+                    Comissão {product.commissionLabel}
+                  </span>
+                ) : null}
               </div>
 
               <h2 className="mt-3 line-clamp-2 text-sm font-bold leading-6 text-[#1A1A1A]">
@@ -516,9 +562,21 @@ export default function HubAwinProductsPage() {
               
               {currentCopy && (
                 <div className="mt-3 rounded-2xl bg-[#FFDA00]/10 p-3 italic text-xs text-slate-700">
-                  "{currentCopy}"
+                  &ldquo;{currentCopy}&rdquo;
                 </div>
               )}
+
+              {isBrazilDomestic && product.brazilSignalSummary ? (
+                <div className="mt-3 rounded-2xl border border-blue-100 bg-blue-50 px-3 py-2 text-[11px] font-medium text-blue-700">
+                  {product.brazilSignalSummary}
+                </div>
+              ) : null}
+
+              {isFreeShipping && product.shippingSignalSummary ? (
+                <div className="mt-3 rounded-2xl border border-emerald-100 bg-emerald-50 px-3 py-2 text-[11px] font-medium text-emerald-700">
+                  {product.shippingSignalSummary}
+                </div>
+              ) : null}
 
               <div className="mt-5 grid gap-2">
                 <button

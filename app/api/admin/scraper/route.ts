@@ -50,9 +50,9 @@ const ML_ZENSCRAPE_OPERATION_TIMEOUT_MS = 7500;
 const ML_APIFY_OPERATION_TIMEOUT_MS = 5000;
 const ML_APIFY_FETCH_TIMEOUT_MS = 4500;
 const ML_PREVIEW_OFFICIAL_TIMEOUT_MS = 3200;
-const ML_PREVIEW_BRIGHTDATA_TIMEOUT_MS = 3200;
-const ML_PREVIEW_HTML_TIMEOUT_MS = 2200;
-const ML_PREVIEW_APIFY_TIMEOUT_MS = 3200;
+const ML_PREVIEW_BRIGHTDATA_TIMEOUT_MS = 4500;
+const ML_PREVIEW_HTML_TIMEOUT_MS = 4000;
+const ML_PREVIEW_APIFY_TIMEOUT_MS = 4000;
 
 type ShopeeProductData = {
   title: string;
@@ -1039,6 +1039,110 @@ function buildFromAmazonRainforest(input: {
   };
 }
 
+function mergeMercadoLivrePreviewPayloads(
+  primary: SuccessResponse | null,
+  fallback: SuccessResponse | null,
+): SuccessResponse | null {
+  if (!primary && !fallback) return null;
+  if (!primary) return fallback;
+  if (!fallback) return primary;
+  if (primary.marketplace !== "mercadolivre" || fallback.marketplace !== "mercadolivre") {
+    return primary;
+  }
+
+  const positivePrices = [primary.price, fallback.price].filter(isPositivePrice);
+  const price = positivePrices.length > 0 ? Math.min(...positivePrices) : 0;
+
+  const oldPriceCandidates = [primary.old_price, fallback.old_price].filter(
+    (candidate): candidate is number =>
+      isPositivePrice(candidate) && candidate > price,
+  );
+  const oldPrice = oldPriceCandidates.length > 0 ? Math.min(...oldPriceCandidates) : 0;
+  const normalizedCommercial = normalizeCommercialValues(price, oldPrice);
+
+  const title = toText(primary.title) || toText(fallback.title);
+  const imageUrl = toText(primary.image_url) || toText(fallback.image_url);
+  const productUrl = toText(primary.product_url) || toText(fallback.product_url);
+  const affiliateUrl = toText(primary.affiliate_url) || toText(fallback.affiliate_url);
+  const previewPrimary = primary.preview as
+    | { permalink?: unknown; condition?: unknown; status?: unknown }
+    | undefined;
+  const previewFallback = fallback.preview as
+    | { permalink?: unknown; condition?: unknown; status?: unknown }
+    | undefined;
+  const permalink =
+    toText(previewPrimary?.permalink) ||
+    toText(previewFallback?.permalink) ||
+    productUrl;
+  const condition =
+    toText(previewPrimary?.condition) ||
+    toText(previewFallback?.condition) ||
+    null;
+  const status =
+    toText(previewPrimary?.status) ||
+    toText(previewFallback?.status) ||
+    null;
+
+  const validation = buildExtractionStatus({
+    title,
+    price: normalizedCommercial.price,
+    imageUrl,
+  });
+
+  return {
+    ...primary,
+    engine:
+      primary.engine === fallback.engine ? primary.engine : "ml-merged-v1",
+    extraction_layer:
+      primary.extraction_layer === fallback.extraction_layer
+        ? primary.extraction_layer
+        : "mixed",
+    status: validation.status,
+    missing_fields: validation.missing_fields,
+    elapsed_ms: Math.max(primary.elapsed_ms, fallback.elapsed_ms),
+    title,
+    price: normalizedCommercial.price,
+    old_price: normalizedCommercial.oldPrice,
+    image: imageUrl,
+    image_url: imageUrl,
+    product_url: productUrl,
+    affiliate_url: affiliateUrl,
+    preview: {
+      ...primary.preview,
+      title,
+      price: normalizedCommercial.price,
+      old_price: normalizedCommercial.oldPrice,
+      original_price: normalizedCommercial.oldPrice,
+      image_url: imageUrl,
+      permalink,
+      product_url: productUrl,
+      affiliate_url: affiliateUrl,
+      condition,
+      status,
+    },
+    extracted: {
+      primary: primary.extracted,
+      fallback: fallback.extracted,
+      merged_price_source:
+        isPositivePrice(primary.price) &&
+        isPositivePrice(fallback.price) &&
+        primary.price !== fallback.price
+          ? "lowest_positive"
+          : isPositivePrice(primary.price)
+            ? "primary"
+            : isPositivePrice(fallback.price)
+              ? "fallback"
+              : "none",
+      merged_old_price_source:
+        oldPriceCandidates.length > 0
+          ? oldPriceCandidates[0] === primary.old_price
+            ? "primary"
+            : "fallback"
+          : "none",
+    },
+  };
+}
+
 function mergeAmazonPayloads(
   primary: SuccessResponse | null,
   fallback: SuccessResponse | null,
@@ -1344,8 +1448,10 @@ export async function POST(req: NextRequest) {
 
     let zenscrapeError = "";
     let officialError = "";
+    let htmlError = "";
     let brightdataError = "";
     let apifyError = "";
+    let containerError = "";
     let fallbackError = "";
     let partialFallback: SuccessResponse | null = null;
 
@@ -1363,81 +1469,51 @@ export async function POST(req: NextRequest) {
           }
 
           let bestPreviewPayload: SuccessResponse | null = null;
-          
+          const absorbPreviewPayload = (payload: SuccessResponse | null) => {
+            bestPreviewPayload = mergeMercadoLivrePreviewPayloads(
+              bestPreviewPayload,
+              payload,
+            );
+          };
+          const shouldKeepTryingPreview = (payload: SuccessResponse | null) =>
+            !payload || payload.status !== "ok";
+          const getPreviewTitle = (payload: SuccessResponse | null) =>
+            toText(payload?.title);
+
           try {
-            console.log("[ML Preview] Tentando API Oficial...");
-            const mlOfficial = await withTimeout(
-              extractMercadoLivreOfficial({
+            console.log("[ML Preview] Tentando HTML Metadata...");
+            const mlHtml = await withTimeout(
+              extractMercadoLivreHtmlMetadata({
                 url: mercadoLivreExtractionUrl,
                 affiliateUrl,
-                accessToken: accessToken ?? undefined,
               }),
-              ML_PREVIEW_OFFICIAL_TIMEOUT_MS,
-              "API oficial do Mercado Livre",
+              ML_PREVIEW_HTML_TIMEOUT_MS,
+              "HTML do Mercado Livre",
             );
-            bestPreviewPayload = enrichResponseWithCoupon(
-              buildFromMercadoLivreOfficial({
+            absorbPreviewPayload({
+              ...buildFromMercadoLivreOfficial({
                 elapsedMs: Date.now() - startedAt,
-                title: mlOfficial.title,
-                price: mlOfficial.price,
-                oldPrice: mlOfficial.oldPrice,
-                imageUrl: mlOfficial.imageUrl,
-                permalink: mlOfficial.permalink,
-                productUrl: mlOfficial.productUrl,
-                affiliateUrl: mlOfficial.affiliateUrl,
-                condition: mlOfficial.condition,
-                status: mlOfficial.status,
-                rawData: mlOfficial.rawData,
+                title: mlHtml.title,
+                price: mlHtml.price,
+                oldPrice: mlHtml.oldPrice,
+                imageUrl: mlHtml.imageUrl,
+                permalink: mlHtml.permalink,
+                productUrl: mlHtml.productUrl,
+                affiliateUrl: mlHtml.affiliateUrl,
+                condition: mlHtml.condition,
+                status: mlHtml.status,
+                rawData: mlHtml.rawData,
               }),
-              couponCode,
-              couponDiscountPct,
-            );
-            console.log("[ML Preview] Sucesso na API Oficial");
+              engine: "ml-html-metadata",
+              extraction_layer: "open_graph",
+            });
+            console.log("[ML Preview] Sucesso no HTML Metadata");
           } catch (error) {
-            officialError = extractErrorMessage(error);
-            console.log("[ML Preview] Falha na API Oficial:", officialError);
+            htmlError = extractErrorMessage(error);
+            console.log("[ML Preview] Falha no HTML Metadata:", htmlError);
           }
 
-          if (!bestPreviewPayload || bestPreviewPayload.status !== "ok") {
-            try {
-              console.log("[ML Preview] Tentando HTML Metadata...");
-              const mlHtml = await withTimeout(
-                extractMercadoLivreHtmlMetadata({
-                  url: mercadoLivreExtractionUrl,
-                  affiliateUrl,
-                }),
-                ML_PREVIEW_HTML_TIMEOUT_MS,
-                "HTML do Mercado Livre",
-              );
-              bestPreviewPayload = enrichResponseWithCoupon(
-                {
-                  ...buildFromMercadoLivreOfficial({
-                    elapsedMs: Date.now() - startedAt,
-                    title: mlHtml.title,
-                    price: mlHtml.price,
-                    oldPrice: mlHtml.oldPrice,
-                    imageUrl: mlHtml.imageUrl,
-                    permalink: mlHtml.permalink,
-                    productUrl: mlHtml.productUrl,
-                    affiliateUrl: mlHtml.affiliateUrl,
-                    condition: mlHtml.condition,
-                    status: mlHtml.status,
-                    rawData: mlHtml.rawData,
-                  }),
-                  engine: "ml-html-metadata",
-                  extraction_layer: "open_graph",
-                },
-                couponCode,
-                couponDiscountPct,
-              );
-              console.log("[ML Preview] Sucesso no HTML Metadata");
-            } catch (error) {
-              fallbackError = extractErrorMessage(error);
-              console.log("[ML Preview] Falha no HTML Metadata:", fallbackError);
-            }
-          }
-
-          if (!bestPreviewPayload || bestPreviewPayload.status !== "ok") {
+          if (shouldKeepTryingPreview(bestPreviewPayload)) {
             try {
               console.log("[ML Preview] Tentando Bright Data...");
               const mlBrightData = await withTimeout(
@@ -1448,27 +1524,23 @@ export async function POST(req: NextRequest) {
                 ML_PREVIEW_BRIGHTDATA_TIMEOUT_MS,
                 "Bright Data Mercado Livre",
               );
-              bestPreviewPayload = enrichResponseWithCoupon(
-                {
-                  ...buildFromMercadoLivreOfficial({
-                    elapsedMs: Date.now() - startedAt,
-                    title: mlBrightData.title,
-                    price: mlBrightData.price,
-                    oldPrice: mlBrightData.oldPrice,
-                    imageUrl: mlBrightData.imageUrl,
-                    permalink: mlBrightData.permalink,
-                    productUrl: mlBrightData.productUrl,
-                    affiliateUrl: mlBrightData.affiliateUrl,
-                    condition: mlBrightData.condition,
-                    status: mlBrightData.status,
-                    rawData: mlBrightData.rawData,
-                  }),
-                  engine: "ml-brightdata-unlocker",
-                  extraction_layer: "open_graph",
-                },
-                couponCode,
-                couponDiscountPct,
-              );
+              absorbPreviewPayload({
+                ...buildFromMercadoLivreOfficial({
+                  elapsedMs: Date.now() - startedAt,
+                  title: mlBrightData.title,
+                  price: mlBrightData.price,
+                  oldPrice: mlBrightData.oldPrice,
+                  imageUrl: mlBrightData.imageUrl,
+                  permalink: mlBrightData.permalink,
+                  productUrl: mlBrightData.productUrl,
+                  affiliateUrl: mlBrightData.affiliateUrl,
+                  condition: mlBrightData.condition,
+                  status: mlBrightData.status,
+                  rawData: mlBrightData.rawData,
+                }),
+                engine: "ml-brightdata-unlocker",
+                extraction_layer: "open_graph",
+              });
               console.log("[ML Preview] Sucesso no Bright Data");
             } catch (error) {
               brightdataError = extractErrorMessage(error);
@@ -1476,29 +1548,7 @@ export async function POST(req: NextRequest) {
             }
           }
 
-          if (!bestPreviewPayload || bestPreviewPayload.status !== "ok") {
-            try {
-              console.log("[ML Preview] Tentando Apify Search...");
-              const payload = await withTimeout(
-                extractMercadoLivreWithApifySearch({
-                  url: sourceUrl,
-                  affiliateUrl,
-                  searchTerms: extractMercadoLivreSearchTerms(sourceUrl),
-                }),
-                ML_PREVIEW_APIFY_TIMEOUT_MS,
-                "Apify Mercado Livre",
-              );
-              if (payload) {
-                bestPreviewPayload = enrichResponseWithCoupon(payload, couponCode, couponDiscountPct);
-                console.log("[ML Preview] Sucesso no Apify");
-              }
-            } catch (error) {
-              apifyError = extractErrorMessage(error);
-              console.log("[ML Preview] Falha no Apify:", apifyError);
-            }
-          }
-
-          if (!bestPreviewPayload || bestPreviewPayload.status !== "ok") {
+          if (shouldKeepTryingPreview(bestPreviewPayload)) {
             try {
               console.log("[ML Preview] Tentando Container Engine...");
               const extractedEngine = await withTimeout(
@@ -1509,47 +1559,111 @@ export async function POST(req: NextRequest) {
                 ML_PREVIEW_BRIGHTDATA_TIMEOUT_MS,
                 "Container Engine Mercado Livre",
               );
-              bestPreviewPayload = enrichResponseWithCoupon(
-                buildFromContainerFallback(extractedEngine),
-                couponCode,
-                couponDiscountPct,
-              );
+              absorbPreviewPayload(buildFromContainerFallback(extractedEngine));
               console.log("[ML Preview] Sucesso no Container Engine");
             } catch (error) {
-              fallbackError = extractErrorMessage(error);
-              console.log("[ML Preview] Falha no Container Engine:", fallbackError);
+              containerError = extractErrorMessage(error);
+              console.log("[ML Preview] Falha no Container Engine:", containerError);
+            }
+          }
+
+          if (shouldKeepTryingPreview(bestPreviewPayload)) {
+            try {
+              console.log("[ML Preview] Tentando API Oficial...");
+              const mlOfficial = await withTimeout(
+                extractMercadoLivreOfficial({
+                  url: mercadoLivreExtractionUrl,
+                  affiliateUrl,
+                  accessToken: accessToken ?? undefined,
+                }),
+                ML_PREVIEW_OFFICIAL_TIMEOUT_MS,
+                "API oficial do Mercado Livre",
+              );
+              absorbPreviewPayload(
+                buildFromMercadoLivreOfficial({
+                  elapsedMs: Date.now() - startedAt,
+                  title: mlOfficial.title,
+                  price: mlOfficial.price,
+                  oldPrice: mlOfficial.oldPrice,
+                  imageUrl: mlOfficial.imageUrl,
+                  permalink: mlOfficial.permalink,
+                  productUrl: mlOfficial.productUrl,
+                  affiliateUrl: mlOfficial.affiliateUrl,
+                  condition: mlOfficial.condition,
+                  status: mlOfficial.status,
+                  rawData: mlOfficial.rawData,
+                }),
+              );
+              console.log("[ML Preview] Sucesso na API Oficial");
+            } catch (error) {
+              officialError = extractErrorMessage(error);
+              console.log("[ML Preview] Falha na API Oficial:", officialError);
+            }
+          }
+
+          if (shouldKeepTryingPreview(bestPreviewPayload)) {
+            try {
+              console.log("[ML Preview] Tentando Apify Search...");
+              const payload = await withTimeout(
+                extractMercadoLivreWithApifySearch({
+                  url: sourceUrl,
+                  affiliateUrl,
+                  searchTerms:
+                    getPreviewTitle(bestPreviewPayload) ||
+                    extractMercadoLivreSearchTerms(sourceUrl),
+                }),
+                ML_PREVIEW_APIFY_TIMEOUT_MS,
+                "Apify Mercado Livre",
+              );
+              if (payload) {
+                absorbPreviewPayload(payload);
+                console.log("[ML Preview] Sucesso no Apify");
+              }
+            } catch (error) {
+              apifyError = extractErrorMessage(error);
+              console.log("[ML Preview] Falha no Apify:", apifyError);
             }
           }
 
           if (bestPreviewPayload) {
+            const enrichedPreviewPayload = enrichResponseWithCoupon(
+              bestPreviewPayload,
+              couponCode,
+              couponDiscountPct,
+            );
             const layerUsed: DebugLayer =
-              bestPreviewPayload.engine === "ml-official-v2"
+              enrichedPreviewPayload.engine === "ml-official-v2"
                 ? "official"
-                : bestPreviewPayload.engine === "ml-brightdata-unlocker"
+                : enrichedPreviewPayload.engine === "ml-brightdata-unlocker"
                   ? "brightdata"
-                : bestPreviewPayload.engine === "ml-html-metadata"
+                : enrichedPreviewPayload.engine === "ml-html-metadata"
                   ? "html"
-                : bestPreviewPayload.engine === "container-egg-v1"
+                : enrichedPreviewPayload.engine === "container-egg-v1"
                   ? "container"
+                : enrichedPreviewPayload.engine === "ml-merged-v1"
+                  ? "merged"
                   : "apify";
 
             return NextResponse.json({
-              ...bestPreviewPayload,
-              status: bestPreviewPayload.status === "ok" ? "ok" : "partial_failure",
+              ...enrichedPreviewPayload,
+              status:
+                enrichedPreviewPayload.status === "ok" ? "ok" : "partial_failure",
               retries: 0,
               debug_info: {
                 layer_used: layerUsed,
-                missing_fields: bestPreviewPayload.missing_fields,
+                missing_fields: enrichedPreviewPayload.missing_fields,
                 latency_ms: Date.now() - startedAt,
               },
               error:
-                bestPreviewPayload.status === "ok"
+                enrichedPreviewPayload.status === "ok"
                   ? undefined
-                  : officialError ||
+                  : htmlError ||
                     brightdataError ||
-                    fallbackError ||
+                    containerError ||
+                    officialError ||
                     apifyError ||
-                    "ExtraÃ§Ã£o parcial do Mercado Livre. Revise os campos antes de publicar.",
+                    fallbackError ||
+                    "Extracao parcial do Mercado Livre. Revise os campos antes de publicar.",
             });
           }
 

@@ -17,8 +17,11 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const countryCode = req.nextUrl.searchParams.get("country") || "BR";
+    // Se nenhum pais for especificado, buscamos todos os programas 'joined' sem filtro de regiao
+    // Isso garante que AliExpress (Global) e outros aparecam mesmo que a conta seja brasileira.
+    const countryCode = req.nextUrl.searchParams.get("country") || undefined;
     const advertisers = await fetchAwinAdvertisers(countryCode);
+    
     return NextResponse.json(advertisers, {
       headers: {
         "Cache-Control": "no-store, max-age=0",

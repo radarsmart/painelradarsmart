@@ -14,13 +14,42 @@ import {
 
 dotenv.config({ path: path.join(process.cwd(), ".env.local") });
 
-const FFMPEG_PATH = path.join(
-  process.env.LOCALAPPDATA || "",
-  "CapCut",
-  "Apps",
-  "8.1.1.3417",
-  "ffmpeg.exe",
-);
+// Função para localizar o FFmpeg de forma dinâmica
+function findFfmpegPath(): string {
+  // 1. Verificar variável de ambiente
+  if (process.env.FFMPEG_PATH && fs.existsSync(process.env.FFMPEG_PATH)) {
+    return process.env.FFMPEG_PATH;
+  }
+
+  // 2. Tentar comando 'where' no Windows ou 'which' no Linux
+  try {
+    const command = process.platform === "win32" ? "where ffmpeg" : "which ffmpeg";
+    const result = execSync(command).toString().split("\n")[0].trim();
+    if (result && fs.existsSync(result)) {
+      return result;
+    }
+  } catch {
+    // ignorar erro se não encontrar
+  }
+
+  // 3. Fallback para o caminho do CapCut (apenas para ambiente local do usuário)
+  const capcutPath = path.join(
+    process.env.LOCALAPPDATA || "",
+    "CapCut",
+    "Apps",
+    "8.1.1.3417",
+    "ffmpeg.exe",
+  );
+  
+  if (fs.existsSync(capcutPath)) {
+    return capcutPath;
+  }
+
+  // 4. Último recurso: assumir que está no PATH global
+  return "ffmpeg";
+}
+
+const FFMPEG_PATH = findFfmpegPath();
 ffmpeg.setFfmpegPath(FFMPEG_PATH);
 
 export interface VideoScene {
@@ -162,10 +191,54 @@ async function generateTextClip(
   await page.screenshot({ path: pngPath });
   await browser.close();
 
-  const ffmpegPath = `"${process.env.FFMPEG_PATH || "ffmpeg"}"`;
-  const command = `${ffmpegPath} -loop 1 -i "${pngPath}" -t ${duration} -c:v mpeg4 -r 30 -pix_fmt yuv420p "${outputPath}" -y`;
+  // Usar o FFMPEG_PATH localizado
+  const command = `"${FFMPEG_PATH}" -loop 1 -i "${pngPath}" -t ${duration} -c:v mpeg4 -r 30 -pix_fmt yuv420p "${outputPath}" -y`;
 
   execSync(command, { stdio: "ignore" });
+}
+
+/**
+ * Gera uma lista padrão de cenas baseada no contexto da oferta
+ */
+export function generateDefaultScenes(offer: UGCOfferContext, imageUrl?: string): VideoScene[] {
+  const productImg = imageUrl || "https://http2.mlstatic.com/D_NQ_NP_977123-MLB51493722216_092022-O.webp";
+  
+  return [
+    { 
+      type: 'freepik-animate', 
+      duration: 5, 
+      imageUrl: productImg, 
+      prompt: `Produto em destaque: ${offer.title}` 
+    },
+    { 
+      type: 'pexels-stock', 
+      duration: 5, 
+      searchQuery: offer.category || offer.title 
+    },
+    { 
+      type: 'freepik-text2video', 
+      duration: 5, 
+      prompt: `person using ${offer.title}, high quality demonstration` 
+    },
+    { 
+      type: 'ffmpeg-text', 
+      duration: 5, 
+      text: "OFERTA SMART",
+      subtext: offer.title
+    },
+    { 
+      type: 'ffmpeg-text', 
+      duration: 5, 
+      text: `R$ ${offer.price.toFixed(2).replace(".", ",")}`,
+      subtext: offer.discountPct ? `${offer.discountPct}% OFF` : "Melhor preço"
+    },
+    { 
+      type: 'ffmpeg-text', 
+      duration: 5, 
+      text: "GARANTA JÁ",
+      subtext: "Link na bio da Radar Smart"
+    }
+  ];
 }
 
 export async function composeVideo(

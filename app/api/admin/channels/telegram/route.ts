@@ -20,18 +20,41 @@ async function callEdgeFunction(body: Record<string, unknown>) {
     );
   }
 
-  const response = await fetch(`${supabaseUrl}/functions/v1/channel-telegram-control`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${serviceRole}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
-    cache: "no-store",
-  });
+  try {
+    const response = await fetch(`${supabaseUrl}/functions/v1/channel-telegram-control`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${serviceRole}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+      cache: "no-store",
+    });
 
-  const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
-  return NextResponse.json(payload, { status: response.status });
+    const contentType = response.headers.get("content-type") || "";
+    if (contentType.includes("application/json")) {
+      const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+      return NextResponse.json(payload, { status: response.status });
+    }
+
+    // Se não for JSON, provavelmente é um erro de Gateway (Cloudflare) ou similar
+    const text = await response.text().catch(() => "");
+    if (text.includes("<!DOCTYPE") || text.includes("<html") || response.status === 502) {
+      return NextResponse.json(
+        {
+          error: `Erro de conexao com o servidor de Telegram (${response.status}). O servico pode estar temporariamente indisponivel (Bad Gateway).`,
+        },
+        { status: response.status },
+      );
+    }
+
+    return NextResponse.json({ error: text || "Erro desconhecido na Edge Function." }, { status: response.status });
+  } catch (err) {
+    return NextResponse.json(
+      { error: `Falha ao conectar com o serviço de canais: ${err instanceof Error ? err.message : "Erro desconhecido"}` },
+      { status: 500 },
+    );
+  }
 }
 
 export async function GET(req: NextRequest) {

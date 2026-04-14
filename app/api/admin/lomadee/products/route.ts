@@ -19,6 +19,9 @@ export async function GET(req: NextRequest) {
     const sort = req.nextUrl.searchParams.get("sort") ?? "";
     const priceMin = req.nextUrl.searchParams.get("priceMin");
     const priceMax = req.nextUrl.searchParams.get("priceMax");
+    const organizationIds =
+      String(req.nextUrl.searchParams.get("organizationIds") ?? "").trim() || undefined;
+    const isAvailableParam = req.nextUrl.searchParams.get("isAvailable");
 
     const result = await fetchLomadeeProducts({
       search,

@@ -375,6 +375,20 @@ async function fetchItemById(
   }
 }
 
+async function tryFetchItemById(
+  itemId: string | null | undefined,
+  headers: Record<string, string>,
+): Promise<Record<string, unknown> | null> {
+  const candidate = findMlbCandidate(toText(itemId));
+  if (!candidate) return null;
+
+  try {
+    return await fetchItemById(candidate, headers);
+  } catch {
+    return null;
+  }
+}
+
 async function resolveItemFromProductId(
   productId: string,
   headers: Record<string, string>,
@@ -573,17 +587,38 @@ export async function extractMercadoLivreOfficial(
   const ids = extractIdsFromUrl(sourceUrl);
 
   let itemId = ids.itemId;
-  if (!itemId && ids.productId) {
-    itemId = await resolveItemFromProductId(ids.productId, headers);
-  }
-  if (!itemId) {
-    itemId = await resolveItemBySearchSlug(sourceUrl, headers);
-  }
-  if (!itemId) {
-    throw new Error("Nao foi possivel identificar item_id do Mercado Livre.");
+  let itemPayload = await tryFetchItemById(itemId, headers);
+
+  // Em links /p/MLB... o codigo pode se comportar como item_id direto.
+  if (!itemPayload && !itemId && ids.productId) {
+    const directItemCandidate = findMlbCandidate(ids.productId);
+    if (directItemCandidate) {
+      itemPayload = await tryFetchItemById(directItemCandidate, headers);
+      if (itemPayload) {
+        itemId = directItemCandidate;
+      }
+    }
   }
 
-  const itemPayload = await fetchItemById(itemId, headers);
+  if (!itemPayload && ids.productId) {
+    const resolvedItemId = await resolveItemFromProductId(ids.productId, headers);
+    if (resolvedItemId) {
+      itemId = resolvedItemId;
+      itemPayload = await fetchItemById(itemId, headers);
+    }
+  }
+
+  if (!itemPayload) {
+    const resolvedItemId = await resolveItemBySearchSlug(sourceUrl, headers);
+    if (resolvedItemId) {
+      itemId = resolvedItemId;
+      itemPayload = await fetchItemById(itemId, headers);
+    }
+  }
+
+  if (!itemId || !itemPayload) {
+    throw new Error("Nao foi possivel identificar item_id do Mercado Livre.");
+  }
   const imageUrl = pickImageFromItemPayload(itemPayload);
   const permalink = toText(itemPayload.permalink) || sourceUrl;
   const productUrl = permalink;

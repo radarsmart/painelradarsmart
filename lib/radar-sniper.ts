@@ -1,6 +1,14 @@
 export const RADAR_SNIPER_MIN_PRICE = 49.9;
 
-export type RadarCategory = "Tecnologia" | "Casa" | "Fitness" | "Geral";
+export type RadarCategory =
+  | "Tecnologia"
+  | "Casa"
+  | "Fitness"
+  | "Beleza"
+  | "Eletrodomesticos"
+  | "Bebes"
+  | "Moda"
+  | "Geral";
 
 export type RelevanceSignals = {
   hasBestSeller: boolean;
@@ -47,60 +55,52 @@ export function classifyOfferCategory(title: string): RadarCategory {
   const text = normalizeText(title);
 
   const tecnologia = [
-    "notebook",
-    "monitor",
-    "smartphone",
-    "iphone",
-    "samsung",
-    "xiaomi",
-    "tv",
-    "smart tv",
-    "fone",
-    "headset",
-    "teclado",
-    "mouse",
-    "ssd",
-    "placa de video",
-    "console",
-    "ps5",
-    "xbox",
-    "smartwatch",
+    "notebook", "monitor", "smartphone", "iphone", "samsung", "xiaomi", "tv", 
+    "smart tv", "fone", "headset", "teclado", "mouse", "ssd", "placa de video", 
+    "console", "ps5", "xbox", "smartwatch", "processador", "ram", "hd externo",
+    "tablet", "ipad", "kindle", "alexa", "echo dot"
   ];
 
   const casa = [
-    "air fryer",
-    "cafeteira",
-    "aspirador",
-    "geladeira",
-    "fogao",
-    "microondas",
-    "liquidificador",
-    "chaleira",
-    "batedeira",
-    "lava e seca",
-    "maquina de lavar",
-    "panela",
-    "colchao",
-    "sofa",
+    "aspirador", "chaleira", "sofa", "cama", "mesa", "cadeira", "guarda roupa", 
+    "colchao", "travesseiro", "decoracao", "quadro", "espelho", "tapete", "cortina",
+    "luminaria", "abajur", "ferramenta", "furadeira", "parafusadeira", "jardim"
+  ];
+
+  const eletrodomesticos = [
+    "air fryer", "cafeteira", "geladeira", "fogao", "microondas", "liquidificador", 
+    "batedeira", "lava e seca", "maquina de lavar", "panela", "ar condicionado",
+    "ventilador", "purificador", "bebedouro", "forno", "cooktop", "depurador"
   ];
 
   const fitness = [
-    "whey",
-    "creatina",
-    "halter",
-    "esteira",
-    "bicicleta ergometrica",
-    "garrafa termica",
-    "tenis corrida",
-    "faixa elastica",
-    "suplemento",
-    "yoga",
-    "academia",
+    "whey", "creatina", "halter", "esteira", "bicicleta ergometrica", "garrafa termica",
+    "tenis corrida", "faixa elastica", "suplemento", "yoga", "academia", "esporte", "chuteira"
+  ];
+
+  const beleza = [
+    "perfume", "maquiagem", "batom", "shampoo", "condicionador", "hidratante", "protetor solar",
+    "barbeador", "depilador", "secador", "chapinha", "escova secadora", "skincare"
+  ];
+
+  const bebes = [
+    "fralda", "carrinho", "bebe conforto", "mamadeira", "brinquedo", "lego", "boneca",
+    "andador", "berco", "pampers", "huggies", "fisher price"
+  ];
+
+  const moda = [
+    "camisa", "camiseta", "calca", "vestido", "saia", "bermuda", "bolsa", "relogio",
+    "oculos", "joia", "brinco", "colar", "pulseira"
   ];
 
   if (tecnologia.some((keyword) => text.includes(keyword))) return "Tecnologia";
+  if (eletrodomesticos.some((keyword) => text.includes(keyword))) return "Eletrodomesticos";
   if (casa.some((keyword) => text.includes(keyword))) return "Casa";
   if (fitness.some((keyword) => text.includes(keyword))) return "Fitness";
+  if (beleza.some((keyword) => text.includes(keyword))) return "Beleza";
+  if (bebes.some((keyword) => text.includes(keyword))) return "Bebes";
+  if (moda.some((keyword) => text.includes(keyword))) return "Moda";
+  
   return "Geral";
 }
 
@@ -188,4 +188,3 @@ export function rankSniperCandidates<T extends SniperDiscoveryItem>(
     return scoreB - scoreA;
   });
 }
-

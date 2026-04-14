@@ -119,8 +119,6 @@ export async function POST(req: NextRequest) {
     const hubOfferId = toText(body.hub_offer_id);
     const publishToSite = Boolean(body.publish_to_site) || channels.length === 0;
     const isSiteApproval = publishToSite;
-    const isFlash = slotType === "flash";
-    const isFeatured = slotType === "best";
 
     if (!marketplace) {
       return NextResponse.json(
@@ -163,7 +161,7 @@ export async function POST(req: NextRequest) {
     const externalOfferId = `${marketplace}:${productUrl}`;
     const existingOffer = await supabaseAdmin
       .from("offers")
-      .select("id,manual_copy")
+      .select("id,manual_copy,status,curations_status,slot_type,published_at")
       .eq("external_offer_id", externalOfferId)
       .maybeSingle();
 
@@ -175,15 +173,35 @@ export async function POST(req: NextRequest) {
       body.raw_data && typeof body.raw_data === "object" ? body.raw_data : {};
     const now = new Date().toISOString();
     const shouldPublishOnSite = isSiteApproval;
-    const offerStatus = shouldPublishOnSite ? "active" : "inactive";
-    const curationStatus = shouldPublishOnSite ? "approved" : "channel_ready";
+    const existingStatus = toText(existingOffer.data?.status).toLowerCase();
+    const existingCurationStatus = toText(
+      existingOffer.data?.curations_status,
+    ).toLowerCase();
+    const preservePublishedSiteState =
+      !shouldPublishOnSite &&
+      existingStatus === "active" &&
+      existingCurationStatus === "approved";
+    const effectiveSlotType =
+      slotType ||
+      (preservePublishedSiteState
+        ? toText(existingOffer.data?.slot_type).toLowerCase()
+        : "");
+    const offerStatus =
+      shouldPublishOnSite || preservePublishedSiteState ? "active" : "inactive";
+    const curationStatus = shouldPublishOnSite
+      ? "approved"
+      : preservePublishedSiteState
+        ? "approved"
+        : "channel_ready";
     const manualCopy = shouldPublishOnSite
       ? buildSiteManualCopyOverride(
           existingOffer.data?.manual_copy,
           (slotType as "flash" | "best" | "comparator") || "best",
           now,
         )
-      : undefined;
+      : preservePublishedSiteState
+        ? existingOffer.data?.manual_copy
+        : undefined;
 
     const offerPayload: Record<string, unknown> = {
       id: existingOffer.data?.id,
@@ -202,12 +220,16 @@ export async function POST(req: NextRequest) {
       discount_pct: discountPct,
       discount_percent: discountPct,
       external_offer_id: externalOfferId,
-      slot_type: slotType || null,
-      is_flash: isFlash,
-      is_featured: isFeatured,
+      slot_type: effectiveSlotType || null,
+      is_flash: effectiveSlotType === "flash",
+      is_featured: effectiveSlotType === "best",
       status: offerStatus,
       curations_status: curationStatus,
-      published_at: shouldPublishOnSite ? now : null,
+      published_at: shouldPublishOnSite
+        ? now
+        : preservePublishedSiteState
+          ? existingOffer.data?.published_at || now
+          : null,
       expires_at: computeExpiresAt(),
       source: "manual_sniper",
       currency: "BRL",

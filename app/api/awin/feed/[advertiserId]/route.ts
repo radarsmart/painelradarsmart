@@ -3,6 +3,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/admin-auth";
 import { fetchAwinAdvertiserFeedProducts } from "@/lib/awin/client";
 
+type AwinAdvertiserFeedSort = "best_deals" | "top_selling" | "price_asc" | "price_desc" | "";
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -27,6 +29,7 @@ export async function GET(req: NextRequest, context: RouteContext) {
     const priceMinParam = req.nextUrl.searchParams.get("priceMin");
     const priceMaxParam = req.nextUrl.searchParams.get("priceMax");
     const freeShipping = req.nextUrl.searchParams.get("freeShipping") === "true";
+    const brazilOnly = req.nextUrl.searchParams.get("brazilOnly") === "true";
 
     const products = await fetchAwinAdvertiserFeedProducts({
       advertiserId: context.params.advertiserId,
@@ -36,7 +39,8 @@ export async function GET(req: NextRequest, context: RouteContext) {
       priceMin: priceMinParam ? Number(priceMinParam) : null,
       priceMax: priceMaxParam ? Number(priceMaxParam) : null,
       freeShipping,
-      sort: sortParam as any,
+      brazilOnly,
+      sort: sortParam as AwinAdvertiserFeedSort,
     });
 
     return NextResponse.json(products, {

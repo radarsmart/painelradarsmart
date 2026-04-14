@@ -1,8 +1,10 @@
 import { gunzipSync } from "node:zlib";
+import { resolveAwinProductSignals } from "@/lib/awin/brazil-signal";
 
 const AWIN_BASE_URL = "https://api.awin.com";
 const DEFAULT_PUBLISHER_ID = "2843910";
 const AWIN_ADVERTISER_FEED_PAGE_SIZE = 24;
+const AWIN_SIGNAL_FILTER_BUFFER = AWIN_ADVERTISER_FEED_PAGE_SIZE * 6;
 const AWIN_ADVERTISER_FEED_COLUMNS = [
   "aw_product_id",
   "product_name",
@@ -66,6 +68,7 @@ export type NormalizedAwinProgramme = {
   status: string;
   currencyCode: string;
   region: string;
+  commissionLabel: string;
 };
 
 export type NormalizedAwinAdvertiser = {
@@ -134,7 +137,16 @@ export type NormalizedAwinAdvertiserFeedProduct = {
   merchantName: string;
   categoryName: string;
   rating: number;
-  deliveryCost: number;
+  deliveryCost: number | null;
+  commissionLabel: string;
+  isBrazilDomestic: boolean;
+  brazilSignalSummary: string;
+  brazilSignalConfidence: string;
+  brazilSignalSource: string;
+  isFreeShipping: boolean;
+  shippingSignalSummary: string;
+  shippingSignalConfidence: string;
+  shippingSignalSource: string;
 };
 
 type AwinAdvertiserFeedSort = "best_deals" | "top_selling" | "price_asc" | "price_desc" | "";
@@ -182,6 +194,78 @@ function getAwinDatafeedApiKey() {
 
 function toText(value: unknown) {
   return String(value ?? "").trim();
+}
+
+function formatCommissionValue(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return `${value}%`;
+  }
+
+  const text = toText(value).replace(/\s+/g, " ").trim();
+  if (!text || text === "[object Object]") return "";
+  if (/^\d+(?:[.,]\d+)?$/.test(text)) return `${text}%`;
+  return text;
+}
+
+function extractCommissionFromUnknown(value: unknown, depth = 0): string {
+  if (depth > 4 || value === null || value === undefined) return "";
+
+  const primitive = formatCommissionValue(value);
+  if (primitive && typeof value !== "object") return primitive;
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const nested = extractCommissionFromUnknown(item, depth + 1);
+      if (nested) return nested;
+    }
+    return "";
+  }
+
+  if (typeof value !== "object") return "";
+
+  const record = value as Record<string, unknown>;
+  const preferredKeys = [
+    "commission",
+    "commissionRange",
+    "commissionDescription",
+    "commissionText",
+    "commissionInfo",
+    "commissionAmount",
+    "commissionValue",
+    "commissionRate",
+    "remuneration",
+    "payout",
+  ];
+
+  for (const key of preferredKeys) {
+    if (key in record) {
+      const nested = extractCommissionFromUnknown(record[key], depth + 1);
+      if (nested) return nested;
+    }
+  }
+
+  for (const [key, nestedValue] of Object.entries(record)) {
+    const normalizedKey = key.toLowerCase();
+    if (
+      normalizedKey.includes("commission") ||
+      normalizedKey.includes("remuneration") ||
+      normalizedKey.includes("payout")
+    ) {
+      const nested = extractCommissionFromUnknown(nestedValue, depth + 1);
+      if (nested) return nested;
+    }
+  }
+
+  for (const nestedValue of Object.values(record)) {
+    const nested = extractCommissionFromUnknown(nestedValue, depth + 1);
+    if (nested) return nested;
+  }
+
+  return "";
+}
+
+function extractProgrammeCommission(programme: AwinProgramme) {
+  return extractCommissionFromUnknown(programme);
 }
 
 function getAwinUrl(path: string, params?: Record<string, string | number | boolean | undefined>) {
@@ -234,6 +318,7 @@ function normalizeProgramme(programme: AwinProgramme): NormalizedAwinProgramme |
     status: toText(programme.status) || "Active",
     currencyCode: toText(programme.currencyCode),
     region: toText(programme.primaryRegion?.countryCode) || toText(programme.primaryRegion?.name),
+    commissionLabel: extractProgrammeCommission(programme),
   };
 }
 
@@ -384,6 +469,20 @@ function parseBRLNumber(value: unknown) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function parseOptionalBRLNumber(value: unknown) {
+  const normalized = toText(value);
+  if (!normalized) return null;
+
+  const text = normalized
+    .replace(/[^\d,.-]/g, "")
+    .replace(/\.(?=\d{3}(?:\D|$))/g, "")
+    .replace(",", ".");
+  if (!text || text === "-" || text === "." || text === ",") return null;
+
+  const parsed = Number(text);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 const AWIN_CATEGORY_PT_BR: Record<string, string> = {
   "phones & telecommunications": "Telefones e Telecomunicacoes",
   "phone & telecommunications": "Telefones e Telecomunicacoes",
@@ -402,11 +501,26 @@ const AWIN_CATEGORY_PT_BR: Record<string, string> = {
   "home appliances": "Eletrodomesticos",
   "automobiles & motorcycles": "Automoveis e Motocicletas",
   "mother & kids": "Mamae e Bebe",
-  "tools": "Ferramentas",
+  tools: "Ferramentas",
   "security & protection": "Seguranca e Protecao",
   "lights & lighting": "Iluminacao",
-  "furniture": "Moveis",
-  "watches": "Relogios",
+  furniture: "Moveis",
+  watches: "Relogios",
+  "health & beauty": "Saude e Beleza",
+  "home & kitchen": "Casa e Cozinha",
+  "pet supplies": "Pet Shop",
+  "toys & games": "Brinquedos e Jogos",
+  "sports & outdoors": "Esportes e Ar Livre",
+  "food & drink": "Alimentos e Bebidas",
+  "grocery & gourmet food": "Mercado e Alimentos",
+  "health & personal care": "Saude e Cuidados Pessoais",
+  "baby products": "Bebes e Criancas",
+  "tools & home improvement": "Ferramentas e Construcao",
+  "bags, wallets & luggage": "Malas e Acessorios",
+  "shoes & accessories": "Calcados e Acessorios",
+  "fashion & accessories": "Moda e Acessorios",
+  "camera & photo": "Cameras e Foto",
+  "audio & video": "Audio e Video",
 };
 
 function formatUnmappedCategory(value: string) {
@@ -603,6 +717,14 @@ let awinBrlRatesCache:
     }
   | null = null;
 
+let awinProgrammesCache:
+  | {
+      expiresAt: number;
+      key: string;
+      programmes: NormalizedAwinProgramme[];
+    }
+  | null = null;
+
 async function fetchAwinBrlRates() {
   if (awinBrlRatesCache && awinBrlRatesCache.expiresAt > Date.now()) {
     return awinBrlRatesCache.rates;
@@ -647,6 +769,7 @@ function normalizeAdvertiserFeedProduct(
   record: Record<string, unknown>,
   brlRates: Record<string, number>,
   advertiserId: string,
+  commissionLabel = "",
 ): NormalizedAwinAdvertiserFeedProduct | null {
   const id = pickRecordValue(record, ["aw_product_id", "awProductId", "product_id", "id"]);
   const productName = pickRecordValue(record, ["product_name", "productName", "name"]);
@@ -670,6 +793,16 @@ function normalizeAdvertiserFeedProduct(
   );
   const rating = parseBRLNumber(
     pickRecordValue(record, ["average_rating", "averageRating", "rating", "review_rating", "star_rating"]),
+  );
+  const deliveryCost = parseOptionalBRLNumber(
+    pickRecordValue(record, [
+      "delivery_cost",
+      "deliveryCost",
+      "shipping_cost",
+      "shippingCost",
+      "delivery_price",
+      "deliveryPrice",
+    ]),
   );
 
   if (!id || !productName || !awDeepLink || originalSearchPrice <= 0 || searchPrice <= 0) {
@@ -699,7 +832,77 @@ function normalizeAdvertiserFeedProduct(
     merchantName: pickRecordValue(record, ["merchant_name", "merchantName"]) || "AWIN",
     categoryName,
     rating,
+    deliveryCost,
+    commissionLabel,
+    isBrazilDomestic: false,
+    brazilSignalSummary: "",
+    brazilSignalConfidence: "",
+    brazilSignalSource: "",
+    isFreeShipping: deliveryCost === 0,
+    shippingSignalSummary: "",
+    shippingSignalConfidence: "",
+    shippingSignalSource: "",
   };
+}
+
+function hasConfirmedFreeShipping(product: NormalizedAwinAdvertiserFeedProduct) {
+  return product.deliveryCost === 0 || product.isFreeShipping === true;
+}
+
+function matchesAwinSignalFilters(
+  product: NormalizedAwinAdvertiserFeedProduct,
+  options: { brazilOnly: boolean; freeShipping: boolean },
+) {
+  if (options.brazilOnly && product.isBrazilDomestic !== true) {
+    return false;
+  }
+
+  if (options.freeShipping && !hasConfirmedFreeShipping(product)) {
+    return false;
+  }
+
+  return true;
+}
+
+async function enrichAwinProductsWithSignals(
+  products: NormalizedAwinAdvertiserFeedProduct[],
+  options: { enrichIfMissing: boolean; advertiserId: string },
+) {
+  if (products.length === 0) return products;
+
+  const enriched = await Promise.all(
+    products.map(async (product) => {
+      const signals = await resolveAwinProductSignals(
+        {
+          advertiserId: options.advertiserId,
+          id: product.id,
+          merchantProductId: product.merchantProductId,
+          merchantName: product.merchantName,
+          productName: product.productName,
+          description: product.description,
+          awDeepLink: product.awDeepLink,
+          merchantDeepLink: product.merchantDeepLink,
+        },
+        { enrichIfMissing: options.enrichIfMissing },
+      );
+
+      if (!signals) return product;
+
+      return {
+        ...product,
+        isBrazilDomestic: signals.isBrazilDomestic,
+        brazilSignalSummary: signals.signalSummary,
+        brazilSignalConfidence: signals.signalConfidence,
+        brazilSignalSource: signals.signalSource,
+        isFreeShipping: product.deliveryCost === 0 || signals.isFreeShipping,
+        shippingSignalSummary: signals.shippingSummary,
+        shippingSignalConfidence: signals.shippingConfidence,
+        shippingSignalSource: signals.shippingSource,
+      };
+    }),
+  );
+
+  return enriched;
 }
 
 async function fetchTextOrGzipText(url: string) {
@@ -720,10 +923,44 @@ async function fetchTextOrGzipText(url: string) {
   return isGzip ? gunzipSync(buffer).toString("utf8") : buffer.toString("utf8");
 }
 
+function filterAwinFeedsForAdvertiser(
+  feeds: NormalizedAwinFeed[],
+  advertiserId: string,
+) {
+  return feeds.filter((feed) => {
+    const feedAdvertiserId = toText(feed.advertiserId);
+    const feedId = toText(feed.id);
+    const downloadUrl = toText(feed.downloadUrl);
+
+    return Boolean(downloadUrl) && (
+      feedAdvertiserId === advertiserId ||
+      feedId === advertiserId ||
+      downloadUrl.includes(`/fid/${advertiserId}/`) ||
+      downloadUrl.includes(`fid=${advertiserId}`)
+    );
+  });
+}
+
 async function fetchAwinAdvertiserFeeds(advertiserId: string) {
   const apiKey = getAwinDatafeedApiKey();
   if (!apiKey) {
     throw new Error("AWIN datafeed API key nao configurada no servidor.");
+  }
+
+  const feedListUrl = getAwinFeedListUrl();
+  if (feedListUrl) {
+    try {
+      const configuredFeeds = await fetchAwinFeedList();
+      const configuredMatches = filterAwinFeedsForAdvertiser(
+        configuredFeeds,
+        advertiserId,
+      );
+      if (configuredMatches.length > 0) {
+        return configuredMatches;
+      }
+    } catch {
+      // Fall back to direct productdata lookup below.
+    }
   }
 
   const url = new URL(
@@ -734,10 +971,22 @@ async function fetchAwinAdvertiserFeeds(advertiserId: string) {
     )}/columns/${AWIN_ADVERTISER_FEED_COLUMNS}/format/json/`,
   );
   const feeds = parseFeedList(await fetchTextOrGzipText(url.toString()));
-  return feeds.filter((feed) => feed.advertiserId === advertiserId && feed.downloadUrl);
+  const matches = filterAwinFeedsForAdvertiser(feeds, advertiserId);
+  if (matches.length > 0) {
+    return matches;
+  }
+
+  throw new Error(
+    `Nenhum feed AWIN encontrado para o anunciante ${advertiserId}.`,
+  );
 }
 
 function getFeedDownloadUrl(feed: NormalizedAwinFeed, params: { search: string; category: string; page: number }) {
+  const directDownloadUrl = toText(feed.downloadUrl).replace(/&amp;/gi, "&");
+  if (directDownloadUrl.includes("/datafeed/download/")) {
+    return directDownloadUrl;
+  }
+
   const apiKey = getAwinDatafeedApiKey();
   const language = feed.downloadUrl.match(/\/language\/([^/]+)/)?.[1] || "en";
   const url = new URL(
@@ -759,6 +1008,152 @@ function getFeedDownloadUrl(feed: NormalizedAwinFeed, params: { search: string; 
   return url.toString();
 }
 
+function shouldFallbackToMasterAwinFeed(error: unknown) {
+  const message = error instanceof Error ? error.message : toText(error);
+  return (
+    message.includes("Feed AWIN retornou HTTP 403") ||
+    message.includes("Feed AWIN retornou HTTP 404") ||
+    message.includes("Nenhum feed AWIN encontrado")
+  );
+}
+
+function matchesAdvertiserRecord(record: Record<string, unknown>, advertiserId: string) {
+  const merchantId = pickRecordValue(record, [
+    "merchant_id",
+    "merchantId",
+    "advertiser_id",
+    "advertiserId",
+    "programme_id",
+    "program_id",
+  ]);
+
+  return merchantId === advertiserId;
+}
+
+async function fetchAwinAdvertiserProductsFromMasterFeed(params: {
+  advertiserId: string;
+  search: string;
+  category: string;
+  page: number;
+  sort: AwinAdvertiserFeedSort;
+  priceMin: number | null;
+  priceMax: number | null;
+  freeShipping: boolean;
+  brazilOnly: boolean;
+  brlRates: Record<string, number>;
+  commissionLabel: string;
+}) {
+  const url = getAwinProductFeedDownloadUrl();
+  if (!url) {
+    throw new Error("AWIN_PRODUCT_FEED_DOWNLOAD_URL nao configurada no servidor.");
+  }
+
+  const text = await fetchTextOrGzipText(url);
+  const lines = text.trim().split(/\r?\n/).filter(Boolean);
+  if (lines.length <= 1) {
+    return {
+      products: [] as NormalizedAwinAdvertiserFeedProduct[],
+      total: 0,
+      page: params.page,
+      categories: [] as string[],
+    };
+  }
+
+  const headers = parseCsvLine(lines[0]);
+  const searchLower = params.search.toLowerCase();
+  const categoryLower = params.category.toLowerCase();
+  const startIndex = (params.page - 1) * AWIN_ADVERTISER_FEED_PAGE_SIZE;
+  const endIndex = startIndex + AWIN_ADVERTISER_FEED_PAGE_SIZE;
+  const shouldSort = Boolean(params.sort);
+  const requiresSignalFiltering = params.brazilOnly || params.freeShipping;
+  const foundCategories = new Set<string>();
+  const products: NormalizedAwinAdvertiserFeedProduct[] = [];
+  const sortableProducts: NormalizedAwinAdvertiserFeedProduct[] = [];
+  let total = 0;
+
+  for (const line of lines.slice(1)) {
+    const values = parseCsvLine(line);
+    const record = Object.fromEntries(headers.map((header, index) => [header, values[index] ?? ""]));
+    if (!matchesAdvertiserRecord(record, params.advertiserId)) continue;
+
+    const product = normalizeAdvertiserFeedProduct(
+      record,
+      params.brlRates,
+      params.advertiserId,
+      params.commissionLabel,
+    );
+    if (!product) continue;
+
+    const haystack = `${product.id} ${product.merchantProductId} ${product.productName} ${product.description} ${product.merchantName} ${product.categoryName} ${product.awDeepLink} ${product.merchantDeepLink}`.toLowerCase();
+    if (product.categoryName) foundCategories.add(product.categoryName);
+
+    if (searchLower && !matchesAwinSearch(haystack, searchLower)) continue;
+    if (categoryLower && !product.categoryName.toLowerCase().includes(categoryLower)) continue;
+    if (params.priceMin !== null && product.searchPrice < params.priceMin) continue;
+    if (params.priceMax !== null && product.searchPrice > params.priceMax) continue;
+
+    if (shouldSort) {
+      sortableProducts.push(product);
+    } else {
+      if (requiresSignalFiltering) {
+        if (total < endIndex + AWIN_SIGNAL_FILTER_BUFFER) {
+          products.push(product);
+        }
+      } else if (total >= startIndex && total < endIndex) {
+        products.push(product);
+      }
+      total += 1;
+    }
+  }
+
+  if (shouldSort) {
+    const sortedProducts = sortableProducts.slice();
+    if (params.sort === "best_deals" || params.sort === "price_asc") {
+      sortedProducts.sort((a, b) => a.searchPrice - b.searchPrice);
+    } else if (params.sort === "price_desc") {
+      sortedProducts.sort((a, b) => b.searchPrice - a.searchPrice);
+    } else if (params.sort === "top_selling" && sortedProducts.some((product) => product.rating > 0)) {
+      sortedProducts.sort((a, b) => b.rating - a.rating);
+    }
+
+    total = sortedProducts.length;
+    products.push(
+      ...sortedProducts.slice(
+        requiresSignalFiltering ? 0 : startIndex,
+        requiresSignalFiltering ? endIndex + AWIN_SIGNAL_FILTER_BUFFER : endIndex,
+      ),
+    );
+  }
+
+  if (requiresSignalFiltering) {
+    const enrichedWindow = await enrichAwinProductsWithSignals(products, {
+      enrichIfMissing: true,
+      advertiserId: params.advertiserId,
+    });
+    const filteredWindow = enrichedWindow.filter((product) =>
+      matchesAwinSignalFilters(product, {
+        brazilOnly: params.brazilOnly,
+        freeShipping: params.freeShipping,
+      }),
+    );
+    const hasMoreRawCandidates = total > products.length;
+
+    return {
+      products: filteredWindow.slice(startIndex, endIndex),
+      total: filteredWindow.length + (hasMoreRawCandidates ? 1 : 0),
+      page: params.page,
+      categories: Array.from(foundCategories).sort((a, b) => a.localeCompare(b)),
+    };
+  }
+
+  return {
+    products,
+    total,
+    page: params.page,
+    categories: Array.from(foundCategories).sort((a, b) => a.localeCompare(b)),
+  };
+}
+
 export async function fetchAwinAdvertiserFeedProducts(params: {
   advertiserId: string;
   search?: string;
@@ -768,6 +1163,7 @@ export async function fetchAwinAdvertiserFeedProducts(params: {
   priceMin?: number | null;
   priceMax?: number | null;
   freeShipping?: boolean;
+  brazilOnly?: boolean;
 }) {
   const advertiserId = toText(params.advertiserId);
   if (!/^\d+$/.test(advertiserId)) {
@@ -787,77 +1183,158 @@ export async function fetchAwinAdvertiserFeedProducts(params: {
     normalizedPriceMax === null ? null : Math.max(priceMin ?? 0, normalizedPriceMax);
   const startIndex = (page - 1) * AWIN_ADVERTISER_FEED_PAGE_SIZE;
   const endIndex = startIndex + AWIN_ADVERTISER_FEED_PAGE_SIZE;
-  const feeds = await fetchAwinAdvertiserFeeds(advertiserId);
-  const feedCategories = Array.from(
-    new Set(feeds.map((feed) => translateAwinCategory(feed.name)).filter(Boolean)),
-  ).sort((a, b) => a.localeCompare(b));
-  const candidateFeeds = categoryLower
-    ? feeds.filter((feed) =>
-        `${feed.name} ${translateAwinCategory(feed.name)} ${feed.advertiserName}`
-          .toLowerCase()
-          .includes(categoryLower),
-      )
-    : feeds;
+  let programmeCommissionLabel = "";
+  try {
+    programmeCommissionLabel =
+      (
+        await fetchAwinProgrammes({
+          relationship: "joined",
+        })
+      ).find((programme) => programme.id === advertiserId)?.commissionLabel || "";
+  } catch {
+    programmeCommissionLabel = "";
+  }
   const products: NormalizedAwinAdvertiserFeedProduct[] = [];
   const sortableProducts: NormalizedAwinAdvertiserFeedProduct[] = [];
-  const foundCategories = new Set<string>(feedCategories);
   const freeShipping = params.freeShipping === true;
+  const brazilOnly = params.brazilOnly === true;
+  const requiresSignalFiltering = brazilOnly || freeShipping;
   const shouldSort = Boolean(sort);
   const brlRates = await fetchAwinBrlRates();
-  let total = 0;
+  try {
+    const feeds = await fetchAwinAdvertiserFeeds(advertiserId);
+    const feedCategories = Array.from(
+      new Set(feeds.map((feed) => translateAwinCategory(feed.name)).filter(Boolean)),
+    ).sort((a, b) => a.localeCompare(b));
+    const candidateFeeds = categoryLower
+      ? feeds.filter((feed) =>
+          `${feed.name} ${translateAwinCategory(feed.name)} ${feed.advertiserName}`
+            .toLowerCase()
+            .includes(categoryLower),
+        )
+      : feeds;
+    const foundCategories = new Set<string>(feedCategories);
+    let total = 0;
 
-  for (const feed of candidateFeeds) {
-    const text = await fetchTextOrGzipText(getFeedDownloadUrl(feed, { search, category, page }));
-    const lines = text.trim().split(/\r?\n/).filter(Boolean);
-    if (lines.length <= 1) continue;
+    for (const feed of candidateFeeds) {
+      const text = await fetchTextOrGzipText(getFeedDownloadUrl(feed, { search, category, page }));
+      const lines = text.trim().split(/\r?\n/).filter(Boolean);
+      if (lines.length <= 1) continue;
 
-    const headers = parseCsvLine(lines[0]);
-    for (const line of lines.slice(1)) {
-      const values = parseCsvLine(line);
-      const record = Object.fromEntries(headers.map((header, index) => [header, values[index] ?? ""]));
-      const product = normalizeAdvertiserFeedProduct(record, brlRates, advertiserId);
-      if (!product) continue;
+      const headers = parseCsvLine(lines[0]);
+      for (const line of lines.slice(1)) {
+        const values = parseCsvLine(line);
+        const record = Object.fromEntries(headers.map((header, index) => [header, values[index] ?? ""]));
+        const product = normalizeAdvertiserFeedProduct(
+          record,
+          brlRates,
+          advertiserId,
+          programmeCommissionLabel,
+        );
+        if (!product) continue;
 
-      const haystack = `${product.id} ${product.merchantProductId} ${product.productName} ${product.description} ${product.merchantName} ${product.categoryName} ${product.awDeepLink} ${product.merchantDeepLink}`.toLowerCase();
-      if (product.categoryName) foundCategories.add(product.categoryName);
-      
-      if (searchLower && !matchesAwinSearch(haystack, searchLower)) continue;
-      if (categoryLower && !`${translateAwinCategory(feed.name)} ${product.categoryName}`.toLowerCase().includes(categoryLower)) continue;
-      if (priceMin !== null && product.searchPrice < priceMin) continue;
-      if (priceMax !== null && product.searchPrice > priceMax) continue;
-      if (freeShipping && product.deliveryCost > 0) continue;
+        const haystack = `${product.id} ${product.merchantProductId} ${product.productName} ${product.description} ${product.merchantName} ${product.categoryName} ${product.awDeepLink} ${product.merchantDeepLink}`.toLowerCase();
+        if (product.categoryName) foundCategories.add(product.categoryName);
 
-      if (shouldSort) {
-        sortableProducts.push(product);
-      } else {
-        if (total >= startIndex && total < endIndex) {
-          products.push(product);
+        if (searchLower && !matchesAwinSearch(haystack, searchLower)) continue;
+        if (categoryLower && !`${translateAwinCategory(feed.name)} ${product.categoryName}`.toLowerCase().includes(categoryLower)) continue;
+        if (priceMin !== null && product.searchPrice < priceMin) continue;
+        if (priceMax !== null && product.searchPrice > priceMax) continue;
+
+        if (shouldSort) {
+          sortableProducts.push(product);
+        } else {
+          if (requiresSignalFiltering) {
+            if (total < endIndex + AWIN_SIGNAL_FILTER_BUFFER) {
+              products.push(product);
+            }
+          } else if (total >= startIndex && total < endIndex) {
+            products.push(product);
+          }
+          total += 1;
         }
-        total += 1;
       }
     }
-  }
+    if (shouldSort) {
+      const sortedProducts = sortableProducts.slice();
+      if (sort === "best_deals" || sort === "price_asc") {
+        sortedProducts.sort((a, b) => a.searchPrice - b.searchPrice);
+      } else if (sort === "price_desc") {
+        sortedProducts.sort((a, b) => b.searchPrice - a.searchPrice);
+      } else if (sort === "top_selling" && sortedProducts.some((product) => product.rating > 0)) {
+        sortedProducts.sort((a, b) => b.rating - a.rating);
+      }
 
-  if (shouldSort) {
-    const sortedProducts = sortableProducts.slice();
-    if (sort === "best_deals" || sort === "price_asc") {
-      sortedProducts.sort((a, b) => a.searchPrice - b.searchPrice);
-    } else if (sort === "price_desc") {
-      sortedProducts.sort((a, b) => b.searchPrice - a.searchPrice);
-    } else if (sort === "top_selling" && sortedProducts.some((product) => product.rating > 0)) {
-      sortedProducts.sort((a, b) => b.rating - a.rating);
+      total = sortedProducts.length;
+      products.push(
+        ...sortedProducts.slice(
+          requiresSignalFiltering ? 0 : startIndex,
+          requiresSignalFiltering ? endIndex + AWIN_SIGNAL_FILTER_BUFFER : endIndex,
+        ),
+      );
     }
 
-    total = sortedProducts.length;
-    products.push(...sortedProducts.slice(startIndex, endIndex));
-  }
+    if (requiresSignalFiltering) {
+      const enrichedWindow = await enrichAwinProductsWithSignals(products, {
+        enrichIfMissing: true,
+        advertiserId,
+      });
+      const filteredWindow = enrichedWindow.filter((product) =>
+        matchesAwinSignalFilters(product, {
+          brazilOnly,
+          freeShipping,
+        }),
+      );
+      const hasMoreRawCandidates = total > products.length;
 
-  return {
-    products,
-    total,
-    page,
-    categories: Array.from(foundCategories).sort((a, b) => a.localeCompare(b)),
-  };
+      return {
+        products: filteredWindow.slice(startIndex, endIndex),
+        total: filteredWindow.length + (hasMoreRawCandidates ? 1 : 0),
+        page,
+        categories: Array.from(foundCategories).sort((a, b) => a.localeCompare(b)),
+      };
+    }
+
+    const enrichedProducts = await enrichAwinProductsWithSignals(products, {
+      enrichIfMissing: false,
+      advertiserId,
+    });
+
+    return {
+      products: enrichedProducts,
+      total,
+      page,
+      categories: Array.from(foundCategories).sort((a, b) => a.localeCompare(b)),
+    };
+  } catch (error) {
+    if (!shouldFallbackToMasterAwinFeed(error)) {
+      throw error;
+    }
+
+    const fallbackResult = await fetchAwinAdvertiserProductsFromMasterFeed({
+      advertiserId,
+      search,
+      category,
+      page,
+      sort,
+      priceMin,
+      priceMax,
+      freeShipping,
+      brazilOnly,
+      brlRates,
+      commissionLabel: programmeCommissionLabel,
+    });
+
+    const enrichedProducts = await enrichAwinProductsWithSignals(
+      fallbackResult.products,
+      { enrichIfMissing: false, advertiserId },
+    );
+
+    return {
+      ...fallbackResult,
+      products: enrichedProducts,
+    };
+  }
 }
 
 function normalizeProduct(record: Record<string, unknown>): NormalizedAwinProduct | null {
@@ -942,6 +1419,19 @@ export async function fetchAwinProgrammes(params: {
   countryCode?: string;
   includeHidden?: boolean;
 }) {
+  const cacheKey = JSON.stringify({
+    relationship: params.relationship || "joined",
+    countryCode: params.countryCode || "",
+    includeHidden: params.includeHidden === true,
+  });
+  if (
+    awinProgrammesCache &&
+    awinProgrammesCache.key === cacheKey &&
+    awinProgrammesCache.expiresAt > Date.now()
+  ) {
+    return awinProgrammesCache.programmes;
+  }
+
   const publisherId = getAwinPublisherId();
   const payload = await awinFetch(`/publishers/${publisherId}/programmes`, undefined, {
     relationship: params.relationship || "joined",
@@ -952,7 +1442,14 @@ export async function fetchAwinProgrammes(params: {
     ? payload.map((item) => normalizeProgramme(item as AwinProgramme)).filter(Boolean)
     : [];
 
-  return programmes as NormalizedAwinProgramme[];
+  const normalizedProgrammes = programmes as NormalizedAwinProgramme[];
+  awinProgrammesCache = {
+    expiresAt: Date.now() + 10 * 60 * 1000,
+    key: cacheKey,
+    programmes: normalizedProgrammes,
+  };
+
+  return normalizedProgrammes;
 }
 
 export async function fetchAwinAdvertisers(countryCode?: string) {

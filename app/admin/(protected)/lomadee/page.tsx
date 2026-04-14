@@ -9,7 +9,6 @@ import {
   Search, 
   Send, 
   Sparkles, 
-  Truck,
   X
 } from "lucide-react";
 
@@ -370,7 +369,6 @@ export default function LomadeeHubPage() {
           const productKey = getProductKey(product);
           const currentCopy = productCopies[productKey];
           const isAiBusy = aiLoading === productKey;
-          const isDispatching = dispatching?.includes(productKey);
 
           return (
           <article
@@ -415,7 +413,7 @@ export default function LomadeeHubPage() {
 
             {currentCopy && (
                 <div className="mt-3 rounded-2xl bg-[#FFDA00]/10 p-3 italic text-xs text-slate-700 border border-[#FFDA00]/20">
-                  "{currentCopy}"
+                  &ldquo;{currentCopy}&rdquo;
                 </div>
               )}
 
@@ -559,11 +557,11 @@ export default function LomadeeHubPage() {
           <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-xl">
             <h3 className="mb-4 text-lg font-bold text-gray-900">Escolha o bloco de destino</h3>
             <div className="space-y-3">
-              {[
+              {([
                 { slot: "flash", label: "Ofertas Relâmpago", tone: "bg-orange-100 text-orange-900" },
                 { slot: "best", label: "Melhores Ofertas", tone: "bg-blue-100 text-blue-900" },
                 { slot: "comparator", label: "Comparador", tone: "bg-green-100 text-green-900" },
-              ].map((item) => (
+              ] as Array<{ slot: SlotType; label: string; tone: string }>).map((item) => (
                 <button
                   key={item.slot}
                   type="button"

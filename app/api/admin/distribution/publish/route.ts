@@ -64,45 +64,15 @@ function normalizeOfferSlot(value: unknown): OfferSlot | null {
 
 function normalizeChannels(value: unknown): DistributionChannel[] {
   if (!Array.isArray(value) || !value.length) {
-    return ["telegram", "whatsapp"];
+    return [];
   }
   const channels = Array.from(
     new Set(value.map((item) => String(item ?? "").toLowerCase().trim())),
   );
-  const filtered = channels.filter(
+  return channels.filter(
     (channel): channel is DistributionChannel =>
       channel === "telegram" || channel === "whatsapp",
   );
-  return filtered.length ? filtered : ["telegram", "whatsapp"];
-}
-
-function normalizeCopyByChannel(body: {
-  ad_text?: unknown;
-  ad_text_by_channel?: unknown;
-}): Partial<Record<DistributionChannel, string>> {
-  const map = body.ad_text_by_channel;
-  const adTextByChannel: Partial<Record<DistributionChannel, string>> = {};
-
-  if (map && typeof map === "object") {
-    for (const channel of ["telegram", "whatsapp"] as const) {
-      const value = String(
-        (map as Record<string, unknown>)[channel] ?? "",
-      ).trim();
-      if (value) adTextByChannel[channel] = value;
-    }
-  }
-
-  if (Object.keys(adTextByChannel).length) return adTextByChannel;
-
-  const fallbackText = String(body.ad_text ?? "").trim();
-  if (fallbackText) {
-    return {
-      telegram: fallbackText,
-      whatsapp: fallbackText,
-    };
-  }
-
-  return {};
 }
 
 function resolveSiteBaseUrl(req: NextRequest): string {
@@ -168,6 +138,7 @@ export async function POST(req: NextRequest) {
       affiliate_url?: string;
       slot_type?: string;
       channels?: unknown;
+      publish_to_site?: unknown;
       ad_text?: unknown;
       ad_text_by_channel?: unknown;
     };
@@ -177,11 +148,6 @@ export async function POST(req: NextRequest) {
     const sourceUrl = String(body.url ?? "").trim();
     const affiliateUrl = String(body.affiliate_url ?? "").trim();
     const channels = normalizeChannels(body.channels);
-    const copyByChannel = normalizeCopyByChannel({
-      ad_text: body.ad_text,
-      ad_text_by_channel: body.ad_text_by_channel,
-    });
-
     if (!marketplace) {
       return NextResponse.json(
         { error: "marketplace invalido. Use mercadolivre ou amazon." },
@@ -288,16 +254,31 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const dispatch = await dispatchLegacyOffer({
-      offerId,
-      affiliateUrl,
-      channels,
-      copyByChannel,
-    });
-
     let pushNotification:
       | { ok: boolean; skipped: boolean; status?: number; reason?: string }
       | null = null;
+
+    if (!Boolean(body.publish_to_site) && channels.length > 0) {
+      return NextResponse.json({
+        success: true,
+        queued: false,
+        message:
+          "Envio para Telegram/WhatsApp desativado. Nenhum job foi enfileirado.",
+        offer_id: offerId,
+        offer_status: extracted.offer_status ?? "active",
+        needs_review: false,
+        extract: extracted,
+        distribution: { queued: 0, skipped: channels.length },
+        push: pushNotification,
+      });
+    }
+
+    const dispatch = await dispatchLegacyOffer({
+      offerId,
+      affiliateUrl,
+      channels: [],
+      copyByChannel: undefined,
+    });
 
     if (slotType === "flash") {
       const { data: offerForPush } = await supabaseAdmin

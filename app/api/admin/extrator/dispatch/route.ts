@@ -113,11 +113,10 @@ export async function POST(req: NextRequest) {
             { fallbackUrl: productUrl },
           );
     const imageUrl = toText(body.image_url);
-    const copyText = toText(body.copy_text);
-    const channels = normalizeChannels(body.channels);
+    const requestedChannels = normalizeChannels(body.channels);
     const slotType = toText(body.slot_type);
     const hubOfferId = toText(body.hub_offer_id);
-    const publishToSite = Boolean(body.publish_to_site) || channels.length === 0;
+    const publishToSite = Boolean(body.publish_to_site);
     const isSiteApproval = publishToSite;
 
     if (!marketplace) {
@@ -286,7 +285,20 @@ export async function POST(req: NextRequest) {
     revalidatePath("/admin/curadoria");
     revalidatePath("/admin/amazon");
 
-    if (!channels.length) {
+    if (!publishToSite && requestedChannels.length > 0) {
+      return NextResponse.json({
+        success: true,
+        queued: false,
+        message:
+          "Telegram e WhatsApp estao desativados. Nenhum job foi enfileirado.",
+        offer_id: offerId,
+        offer_status: offerStatus || "inactive",
+        needs_review: false,
+        distribution: { queued: 0, skipped: requestedChannels.length },
+      });
+    }
+
+    if (publishToSite) {
       if (approvalDidNotStick) {
         return NextResponse.json(
           {
@@ -316,16 +328,11 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const copyByChannel =
-      copyText && channels.length
-        ? Object.fromEntries(channels.map((channel) => [channel, copyText]))
-        : undefined;
-
     const dispatch = await dispatchLegacyOffer({
       offerId,
       affiliateUrl,
-      channels,
-      copyByChannel,
+      channels: [],
+      copyByChannel: undefined,
       allowRequeueSameDay: true,
     });
 

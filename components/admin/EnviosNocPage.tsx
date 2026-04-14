@@ -170,11 +170,6 @@ export default async function EnviosNocPage() {
     );
   }
 
-  const queuedCount = queueItems.filter((item) => {
-    const status = String(item.status ?? "").toLowerCase();
-    return status === "queued" || status === "processing";
-  }).length;
-
   const failedCount = queueItems.filter(
     (item) => String(item.status ?? "").toLowerCase() === "failed",
   ).length;
@@ -248,14 +243,7 @@ export default async function EnviosNocPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
-        <QueueStatCard
-          title="Na Fila"
-          value={queuedCount}
-          color="text-amber-600"
-          icon={<Clock size={20} />}
-          description="Apenas jobs ainda pendentes ou em processamento."
-        />
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         <QueueStatCard
           title="Postados Hoje"
           value={sentTodayCount}

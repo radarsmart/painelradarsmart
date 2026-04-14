@@ -1,3 +1,5 @@
+> Leia AGENTS.md antes de usar esta skill.
+
 ---
 name: scraper
 description: Usar ao coletar ou extrair ofertas do Mercado Livre ou Amazon. Cobre pipeline de scraping, fallbacks e formato de output padrao.

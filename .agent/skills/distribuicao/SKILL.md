@@ -1,3 +1,5 @@
+> Leia AGENTS.md antes de usar esta skill.
+
 ---
 name: distribuicao
 description: Usar ao construir ou modificar distribuicao de ofertas para site, WhatsApp e Telegram.

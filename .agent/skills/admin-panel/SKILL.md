@@ -1,3 +1,5 @@
+> Leia AGENTS.md antes de usar esta skill.
+
 ---
 name: admin-panel
 description: Usar ao construir ou modificar qualquer modulo do painel administrativo da Radar Smart em app/admin.

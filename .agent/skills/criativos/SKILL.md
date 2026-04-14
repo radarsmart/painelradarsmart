@@ -1,3 +1,5 @@
+> Leia AGENTS.md antes de usar esta skill.
+
 Substitua completamente o conteúdo do arquivo 
 .agent/skills/criativos/SKILL.md pelo conteúdo abaixo.
 NÃO altere nada — copie exatamente como está:

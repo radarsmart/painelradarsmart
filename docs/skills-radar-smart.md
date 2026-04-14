@@ -2,6 +2,9 @@
 
 Documento de referencia para configuracao de skills, agentes e automacoes de contexto do projeto Radar Smart.
 
+## Como usar este documento
+Leia o AGENTS.md na raiz do projeto antes de qualquer implementacao. Este documento e a fonte de verdade tecnica do projeto.
+
 Ultima revisao: 2026-04-10
 
 ## 1. Stack Atual
@@ -576,4 +579,3 @@ Logs: Procure por `[ML Preview]` no console para identificar qual camada foi aci
 - skill de `distribuicao-canais`
 - skill de `blog-seo`
 - skill de `diagnostico-supabase`
-

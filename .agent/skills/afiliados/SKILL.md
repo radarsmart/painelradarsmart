@@ -1,3 +1,5 @@
+> Leia AGENTS.md antes de usar esta skill.
+
 ---
 name: afiliados
 description: Usar ao gerar links de afiliado, integrar novas plataformas ou modificar rastreamento de cliques na Radar Smart.

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AudioLines,
   Bot,
@@ -43,6 +43,11 @@ type OfferRow = {
   price: number | null;
   old_price: number | null;
   original_price: number | null;
+  discount_pct?: number | null;
+  coupon_code?: string | null;
+  coupon_discount?: number | null;
+  rating?: number | null;
+  reviews_count?: number | null;
 };
 
 type LandingPageRow = {
@@ -142,6 +147,13 @@ type GenerateResponse = {
   persona?: UGCPersonaProfile | null;
   template?: UGCTemplateProfile | null;
   angle?: UGCMarketingAngle | null;
+};
+
+type WhatsAppCopyVariants = {
+  hook: string;
+  short: string;
+  medium: string;
+  long: string;
 };
 
 function asText(value: unknown): string {
@@ -324,14 +336,19 @@ export default function CriativosUgcManager() {
   const [assets, setAssets] = useState<AssetRow[]>([]);
   const [generatedScript, setGeneratedScript] = useState<UGCScript | null>(null);
   const [generatedBriefing, setGeneratedBriefing] = useState<CreativeBriefing | null>(null);
+  const [whatsappCopy, setWhatsAppCopy] = useState<WhatsAppCopyVariants | null>(null);
+  const [whatsappCopyTab, setWhatsAppCopyTab] = useState<keyof WhatsAppCopyVariants>("medium");
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
+  const [generatingWhatsAppCopy, setGeneratingWhatsAppCopy] = useState(false);
   const [savingProject, setSavingProject] = useState(false);
   const [savingHistory, setSavingHistory] = useState(false);
   const [generatingAudio, setGeneratingAudio] = useState(false);
   const [generatingVideo, setGeneratingVideo] = useState(false);
+  const [copyBadge, setCopyBadge] = useState<string | null>(null);
+  const copyBadgeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const selectedPersona = useMemo(
     () => personas.find((persona) => persona.id === selectedPersonaId) ?? null,
@@ -353,6 +370,11 @@ export default function CriativosUgcManager() {
     [projects, selectedProjectId],
   );
 
+  const selectedOffer = useMemo(
+    () => offers.find((offer) => offer.id === selectedOfferId) ?? null,
+    [offers, selectedOfferId],
+  );
+
   const currentVoiceDirection: UGCVoiceDirection = {
     pace: voicePace,
     pauseStyle,
@@ -372,6 +394,14 @@ export default function CriativosUgcManager() {
 
   useEffect(() => {
     void loadAll();
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (copyBadgeTimerRef.current) {
+        clearTimeout(copyBadgeTimerRef.current);
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -812,9 +842,82 @@ export default function CriativosUgcManager() {
     }
   }
 
-  async function copyText(value: string) {
+  function flashCopyBadge() {
+    setCopyBadge("✅ Copiado!");
+    if (copyBadgeTimerRef.current) {
+      clearTimeout(copyBadgeTimerRef.current);
+    }
+    copyBadgeTimerRef.current = setTimeout(() => {
+      setCopyBadge(null);
+    }, 1800);
+  }
+
+  async function copyText(value: string, successMessage = "Conteúdo copiado.") {
     await navigator.clipboard.writeText(value);
-    setMessage("Conteúdo copiado.");
+    setMessage(successMessage);
+    flashCopyBadge();
+  }
+
+  async function handleGenerateWhatsAppCopy() {
+    const offer: OfferRow = selectedOffer ?? {
+      id: "",
+      title,
+      marketplace,
+      category,
+      product_url: productUrl,
+      affiliate_url: affiliateUrl,
+      image_url: imageUrl,
+      price: price ? Number(String(price).replace(/[^\d,.-]/g, "").replace(",", ".")) : null,
+      old_price: originalPrice ? Number(String(originalPrice).replace(/[^\d,.-]/g, "").replace(",", ".")) : null,
+      original_price: originalPrice ? Number(String(originalPrice).replace(/[^\d,.-]/g, "").replace(",", ".")) : null,
+    } as OfferRow;
+
+    if (!offer.title || !offer.marketplace || !offer.affiliate_url || !offer.price) {
+      setError("Selecione uma oferta ou preencha título, marketplace, preço e link afiliado.");
+      return;
+    }
+
+    setGeneratingWhatsAppCopy(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const res = await adminFetch("/api/admin/criativos/whatsapp-copy", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: offer.title,
+          price: offer.price,
+          original_price: offer.original_price ?? offer.old_price ?? undefined,
+          discount_pct: offer.discount_pct ?? undefined,
+          coupon_code: offer.coupon_code ?? undefined,
+          coupon_discount: offer.coupon_discount ?? undefined,
+          affiliate_url: offer.affiliate_url,
+          image_url: offer.image_url ?? undefined,
+          category: offer.category ?? undefined,
+          marketplace: offer.marketplace,
+          rating: offer.rating ?? undefined,
+          reviews_count: offer.reviews_count ?? undefined,
+        }),
+      });
+
+      const json = (await res.json()) as WhatsAppCopyVariants & { error?: string };
+      if (!res.ok) {
+        throw new Error(asText(json.error) || "Erro ao gerar copy do WhatsApp.");
+      }
+
+      setWhatsAppCopy({
+        hook: asText(json.hook),
+        short: asText(json.short),
+        medium: asText(json.medium),
+        long: asText(json.long),
+      });
+      setWhatsAppCopyTab("medium");
+      setMessage("Copy WhatsApp/Telegram gerada com sucesso.");
+    } catch (copyError) {
+      setError(copyError instanceof Error ? copyError.message : "Erro ao gerar copy do WhatsApp.");
+    } finally {
+      setGeneratingWhatsAppCopy(false);
+    }
   }
 
   function clearBriefing() {
@@ -850,6 +953,9 @@ export default function CriativosUgcManager() {
     setCameraEnergy("balanced");
     setGeneratedScript(null);
     setGeneratedBriefing(null);
+    setWhatsAppCopy(null);
+    setWhatsAppCopyTab("medium");
+    setCopyBadge(null);
     setAssets([]);
     setMessage("Briefing limpo.");
     setError(null);
@@ -925,6 +1031,121 @@ export default function CriativosUgcManager() {
                 </select>
               </label>
             </div>
+          </section>
+
+          <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+                <Sparkles className="h-4 w-4 text-orange-500" />
+                Copy WhatsApp/Telegram
+              </div>
+              {copyBadge ? (
+                <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
+                  {copyBadge}
+                </span>
+              ) : null}
+            </div>
+
+            <button
+              type="button"
+              onClick={handleGenerateWhatsAppCopy}
+              disabled={generatingWhatsAppCopy}
+              className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-orange-500 px-4 py-3 text-sm font-semibold text-white transition hover:bg-orange-600 disabled:opacity-60"
+            >
+              {generatingWhatsAppCopy ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Sparkles className="h-4 w-4" />
+              )}
+              🔥 Gerar Copy
+            </button>
+
+            {whatsappCopy ? (
+              <div className="mt-4 space-y-4">
+                <div className="rounded-2xl border border-orange-100 bg-orange-50/70 p-4">
+                  <div className="text-[11px] font-semibold uppercase tracking-widest text-orange-700">
+                    Hook
+                  </div>
+                  <p className="mt-2 whitespace-pre-line text-sm text-slate-800">
+                    {whatsappCopy.hook}
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    { key: "short" as const, label: "Curta" },
+                    { key: "medium" as const, label: "Média" },
+                    { key: "long" as const, label: "Longa" },
+                  ].map((tab) => (
+                    <button
+                      key={tab.key}
+                      type="button"
+                      onClick={() => setWhatsAppCopyTab(tab.key)}
+                      className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
+                        whatsappCopyTab === tab.key
+                          ? "bg-slate-900 text-white"
+                          : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                      }`}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <label className="block space-y-2">
+                    <span className="text-sm font-semibold text-slate-900">
+                      Texto da versão {whatsappCopyTab === "short" ? "curta" : whatsappCopyTab === "medium" ? "média" : "longa"}
+                    </span>
+                    <textarea
+                      value={whatsappCopy[whatsappCopyTab]}
+                      onChange={(event) =>
+                        setWhatsAppCopy((current) =>
+                          current
+                            ? {
+                                ...current,
+                                [whatsappCopyTab]: event.target.value,
+                              }
+                            : current,
+                        )
+                      }
+                      rows={12}
+                      className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm leading-6 text-slate-800 outline-none transition focus:border-orange-400"
+                    />
+                  </label>
+
+                  <div className="mt-4 flex flex-wrap gap-3">
+                    <button
+                      type="button"
+                      onClick={() => void copyText(whatsappCopy[whatsappCopyTab], "Texto copiado para a área de transferência.")}
+                      className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-100"
+                    >
+                      <Copy className="h-4 w-4" />
+                      Copiar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void copyText(
+                          selectedOffer?.image_url || imageUrl
+                            ? `${whatsappCopy[whatsappCopyTab]}\n\n🖼️ Imagem: ${selectedOffer?.image_url || imageUrl}`
+                            : whatsappCopy[whatsappCopyTab],
+                          "Copy com imagem copiada.",
+                        )
+                      }
+                      className="inline-flex items-center gap-2 rounded-2xl border border-orange-200 bg-orange-50 px-4 py-3 text-sm font-semibold text-orange-700 transition hover:bg-orange-100"
+                    >
+                      <Copy className="h-4 w-4" />
+                      Copiar com imagem
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <p className="mt-4 text-sm text-slate-500">
+                Gere a copy para visualizar as três variações aqui.
+              </p>
+            )}
           </section>
 
           <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -1512,6 +1733,121 @@ export default function CriativosUgcManager() {
               </div>
             ) : (
               <p className="text-sm text-slate-500">Gere um roteiro para visualizar o resultado aqui.</p>
+            )}
+          </section>
+
+          <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+                <Sparkles className="h-4 w-4 text-orange-500" />
+                Copy WhatsApp/Telegram
+              </div>
+              {copyBadge ? (
+                <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
+                  {copyBadge}
+                </span>
+              ) : null}
+            </div>
+
+            <button
+              type="button"
+              onClick={handleGenerateWhatsAppCopy}
+              disabled={generatingWhatsAppCopy}
+              className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-orange-500 px-4 py-3 text-sm font-semibold text-white transition hover:bg-orange-600 disabled:opacity-60"
+            >
+              {generatingWhatsAppCopy ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Sparkles className="h-4 w-4" />
+              )}
+              🔥 Gerar Copy
+            </button>
+
+            {whatsappCopy ? (
+              <div className="mt-4 space-y-4">
+                <div className="rounded-2xl border border-orange-100 bg-orange-50/70 p-4">
+                  <div className="text-[11px] font-semibold uppercase tracking-widest text-orange-700">
+                    Hook
+                  </div>
+                  <p className="mt-2 whitespace-pre-line text-sm text-slate-800">
+                    {whatsappCopy.hook}
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    { key: "short" as const, label: "Curta" },
+                    { key: "medium" as const, label: "Média" },
+                    { key: "long" as const, label: "Longa" },
+                  ].map((tab) => (
+                    <button
+                      key={tab.key}
+                      type="button"
+                      onClick={() => setWhatsAppCopyTab(tab.key)}
+                      className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
+                        whatsappCopyTab === tab.key
+                          ? "bg-slate-900 text-white"
+                          : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                      }`}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <label className="block space-y-2">
+                    <span className="text-sm font-semibold text-slate-900">
+                      Texto da versão {whatsappCopyTab === "short" ? "curta" : whatsappCopyTab === "medium" ? "média" : "longa"}
+                    </span>
+                    <textarea
+                      value={whatsappCopy[whatsappCopyTab]}
+                      onChange={(event) =>
+                        setWhatsAppCopy((current) =>
+                          current
+                            ? {
+                                ...current,
+                                [whatsappCopyTab]: event.target.value,
+                              }
+                            : current,
+                        )
+                      }
+                      rows={12}
+                      className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm leading-6 text-slate-800 outline-none transition focus:border-orange-400"
+                    />
+                  </label>
+
+                  <div className="mt-4 flex flex-wrap gap-3">
+                    <button
+                      type="button"
+                      onClick={() => void copyText(whatsappCopy[whatsappCopyTab], "Texto copiado para a área de transferência.")}
+                      className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-100"
+                    >
+                      <Copy className="h-4 w-4" />
+                      Copiar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void copyText(
+                          selectedOffer?.image_url || imageUrl
+                            ? `${whatsappCopy[whatsappCopyTab]}\n\n🖼️ Imagem: ${selectedOffer?.image_url || imageUrl}`
+                            : whatsappCopy[whatsappCopyTab],
+                          "Copy com imagem copiada.",
+                        )
+                      }
+                      className="inline-flex items-center gap-2 rounded-2xl border border-orange-200 bg-orange-50 px-4 py-3 text-sm font-semibold text-orange-700 transition hover:bg-orange-100"
+                    >
+                      <Copy className="h-4 w-4" />
+                      Copiar com imagem
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <p className="mt-4 text-sm text-slate-500">
+                Gere a copy para visualizar as três variações aqui.
+              </p>
             )}
           </section>
 

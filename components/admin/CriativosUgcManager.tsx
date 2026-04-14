@@ -2063,6 +2063,75 @@ export default function CriativosUgcManager() {
                   <div className="mt-2 text-xs text-slate-500">
                     {creative.ugc_type}  -  {creative.voice_key}  -  {formatDate(creative.created_at)}
                   </div>
+                  {creative.whatsapp_copy?.short || creative.whatsapp_copy?.medium || creative.whatsapp_copy?.long ? (
+                    <div className="mt-4 rounded-2xl border border-orange-100 bg-orange-50/60 p-4">
+                      <div className="mb-3 flex items-center justify-between gap-3">
+                        <div className="text-xs font-semibold uppercase tracking-widest text-orange-700">
+                          Copy WhatsApp/Telegram salva
+                        </div>
+                        {creative.whatsapp_copy?.hook ? (
+                          <button
+                            type="button"
+                            onClick={() => void copyText(creative.whatsapp_copy?.hook || "")}
+                            className="inline-flex items-center gap-2 rounded-full border border-orange-200 bg-white px-3 py-1.5 text-xs font-medium text-orange-700 transition hover:bg-orange-100"
+                          >
+                            <Copy className="h-3.5 w-3.5" />
+                            Copiar hook
+                          </button>
+                        ) : null}
+                      </div>
+                      {creative.whatsapp_copy?.hook ? (
+                        <p className="mb-3 rounded-xl bg-white/80 px-3 py-2 text-sm text-slate-800">
+                          {creative.whatsapp_copy.hook}
+                        </p>
+                      ) : null}
+                      <div className="flex flex-wrap gap-2">
+                        {[
+                          {
+                            key: "short" as const,
+                            label: "Curta",
+                            text: creative.whatsapp_copy?.short || "",
+                          },
+                          {
+                            key: "medium" as const,
+                            label: "Média",
+                            text: creative.whatsapp_copy?.medium || "",
+                          },
+                          {
+                            key: "long" as const,
+                            label: "Longa",
+                            text: creative.whatsapp_copy?.long || "",
+                          },
+                        ].map((variant) =>
+                          variant.text ? (
+                            <button
+                              key={variant.key}
+                              type="button"
+                              onClick={() => void copyText(variant.text)}
+                              className="inline-flex items-center gap-2 rounded-full border border-orange-200 bg-white px-3 py-1.5 text-xs font-medium text-orange-700 transition hover:bg-orange-100"
+                            >
+                              <Copy className="h-3.5 w-3.5" />
+                              Copiar {variant.label}
+                            </button>
+                          ) : null,
+                        )}
+                        {creative.whatsapp_copy?.imageUrl || creative.whatsapp_copy?.image_url ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              void copyText(
+                                `${creative.whatsapp_copy?.long || creative.whatsapp_copy?.medium || creative.whatsapp_copy?.short || ""}\n\n🖼️ Imagem: ${creative.whatsapp_copy?.imageUrl || creative.whatsapp_copy?.image_url}`,
+                              )
+                            }
+                            className="inline-flex items-center gap-2 rounded-full border border-orange-200 bg-white px-3 py-1.5 text-xs font-medium text-orange-700 transition hover:bg-orange-100"
+                          >
+                            <Copy className="h-3.5 w-3.5" />
+                            Copiar com imagem
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               ))
             )}

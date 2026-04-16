@@ -1,19 +1,48 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { supabase } from "@/lib/supabase";
 
 const MODELS = [
-  { id: 1, emoji: "⚡", name: "Problema → Solução", cvr: "8-12%" },
+  { id: 1, emoji: "⚡", name: "Problema -> Solucao", cvr: "8-12%" },
   { id: 2, emoji: "📦", name: "ASMR Unboxing", cvr: "6-9%" },
   { id: 3, emoji: "🎭", name: "POV Storytelling", cvr: "10-15%" },
   { id: 4, emoji: "🔥", name: "Review Honesto", cvr: "7-11%" },
-  { id: 5, emoji: "⚔️", name: "Comparação X vs Y", cvr: "9-14%" },
+  { id: 5, emoji: "⚔️", name: "Comparacao X vs Y", cvr: "9-14%" },
   { id: 6, emoji: "📚", name: "Tutorial", cvr: "5-8%" },
   { id: 7, emoji: "🔄", name: "Trend Hijack", cvr: "4-7%" },
   { id: 8, emoji: "☀️", name: "Day-in-Life", cvr: "6-10%" },
   { id: 9, emoji: "⭐", name: "Social Proof", cvr: "11-16%" },
-  { id: 10, emoji: "💰", name: "Duelo de Preço", cvr: "12-18%" },
+  { id: 10, emoji: "💰", name: "Duelo de Preco", cvr: "12-18%" },
 ];
+
+async function getAccessToken() {
+  const { data, error } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  if (error || !token) {
+    throw new Error("Sessao expirada. Faca login novamente.");
+  }
+  return token;
+}
+
+async function apiFetch(url, init = {}) {
+  const token = await getAccessToken();
+  const response = await fetch(url, {
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+      ...(init.headers ?? {}),
+    },
+    cache: "no-store",
+  });
+
+  const json = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(json?.error || `Falha na API (${response.status}).`);
+  }
+  return json;
+}
 
 export default function TikTokVideoSystem() {
   const [productName, setProductName] = useState("");
@@ -27,7 +56,10 @@ export default function TikTokVideoSystem() {
   const [shopUrl, setShopUrl] = useState("");
   const [selectedModels, setSelectedModels] = useState([1, 5, 10]);
   const [voices, setVoices] = useState([]);
-  const [voiceRegistry, setVoiceRegistry] = useState({ default_voice_id: "", voices: [] });
+  const [voiceRegistry, setVoiceRegistry] = useState({
+    default_voice_id: "",
+    voices: [],
+  });
   const [voiceId, setVoiceId] = useState("");
   const [savingVoiceDefault, setSavingVoiceDefault] = useState(false);
   const [savingVoiceRegister, setSavingVoiceRegister] = useState(false);
@@ -44,7 +76,10 @@ export default function TikTokVideoSystem() {
   const intervalRef = useRef(null);
 
   const addLog = useCallback((message, type = "info") => {
-    setLogs((prev) => [...prev, { message, type, time: new Date().toLocaleTimeString("pt-BR") }]);
+    setLogs((prev) => [
+      ...prev,
+      { message, type, time: new Date().toLocaleTimeString("pt-BR") },
+    ]);
   }, []);
 
   const canGenerate = useMemo(
@@ -61,40 +96,45 @@ export default function TikTokVideoSystem() {
   );
 
   const loadVoices = useCallback(async () => {
-    const res = await fetch("/api/tiktok-engine/voices", { cache: "no-store" });
-    const data = await res.json();
-    if (data?.voices?.length) {
+    try {
+      const data = await apiFetch("/api/tiktok-engine/voices");
+      if (!data?.voices?.length) return;
       setVoices(data.voices);
       setVoiceRegistry(data.registry ?? { default_voice_id: "", voices: [] });
-      const defaultVoiceId = data.default_voice_id || data.registry?.default_voice_id || data.voices[0].voice_id;
+      const defaultVoiceId =
+        data.default_voice_id ||
+        data.registry?.default_voice_id ||
+        data.voices[0].voice_id;
       if (!voiceId) setVoiceId(defaultVoiceId);
+    } catch (error) {
+      addLog(error instanceof Error ? error.message : "Falha ao carregar vozes.", "error");
     }
-  }, [voiceId]);
+  }, [addLog, voiceId]);
 
   const setVoiceAsDefault = useCallback(async () => {
     if (!voiceId) return;
     setSavingVoiceDefault(true);
     try {
       const selectedVoice = voices.find((voice) => voice.voice_id === voiceId);
-      const res = await fetch("/api/tiktok-engine/voices", {
+      const data = await apiFetch("/api/tiktok-engine/voices", {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           default_voice_id: voiceId,
           register_voices: selectedVoice
-            ? [{ voice_id: selectedVoice.voice_id, name: selectedVoice.name, active: true }]
+            ? [
+                {
+                  voice_id: selectedVoice.voice_id,
+                  name: selectedVoice.name,
+                  active: true,
+                },
+              ]
             : undefined,
         }),
       });
-      const data = await res.json();
-      if (!res.ok) {
-        addLog(data?.error ?? "Falha ao definir voz padrão.", "error");
-        return;
-      }
       setVoiceRegistry(data.registry ?? voiceRegistry);
-      addLog("Voz padrão atualizada com sucesso.", "success");
+      addLog("Voz padrao atualizada com sucesso.", "success");
     } catch (error) {
-      addLog(error instanceof Error ? error.message : "Falha ao definir voz padrão.", "error");
+      addLog(error instanceof Error ? error.message : "Falha ao definir voz padrao.", "error");
     } finally {
       setSavingVoiceDefault(false);
     }
@@ -108,24 +148,14 @@ export default function TikTokVideoSystem() {
     }
     setSavingVoiceRegister(true);
     try {
-      const res = await fetch("/api/tiktok-engine/voices", {
+      const data = await apiFetch("/api/tiktok-engine/voices", {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           register_voices: [
-            {
-              voice_id: value,
-              name: newVoiceName.trim() || undefined,
-              active: true,
-            },
+            { voice_id: value, name: newVoiceName.trim() || undefined, active: true },
           ],
         }),
       });
-      const data = await res.json();
-      if (!res.ok) {
-        addLog(data?.error ?? "Falha ao cadastrar voice_id.", "error");
-        return;
-      }
       setVoiceRegistry(data.registry ?? voiceRegistry);
       setNewVoiceId("");
       setNewVoiceName("");
@@ -138,15 +168,14 @@ export default function TikTokVideoSystem() {
   }, [addLog, newVoiceId, newVoiceName, voiceRegistry]);
 
   const loadAvatars = useCallback(async () => {
-    const res = await fetch("/api/tiktok-engine/avatars", { cache: "no-store" });
-    const data = await res.json();
-    if (!res.ok) {
-      addLog(data?.error ?? "Falha ao carregar avatares.", "error");
-      return;
+    try {
+      const data = await apiFetch("/api/tiktok-engine/avatars");
+      const list = data?.avatars ?? [];
+      setAvatars(list);
+      if (!avatarId && list[0]?.avatar_id) setAvatarId(list[0].avatar_id);
+    } catch (error) {
+      addLog(error instanceof Error ? error.message : "Falha ao carregar avatares.", "error");
     }
-    const list = data?.avatars ?? [];
-    setAvatars(list);
-    if (!avatarId && list[0]?.avatar_id) setAvatarId(list[0].avatar_id);
   }, [addLog, avatarId]);
 
   useEffect(() => {
@@ -165,19 +194,26 @@ export default function TikTokVideoSystem() {
 
   const fetchStatus = useCallback(
     async (id) => {
-      const res = await fetch(`/api/tiktok-engine/status/${id}`, { cache: "no-store" });
-      const data = await res.json();
-      if (!res.ok) {
-        addLog(data?.error ?? "Erro ao consultar status.", "error");
+      let data;
+      try {
+        data = await apiFetch(`/api/tiktok-engine/status/${id}`);
+      } catch (error) {
+        addLog(error instanceof Error ? error.message : "Erro ao consultar status.", "error");
+        setRunning(false);
+        stopPolling();
         return;
       }
+
       setJobs(data.jobs ?? []);
       setOverallStatus(data.overall_status ?? "processing");
       setProgress(data.progress ?? "0%");
       if (["completed", "failed", "partial_failed"].includes(data.overall_status)) {
         setRunning(false);
         stopPolling();
-        addLog(`Pipeline finalizado com status: ${data.overall_status}`, data.overall_status === "completed" ? "success" : "error");
+        addLog(
+          `Pipeline finalizado com status: ${data.overall_status}`,
+          data.overall_status === "completed" ? "success" : "error",
+        );
       }
     },
     [addLog, stopPolling],
@@ -190,6 +226,7 @@ export default function TikTokVideoSystem() {
     setProgress("0%");
     setOverallStatus("pending");
     addLog("Iniciando pipeline...");
+
     const payload = {
       product_name: productName,
       product_price: productPrice,
@@ -205,17 +242,18 @@ export default function TikTokVideoSystem() {
       avatar_id: avatarId,
     };
 
-    const res = await fetch("/api/tiktok-engine/generate", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    const data = await res.json();
-    if (!res.ok) {
+    let data;
+    try {
+      data = await apiFetch("/api/tiktok-engine/generate", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+    } catch (error) {
       setRunning(false);
-      addLog(data?.error ?? "Erro ao iniciar geração.", "error");
+      addLog(error instanceof Error ? error.message : "Erro ao iniciar geracao.", "error");
       return;
     }
+
     setBriefingId(data.briefing_id);
     addLog(data?.message ?? "Pipeline iniciado.", "success");
     await fetchStatus(data.briefing_id);
@@ -240,27 +278,35 @@ export default function TikTokVideoSystem() {
   ]);
 
   const toggleModel = (id) => {
-    setSelectedModels((prev) => (prev.includes(id) ? prev.filter((m) => m !== id) : [...prev, id]));
+    setSelectedModels((prev) =>
+      prev.includes(id) ? prev.filter((modelId) => modelId !== id) : [...prev, id],
+    );
   };
 
   return (
     <div className="space-y-4">
       <div className="rounded-2xl border border-slate-200 bg-white p-5">
         <h2 className="text-lg font-semibold">TikTok Shop Video Engine</h2>
-        <p className="text-sm text-slate-500">Backend seguro: Claude + ElevenLabs + HeyGen via /api/tiktok-engine/*</p>
+        <p className="text-sm text-slate-500">
+          Backend seguro: OpenAI + ElevenLabs + HeyGen via /api/tiktok-engine/*
+        </p>
       </div>
 
-      <div className="rounded-2xl border border-slate-200 bg-white p-5 space-y-3">
+      <div className="space-y-3 rounded-2xl border border-slate-200 bg-white p-5">
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           <Input label="Produto *" value={productName} onChange={setProductName} />
-          <Input label="Preço *" value={productPrice} onChange={setProductPrice} />
+          <Input label="Preco *" value={productPrice} onChange={setProductPrice} />
           <Input label="Desconto" value={productDiscount} onChange={setProductDiscount} />
           <Input label="Categoria" value={productCategory} onChange={setProductCategory} />
           <Input label="Concorrente" value={competitorName} onChange={setCompetitorName} />
-          <Input label="Preço concorrente" value={competitorPrice} onChange={setCompetitorPrice} />
+          <Input
+            label="Preco concorrente"
+            value={competitorPrice}
+            onChange={setCompetitorPrice}
+          />
           <Input label="URL TikTok Shop" value={shopUrl} onChange={setShopUrl} />
         </div>
-        <Textarea label="Benefícios *" value={productBenefits} onChange={setProductBenefits} />
+        <Textarea label="Beneficios *" value={productBenefits} onChange={setProductBenefits} />
         <Textarea label="Dor principal *" value={productPain} onChange={setProductPain} />
 
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -281,13 +327,14 @@ export default function TikTokVideoSystem() {
                 disabled={!voiceId || savingVoiceDefault}
                 className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {savingVoiceDefault ? "Salvando..." : "Definir como padrão"}
+                {savingVoiceDefault ? "Salvando..." : "Definir como padrao"}
               </button>
               <span className="text-xs text-slate-500">
-                Padrão atual: {voiceRegistry?.default_voice_id || "não definido"}
+                Padrao atual: {voiceRegistry?.default_voice_id || "nao definido"}
               </span>
             </div>
           </div>
+
           <Select
             label="Avatar HeyGen *"
             value={avatarId}
@@ -332,8 +379,8 @@ export default function TikTokVideoSystem() {
                 {voiceRegistry.voices.map((voice) => (
                   <div key={voice.voice_id}>
                     {voice.voice_id}
-                    {voice.name ? ` — ${voice.name}` : ""}
-                    {voice.voice_id === voiceRegistry.default_voice_id ? " (padrão)" : ""}
+                    {voice.name ? ` - ${voice.name}` : ""}
+                    {voice.voice_id === voiceRegistry.default_voice_id ? " (padrao)" : ""}
                   </div>
                 ))}
               </div>
@@ -343,7 +390,9 @@ export default function TikTokVideoSystem() {
       </div>
 
       <div className="rounded-2xl border border-slate-200 bg-white p-5">
-        <p className="mb-3 text-sm font-medium">Modelos ({selectedModels.length} selecionados)</p>
+        <p className="mb-3 text-sm font-medium">
+          Modelos ({selectedModels.length} selecionados)
+        </p>
         <div className="grid grid-cols-1 gap-2 md:grid-cols-2 lg:grid-cols-3">
           {MODELS.map((model) => {
             const selected = selectedModels.includes(model.id);
@@ -351,12 +400,16 @@ export default function TikTokVideoSystem() {
               <button
                 key={model.id}
                 className={`rounded-xl border p-3 text-left transition ${
-                  selected ? "border-blue-500 bg-blue-50" : "border-slate-200 bg-white hover:bg-slate-50"
+                  selected
+                    ? "border-blue-500 bg-blue-50"
+                    : "border-slate-200 bg-white hover:bg-slate-50"
                 }`}
                 onClick={() => toggleModel(model.id)}
                 type="button"
               >
-                <div className="font-medium">{model.emoji} {model.name}</div>
+                <div className="font-medium">
+                  {model.emoji} {model.name}
+                </div>
                 <div className="text-xs text-slate-500">CVR {model.cvr}</div>
               </button>
             );
@@ -367,8 +420,11 @@ export default function TikTokVideoSystem() {
       <div className="rounded-2xl border border-slate-200 bg-white p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="text-sm text-slate-600">
-            Status: <span className="font-semibold">{overallStatus}</span> • Progresso: <span className="font-semibold">{progress}</span>
-            {briefingId ? <span className="ml-2 text-xs text-slate-500">({briefingId})</span> : null}
+            Status: <span className="font-semibold">{overallStatus}</span> - Progresso:{" "}
+            <span className="font-semibold">{progress}</span>
+            {briefingId ? (
+              <span className="ml-2 text-xs text-slate-500">({briefingId})</span>
+            ) : null}
           </div>
           <button
             type="button"
@@ -376,12 +432,12 @@ export default function TikTokVideoSystem() {
             disabled={!canGenerate || running}
             className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {running ? "Gerando..." : "Gerar vídeos"}
+            {running ? "Gerando..." : "Gerar videos"}
           </button>
         </div>
       </div>
 
-      {jobs.length > 0 && (
+      {jobs.length > 0 ? (
         <div className="rounded-2xl border border-slate-200 bg-white p-5">
           <p className="mb-3 text-sm font-medium">Jobs</p>
           <div className="space-y-2">
@@ -389,9 +445,18 @@ export default function TikTokVideoSystem() {
               <div key={job.job_id} className="rounded-xl border border-slate-200 p-3">
                 <div className="text-sm font-medium">{job.model_name}</div>
                 <div className="text-xs text-slate-500">status: {job.status}</div>
-                {job.script_title ? <div className="mt-1 text-xs text-slate-600">script: {job.script_title}</div> : null}
+                {job.script_title ? (
+                  <div className="mt-1 text-xs text-slate-600">
+                    script: {job.script_title}
+                  </div>
+                ) : null}
                 {job.video_url ? (
-                  <a href={job.video_url} target="_blank" rel="noreferrer" className="mt-2 inline-block text-xs font-semibold text-blue-600">
+                  <a
+                    href={job.video_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-2 inline-block text-xs font-semibold text-blue-600"
+                  >
                     Baixar MP4
                   </a>
                 ) : null}
@@ -400,13 +465,22 @@ export default function TikTokVideoSystem() {
             ))}
           </div>
         </div>
-      )}
+      ) : null}
 
       <div className="rounded-2xl border border-slate-200 bg-white p-5">
         <p className="mb-2 text-sm font-medium">Logs</p>
         <div className="max-h-56 overflow-auto rounded-lg bg-slate-900 p-3 text-xs text-slate-200">
           {logs.map((log, idx) => (
-            <div key={`${log.time}-${idx}`} className={log.type === "error" ? "text-red-300" : log.type === "success" ? "text-green-300" : "text-slate-200"}>
+            <div
+              key={`${log.time}-${idx}`}
+              className={
+                log.type === "error"
+                  ? "text-red-300"
+                  : log.type === "success"
+                    ? "text-green-300"
+                    : "text-slate-200"
+              }
+            >
               [{log.time}] {log.message}
             </div>
           ))}

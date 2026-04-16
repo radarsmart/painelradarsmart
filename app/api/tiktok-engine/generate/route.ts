@@ -16,7 +16,27 @@ type JobResponse = {
   status: string;
 };
 
+function extractBearer(req: NextRequest): string {
+  const auth = req.headers.get("authorization") ?? "";
+  const match = auth.match(/^Bearer\s+(.+)$/i);
+  return match?.[1]?.trim() ?? "";
+}
+
+function isUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    value.trim(),
+  );
+}
+
 export async function POST(req: NextRequest) {
+  const bearerToken = extractBearer(req);
+  if (!bearerToken) {
+    return NextResponse.json(
+      { success: false, error: "Unauthorized: Authorization Bearer token obrigatorio." },
+      { status: 401 },
+    );
+  }
+
   const adminGuard = await requireAdmin(req);
   if (!adminGuard.ok) {
     return NextResponse.json({ error: adminGuard.error }, { status: adminGuard.status });
@@ -38,7 +58,7 @@ export async function POST(req: NextRequest) {
       .insert({
         ...payload,
         status: "processing",
-        created_by_user_id: adminGuard.userId,
+        created_by_user_id: isUuid(adminGuard.userId) ? adminGuard.userId : null,
         created_by_email: adminGuard.email,
       })
       .select("id")

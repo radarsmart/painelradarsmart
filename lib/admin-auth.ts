@@ -113,19 +113,12 @@ async function validateAdminToken(token: string): Promise<AdminGuardResult> {
     (process.env.ADMIN_ALLOW_ANY_AUTHENTICATED ?? "false").toLowerCase() ===
     "true";
 
-  if (allowAnyAuthenticated && !token) {
-    return { ok: true, userId: "fallback-public-admin", email: null };
-  }
-
   if (!token) {
     return { ok: false, status: 401, error: "Nao autorizado" };
   }
 
   const { data, error } = await supabaseAdmin.auth.getUser(token);
   if (error || !data.user) {
-    if (allowAnyAuthenticated) {
-      return { ok: true, userId: "fallback-public-admin", email: null };
-    }
     return { ok: false, status: 401, error: "Nao autorizado" };
   }
 

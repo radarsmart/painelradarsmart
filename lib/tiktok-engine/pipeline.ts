@@ -10,7 +10,8 @@ import type {
 } from "@/lib/tiktok-engine/types";
 
 const AUDIO_BUCKET = "tiktok-engine-assets";
-const OPENAI_MODEL = "gpt-4o";
+const OPENAI_MODEL = "gpt-4o-mini";
+const MAX_SCRIPT_OUTPUT_TOKENS = 380;
 const HEYGEN_POLL_ATTEMPTS = 24;
 const HEYGEN_POLL_INTERVAL_MS = 5000;
 
@@ -33,6 +34,29 @@ function toBRL(value: number): string {
   return value.toFixed(2).replace(".", ",");
 }
 
+function buildDurationTargetSeconds(durationLabel: string): number {
+  const matches = durationLabel.match(/\d+/g)?.map((item) => Number(item)) ?? [];
+  if (!matches.length) return 20;
+  if (matches.length === 1) return matches[0];
+  return Math.round((matches[0] + matches[1]) / 2);
+}
+
+function getModelPromptBase(modelId: number): string {
+  const presets: Record<number, string> = {
+    1: "Abra na dor e mostre solucao imediata.",
+    2: "Tom sensorial, foco em experiencia e simplicidade.",
+    3: "Narrativa pessoal curta com virada clara.",
+    4: "Mostre limite real e depois beneficios decisivos.",
+    5: "Compare custo-beneficio com contraste direto.",
+    6: "Didatico, em passos curtos e praticos.",
+    7: "Gancho muito rapido em linguagem nativa.",
+    8: "Uso organico no dia a dia com tom natural.",
+    9: "Prova social objetiva com urgencia real.",
+    10: "Economia concreta e chamada de acao curta.",
+  };
+  return presets[modelId] ?? "Gancho curto, beneficio claro e CTA objetivo.";
+}
+
 async function updateBriefingStatus(briefingId: string, status: BriefingStatus) {
   await supabaseAdmin
     .from("tiktok_engine_briefings")
@@ -40,11 +64,7 @@ async function updateBriefingStatus(briefingId: string, status: BriefingStatus) 
     .eq("id", briefingId);
 }
 
-async function updateJob(
-  jobId: string,
-  status: JobStatus,
-  patch: Record<string, unknown> = {},
-) {
+async function updateJob(jobId: string, status: JobStatus, patch: Record<string, unknown> = {}) {
   await supabaseAdmin
     .from("tiktok_engine_jobs")
     .update({
@@ -61,59 +81,129 @@ async function updateJob(
 
 function buildScriptPrompts(input: TikTokGenerateRequest, modelId: number) {
   const model = getModelById(modelId);
-  if (!model) throw new Error(`Modelo ${modelId} não encontrado.`);
+  if (!model) throw new Error(`Modelo ${modelId} nao encontrado.`);
 
+  const durationTargetSeconds = buildDurationTargetSeconds(model.duration);
   const system = [
-    "Você é roteirista sênior de TikTok Shop com foco em conversão.",
-    "Responda APENAS JSON válido sem markdown.",
-    "Escreva em português brasileiro.",
-    "Tom humano, direto, sem parecer institucional.",
-    "CTA deve direcionar para Radar Smart sem citar marketplace no CTA final.",
+    "Voce escreve roteiros curtos para TikTok Shop em portugues-BR.",
+    "Responda em JSON aderente ao schema.",
+    "Frases curtas, ritmo rapido, sem tom institucional.",
+    "Nao invente dados e nao use promessas falsas.",
+    "CTA final deve direcionar para Radar Smart.",
   ].join(" ");
 
-  const user = `PRODUTO: ${input.product_name}
-PREÇO: R$ ${input.product_price}
-DESCONTO: ${input.product_discount ?? "não informado"}
-CATEGORIA: ${input.product_category ?? "não informada"}
-BENEFÍCIOS: ${input.product_benefits}
-DOR: ${input.product_pain}
-CONCORRENTE: ${input.competitor_name ?? "não informado"} (${input.competitor_price ?? "n/a"})
-URL: ${input.shop_url ?? "não informado"}
-MODELO: ${model.name}
-ÂNGULO: ${model.promptAngle}
-DURAÇÃO ALVO: ${model.duration}
+  const user = [
+    `Produto: ${input.product_name}`,
+    `Preco: R$ ${input.product_price}`,
+    `Desconto: ${input.product_discount ?? "nao informado"}`,
+    `Categoria: ${input.product_category ?? "nao informada"}`,
+    `Beneficios: ${input.product_benefits}`,
+    `Dor principal: ${input.product_pain}`,
+    `Concorrente: ${input.competitor_name ?? "nao informado"} (${input.competitor_price ?? "n/a"})`,
+    `Modelo: ${model.name}`,
+    `Direcao do modelo: ${getModelPromptBase(model.id)} ${model.promptAngle}`,
+    `Duracao alvo: ${durationTargetSeconds} segundos`,
+    "Regras: hook maximo 14 palavras, body em 2-4 linhas curtas, cta curto.",
+    "on_screen_text deve ter entre 3 e 5 linhas curtas.",
+  ].join("\n");
 
-Retorne no formato:
-{
-  "model_id": ${model.id},
-  "model_name": "${model.name}",
-  "title": "título curto",
-  "duration_seconds": 24,
-  "script_audio": "texto da fala com pausas naturais...",
-  "visual_directions": [{"timestamp":"0-3s","direction":"..."}],
-  "text_overlays": [{"timestamp":"0-3s","text":"...","position":"top","style":"bold"}],
-  "hashtags": ["#radarsmart", "#achados"],
-  "caption": "legenda pronta"
-}`;
-
-  return { system, user, model };
+  return { system, user, durationTargetSeconds };
 }
 
-type OpenAIChatCompletionResponse = {
-  choices?: Array<{
-    message?: {
-      content?: string;
-    };
+type OpenAIResponsesApiResponse = {
+  output_text?: string;
+  output?: Array<{
+    content?: Array<{
+      type?: string;
+      text?: string;
+    }>;
   }>;
 };
+
+function extractResponseText(payload: OpenAIResponsesApiResponse): string {
+  if (typeof payload.output_text === "string" && payload.output_text.trim()) {
+    return payload.output_text.trim();
+  }
+
+  for (const item of payload.output ?? []) {
+    for (const part of item.content ?? []) {
+      if (part.type === "output_text" && typeof part.text === "string" && part.text.trim()) {
+        return part.text.trim();
+      }
+    }
+  }
+
+  return "";
+}
+
+function sanitizeScriptPayload(payload: ScriptPayload, durationTargetSeconds: number): ScriptPayload {
+  const safeBody = Array.isArray(payload.body)
+    ? payload.body.map((item) => String(item ?? "").trim()).filter(Boolean).slice(0, 4)
+    : [];
+  const safeOnScreen = Array.isArray(payload.on_screen_text)
+    ? payload.on_screen_text
+        .map((item) => String(item ?? "").trim())
+        .filter(Boolean)
+        .slice(0, 5)
+    : [];
+
+  if (!payload.title?.trim()) throw new Error("Script sem title.");
+  if (!payload.hook?.trim()) throw new Error("Script sem hook.");
+  if (!payload.cta?.trim()) throw new Error("Script sem cta.");
+  if (safeBody.length === 0) throw new Error("Script sem body.");
+
+  return {
+    title: payload.title.trim().slice(0, 120),
+    hook: payload.hook.trim().slice(0, 180),
+    body: safeBody,
+    cta: payload.cta.trim().slice(0, 180),
+    caption: String(payload.caption ?? "").trim().slice(0, 260),
+    on_screen_text: safeOnScreen,
+    duration_target_seconds:
+      Number.isFinite(payload.duration_target_seconds) && payload.duration_target_seconds > 0
+        ? Math.max(10, Math.min(45, Math.round(payload.duration_target_seconds)))
+        : durationTargetSeconds,
+  };
+}
+
+function buildScriptTextForTTS(script: ScriptPayload): string {
+  const blocks = [script.hook, ...script.body, script.cta]
+    .map((item) => String(item ?? "").trim())
+    .filter(Boolean);
+  return blocks.join(" ").replace(/\s+/g, " ").trim();
+}
 
 async function generateScriptWithOpenAI(
   input: TikTokGenerateRequest,
   modelId: number,
-): Promise<ScriptPayload> {
+): Promise<{ scriptJson: ScriptPayload; scriptTextFinal: string }> {
   const openAiKey = requiredEnv("OPENAI_API_KEY");
-  const { system, user } = buildScriptPrompts(input, modelId);
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+  const { system, user, durationTargetSeconds } = buildScriptPrompts(input, modelId);
+
+  const schema = {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      title: { type: "string" },
+      hook: { type: "string" },
+      body: { type: "array", items: { type: "string" }, minItems: 2, maxItems: 4 },
+      cta: { type: "string" },
+      caption: { type: "string" },
+      on_screen_text: { type: "array", items: { type: "string" }, minItems: 3, maxItems: 5 },
+      duration_target_seconds: { type: "number" },
+    },
+    required: [
+      "title",
+      "hook",
+      "body",
+      "cta",
+      "caption",
+      "on_screen_text",
+      "duration_target_seconds",
+    ],
+  };
+
+  const res = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -121,31 +211,40 @@ async function generateScriptWithOpenAI(
     },
     body: JSON.stringify({
       model: OPENAI_MODEL,
-      temperature: 0.7,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: user },
+      input: [
+        { role: "system", content: [{ type: "input_text", text: system }] },
+        { role: "user", content: [{ type: "input_text", text: user }] },
       ],
+      max_output_tokens: MAX_SCRIPT_OUTPUT_TOKENS,
+      text: {
+        format: {
+          type: "json_schema",
+          name: "tiktok_script",
+          strict: true,
+          schema,
+        },
+      },
     }),
   });
+
   if (!res.ok) {
     const body = await res.text();
     throw new Error(`OpenAI falhou (${res.status}): ${body.slice(0, 300)}`);
   }
-  const payload = (await res.json()) as OpenAIChatCompletionResponse;
-  const text = payload.choices?.[0]?.message?.content ?? "";
-  if (!text.trim()) {
-    throw new Error("OpenAI retornou resposta vazia para script.");
-  }
-  const clean = text.replace(/```json|```/g, "").trim();
-  return JSON.parse(clean) as ScriptPayload;
+
+  const payload = (await res.json()) as OpenAIResponsesApiResponse;
+  const text = extractResponseText(payload);
+  if (!text) throw new Error("OpenAI retornou resposta vazia para script.");
+
+  const parsed = JSON.parse(text) as ScriptPayload;
+  const scriptJson = sanitizeScriptPayload(parsed, durationTargetSeconds);
+  const scriptTextFinal = buildScriptTextForTTS(scriptJson);
+  if (!scriptTextFinal) throw new Error("script_text_final vazio.");
+
+  return { scriptJson, scriptTextFinal };
 }
 
-async function generateAudioWithElevenLabs(
-  script: ScriptPayload,
-  voiceId: string,
-): Promise<Buffer> {
+async function generateAudioWithElevenLabs(scriptText: string, voiceId: string): Promise<Buffer> {
   const elevenApiKey = requiredEnv("ELEVENLABS_API_KEY");
   const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
     method: "POST",
@@ -154,7 +253,7 @@ async function generateAudioWithElevenLabs(
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      text: script.script_audio,
+      text: scriptText,
       model_id: "eleven_multilingual_v2",
       voice_settings: {
         stability: 0.4,
@@ -182,11 +281,7 @@ async function uploadAudioToStorage(briefingId: string, jobId: string, audio: Bu
   return { audioPath: path, audioUrl: publicData.data.publicUrl };
 }
 
-async function createHeygenVideo(
-  avatarId: string,
-  audioUrl: string,
-  title: string,
-): Promise<string> {
+async function createHeygenVideo(avatarId: string, audioUrl: string, title: string): Promise<string> {
   const heygenApiKey = requiredEnv("HEYGEN_API_KEY");
   const res = await fetch("https://api.heygen.com/v2/video/generate", {
     method: "POST",
@@ -222,12 +317,9 @@ async function pollHeygenVideo(videoId: string): Promise<string> {
   const heygenApiKey = requiredEnv("HEYGEN_API_KEY");
   for (let i = 0; i < HEYGEN_POLL_ATTEMPTS; i += 1) {
     await new Promise((resolve) => setTimeout(resolve, HEYGEN_POLL_INTERVAL_MS));
-    const res = await fetch(
-      `https://api.heygen.com/v1/video_status.get?video_id=${videoId}`,
-      {
-        headers: { Accept: "application/json", "X-Api-Key": heygenApiKey },
-      },
-    );
+    const res = await fetch(`https://api.heygen.com/v1/video_status.get?video_id=${videoId}`, {
+      headers: { Accept: "application/json", "X-Api-Key": heygenApiKey },
+    });
     const body = (await res.json().catch(() => ({}))) as {
       data?: { status?: string; video_url?: string };
     };
@@ -239,7 +331,7 @@ async function pollHeygenVideo(videoId: string): Promise<string> {
       throw new Error("HeyGen retornou status failed.");
     }
   }
-  throw new Error("Timeout aguardando renderização do HeyGen.");
+  throw new Error("Timeout aguardando renderizacao do HeyGen.");
 }
 
 async function sendWebhook(url: string, payload: unknown) {
@@ -275,36 +367,123 @@ async function getRegisteredDefaultVoiceId(): Promise<string | null> {
   return value || null;
 }
 
-async function processOneJob(
-  job: JobRow,
-  briefing: TikTokGenerateRequest,
-  defaultVoiceId: string,
-) {
-  await updateJob(job.id, "script");
-  const script = await generateScriptWithOpenAI(briefing, job.model_id);
-  await updateJob(job.id, "audio", {
-    script_json: script,
-    script_title: script.title,
+async function processOneJob(job: JobRow, briefing: TikTokGenerateRequest, defaultVoiceId: string) {
+  await updateJob(job.id, "script_generating", { error_message: null });
+
+  let scriptJson: ScriptPayload;
+  let scriptTextFinal: string;
+  try {
+    const generated = await generateScriptWithOpenAI(briefing, job.model_id);
+    scriptJson = generated.scriptJson;
+    scriptTextFinal = generated.scriptTextFinal;
+  } catch (error) {
+    await updateJob(job.id, "script_failed", {
+      error_message: error instanceof Error ? error.message : "Falha na etapa de script",
+    });
+    throw error;
+  }
+
+  await updateJob(job.id, "script_done", {
+    script_json: {
+      ...scriptJson,
+      script_text_final: scriptTextFinal,
+    },
+    script_title: scriptJson.title,
+    script_text_final: scriptTextFinal,
   });
+
   const voiceId = briefing.voice_id || defaultVoiceId;
-  const audio = await generateAudioWithElevenLabs(script, voiceId);
-  await updateJob(job.id, "avatar");
-  const { audioPath, audioUrl } = await uploadAudioToStorage(job.briefing_id, job.id, audio);
-  await updateJob(job.id, "processing", {
-    audio_storage_path: audioPath,
-    audio_url: audioUrl,
+  console.info("[tiktok-engine]", {
+    briefingId: job.briefing_id,
+    jobId: job.id,
+    modelId: job.model_id,
+    step: "audio_start",
+    voiceId,
   });
-  const videoId = await createHeygenVideo(
-    briefing.avatar_id,
-    audioUrl,
-    `RadarSmart_${job.model_id}_${briefing.product_name}`,
-  );
-  const videoUrl = await pollHeygenVideo(videoId);
-  await updateJob(job.id, "completed", {
-    heygen_video_id: videoId,
-    video_url: videoUrl,
-    error_message: null,
-  });
+
+  let audio: Buffer;
+  try {
+    await updateJob(job.id, "audio");
+    audio = await generateAudioWithElevenLabs(scriptTextFinal, voiceId);
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Falha desconhecida na etapa de audio";
+    console.error("[tiktok-engine]", {
+      briefingId: job.briefing_id,
+      jobId: job.id,
+      modelId: job.model_id,
+      step: "audio_failed",
+      voiceId,
+      error: message,
+    });
+    await updateJob(job.id, "failed", {
+      error_message: `audio: ${message}`,
+    });
+    throw error;
+  }
+
+  let audioPath = "";
+  let audioUrl = "";
+  try {
+    await updateJob(job.id, "avatar");
+    const uploaded = await uploadAudioToStorage(job.briefing_id, job.id, audio);
+    audioPath = uploaded.audioPath;
+    audioUrl = uploaded.audioUrl;
+
+    await updateJob(job.id, "processing", {
+      audio_storage_path: audioPath,
+      audio_url: audioUrl,
+    });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Falha desconhecida no upload/processamento";
+    console.error("[tiktok-engine]", {
+      briefingId: job.briefing_id,
+      jobId: job.id,
+      modelId: job.model_id,
+      step: "audio_upload_failed",
+      voiceId,
+      error: message,
+    });
+    await updateJob(job.id, "failed", {
+      audio_storage_path: audioPath || null,
+      audio_url: audioUrl || null,
+      error_message: `upload: ${message}`,
+    });
+    throw error;
+  }
+
+  try {
+    const videoId = await createHeygenVideo(
+      briefing.avatar_id,
+      audioUrl,
+      `RadarSmart_${job.model_id}_${briefing.product_name}`,
+    );
+    const videoUrl = await pollHeygenVideo(videoId);
+    await updateJob(job.id, "completed", {
+      heygen_video_id: videoId,
+      video_url: videoUrl,
+      error_message: null,
+    });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Falha desconhecida na etapa de video";
+    console.error("[tiktok-engine]", {
+      briefingId: job.briefing_id,
+      jobId: job.id,
+      modelId: job.model_id,
+      step: "video_failed",
+      voiceId,
+      audioUrl,
+      error: message,
+    });
+    await updateJob(job.id, "failed", {
+      audio_storage_path: audioPath,
+      audio_url: audioUrl,
+      error_message: `video: ${message}`,
+    });
+    throw error;
+  }
 }
 
 export async function runTikTokPipeline(briefingId: string) {
@@ -314,7 +493,7 @@ export async function runTikTokPipeline(briefingId: string) {
     .eq("id", briefingId)
     .maybeSingle();
   if (briefingQuery.error || !briefingQuery.data) {
-    throw new Error(briefingQuery.error?.message ?? "Briefing não encontrado.");
+    throw new Error(briefingQuery.error?.message ?? "Briefing nao encontrado.");
   }
 
   const briefing = briefingQuery.data as unknown as TikTokGenerateRequest;
@@ -335,9 +514,7 @@ export async function runTikTokPipeline(briefingId: string) {
   if (jobsQuery.error) throw new Error(jobsQuery.error.message);
 
   const jobs = (jobsQuery.data ?? []) as JobRow[];
-  const settled = await Promise.allSettled(
-    jobs.map((job) => processOneJob(job, briefing, fallbackVoiceId)),
-  );
+  const settled = await Promise.allSettled(jobs.map((job) => processOneJob(job, briefing, fallbackVoiceId)));
   const failedCount = settled.filter((result) => result.status === "rejected").length;
   const completedCount = settled.length - failedCount;
 
@@ -359,13 +536,13 @@ export function validateGeneratePayload(payload: unknown): {
   error?: string;
 } {
   if (!payload || typeof payload !== "object") {
-    return { valid: false, error: "Body inválido." };
+    return { valid: false, error: "Body invalido." };
   }
   const raw = payload as Record<string, unknown>;
   const modelIds = Array.isArray(raw.model_ids)
     ? raw.model_ids.map((item) => Number(item)).filter((item) => Number.isInteger(item))
     : [];
-  if (!modelIds.length) return { valid: false, error: "model_ids é obrigatório." };
+  if (!modelIds.length) return { valid: false, error: "model_ids e obrigatorio." };
 
   const productName = String(raw.product_name ?? "").trim();
   const productPrice = String(raw.product_price ?? "").trim();
@@ -376,18 +553,17 @@ export function validateGeneratePayload(payload: unknown): {
   if (!productName || !productPrice || !productBenefits || !productPain || !avatarId) {
     return {
       valid: false,
-      error:
-        "Preencha product_name, product_price, product_benefits, product_pain e avatar_id.",
+      error: "Preencha product_name, product_price, product_benefits, product_pain e avatar_id.",
     };
   }
 
   if (parsePrice(productPrice) <= 0) {
-    return { valid: false, error: "product_price inválido." };
+    return { valid: false, error: "product_price invalido." };
   }
 
   const cleanedModelIds = modelIds.filter((id) => getModelById(id));
   if (!cleanedModelIds.length) {
-    return { valid: false, error: "Nenhum model_id válido enviado." };
+    return { valid: false, error: "Nenhum model_id valido enviado." };
   }
 
   const data: TikTokGenerateRequest = {

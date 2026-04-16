@@ -1,4 +1,20 @@
 {
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "fluid": true,
+  "functions": {
+    "app/api/tiktok-engine/generate/route.ts": {
+      "maxDuration": 300
+    },
+    "app/api/tiktok-engine/distribute/route.ts": {
+      "maxDuration": 60
+    },
+    "app/api/cron/distribute-scheduled/route.ts": {
+      "maxDuration": 60
+    },
+    "app/api/scrape/extract/route.ts": {
+      "maxDuration": 60
+    }
+  },
   "crons": [
     {
       "path": "/api/admin/blog/sync-elite",

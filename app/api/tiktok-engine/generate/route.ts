@@ -2,12 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { requireAdmin } from "@/lib/admin-auth";
 import { getModelById } from "@/lib/tiktok-engine/models";
-import { runTikTokPipeline, validateGeneratePayload } from "@/lib/tiktok-engine/pipeline";
+import { validateGeneratePayload } from "@/lib/tiktok-engine/pipeline";
 import { supabaseAdmin } from "@/lib/supabase";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 300;
+export const maxDuration = 60;
 
 type JobResponse = {
   job_id: string;
@@ -46,18 +46,16 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const validation = validateGeneratePayload(body);
     if (!validation.valid || !validation.data) {
-      return NextResponse.json(
-        { success: false, error: validation.error },
-        { status: 400 },
-      );
+      return NextResponse.json({ success: false, error: validation.error }, { status: 400 });
     }
+
     const payload = validation.data;
 
     const briefingInsert = await supabaseAdmin
       .from("tiktok_engine_briefings")
       .insert({
         ...payload,
-        status: "processing",
+        status: "pending",
         created_by_user_id: isUuid(adminGuard.userId) ? adminGuard.userId : null,
         created_by_email: adminGuard.email,
       })
@@ -84,18 +82,10 @@ export async function POST(req: NextRequest) {
       .from("tiktok_engine_jobs")
       .insert(jobsPayload)
       .select("id,model_id,model_name,status");
-    if (jobsInsert.error) throw new Error(jobsInsert.error.message);
 
-    void runTikTokPipeline(briefingId).catch(async (err) => {
-      await supabaseAdmin
-        .from("tiktok_engine_briefings")
-        .update({
-          status: "failed",
-          last_error: err instanceof Error ? err.message : "Erro no pipeline",
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", briefingId);
-    });
+    if (jobsInsert.error) {
+      throw new Error(jobsInsert.error.message);
+    }
 
     const jobsResponse: JobResponse[] = (jobsInsert.data ?? []).map((job) => ({
       job_id: String(job.id),
@@ -109,16 +99,14 @@ export async function POST(req: NextRequest) {
       briefing_id: briefingId,
       jobs: jobsResponse,
       status_url: `/api/tiktok-engine/status/${briefingId}`,
-      message: `Pipeline iniciado: ${jobsPayload.length} vídeo(s) em geração`,
+      run_url: `/api/tiktok-engine/run/${briefingId}`,
+      message: `Briefing criado: ${jobsPayload.length} video(s) prontos para execucao.`,
     });
   } catch (error) {
     return NextResponse.json(
       {
         success: false,
-        error:
-          error instanceof Error
-            ? error.message
-            : "Erro interno ao iniciar pipeline.",
+        error: error instanceof Error ? error.message : "Erro interno ao criar briefing.",
       },
       { status: 500 },
     );

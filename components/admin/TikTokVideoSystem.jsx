@@ -44,6 +44,25 @@ async function apiFetch(url, init = {}) {
   return json;
 }
 
+async function apiFetchInBackground(url, init = {}) {
+  const token = await getAccessToken();
+  const response = await fetch(url, {
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+      ...(init.headers ?? {}),
+    },
+    cache: "no-store",
+  });
+
+  const json = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(json?.error || `Falha na API (${response.status}).`);
+  }
+  return json;
+}
+
 export default function TikTokVideoSystem() {
   const [productName, setProductName] = useState("");
   const [productPrice, setProductPrice] = useState("");
@@ -255,11 +274,25 @@ export default function TikTokVideoSystem() {
     }
 
     setBriefingId(data.briefing_id);
-    addLog(data?.message ?? "Pipeline iniciado.", "success");
+    addLog(data?.message ?? "Briefing criado.", "success");
     await fetchStatus(data.briefing_id);
     intervalRef.current = setInterval(() => {
       void fetchStatus(data.briefing_id);
     }, 8000);
+
+    void (async () => {
+      try {
+        addLog("Executando pipeline em background...");
+        await apiFetchInBackground(`/api/tiktok-engine/run/${data.briefing_id}`, {
+          method: "POST",
+        });
+      } catch (error) {
+        addLog(
+          error instanceof Error ? error.message : "Falha ao executar pipeline.",
+          "error",
+        );
+      }
+    })();
   }, [
     addLog,
     avatarId,

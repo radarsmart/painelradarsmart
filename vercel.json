@@ -3,6 +3,9 @@
   "fluid": true,
   "functions": {
     "app/api/tiktok-engine/generate/route.ts": {
+      "maxDuration": 60
+    },
+    "app/api/tiktok-engine/run/[briefingId]/route.ts": {
       "maxDuration": 300
     },
     "app/api/tiktok-engine/distribute/route.ts": {

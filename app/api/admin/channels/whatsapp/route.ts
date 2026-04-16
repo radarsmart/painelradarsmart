@@ -8,6 +8,29 @@ function cleanEnv(value?: string): string {
   return String(value ?? "").trim().replace(/^['"]|['"]$/g, "").replace(/\\r|\\n/g, "");
 }
 
+function looksLikeGatewayError(status: number, raw: string): boolean {
+  const text = String(raw ?? "").toLowerCase();
+  return (
+    status === 502 ||
+    status === 503 ||
+    status === 504 ||
+    text.includes("<!doctype") ||
+    text.includes("<html") ||
+    text.includes("bad gateway") ||
+    text.includes("gateway timeout")
+  );
+}
+
+function unavailablePayload(status: number) {
+  return {
+    ok: false,
+    status: "unavailable",
+    code: "WHATSAPP_SERVICE_UNAVAILABLE",
+    degraded: true,
+    error: `Servico de WhatsApp indisponivel no momento (${status}). Tente novamente em instantes.`,
+  };
+}
+
 async function callEdgeFunction(body: Record<string, unknown>) {
   const supabaseUrl =
     cleanEnv(process.env.SUPABASE_URL) || cleanEnv(process.env.NEXT_PUBLIC_SUPABASE_URL);
@@ -34,24 +57,27 @@ async function callEdgeFunction(body: Record<string, unknown>) {
     const contentType = response.headers.get("content-type") || "";
     if (contentType.includes("application/json")) {
       const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+      const rawError = String(payload.error ?? payload.message ?? "");
+
+      if (looksLikeGatewayError(response.status, rawError)) {
+        return NextResponse.json(unavailablePayload(response.status), { status: response.status });
+      }
+
       return NextResponse.json(payload, { status: response.status });
     }
 
-    // Se não for JSON, provavelmente é um erro de Gateway (Cloudflare) ou similar
     const text = await response.text().catch(() => "");
-    if (text.includes("<!DOCTYPE") || text.includes("<html") || response.status === 502) {
-      return NextResponse.json(
-        {
-          error: `Erro de conexao com o servidor de WhatsApp (${response.status}). O servico pode estar temporariamente indisponivel (Bad Gateway).`,
-        },
-        { status: response.status },
-      );
+    if (looksLikeGatewayError(response.status, text)) {
+      return NextResponse.json(unavailablePayload(response.status), { status: response.status });
     }
 
-    return NextResponse.json({ error: text || "Erro desconhecido na Edge Function." }, { status: response.status });
+    return NextResponse.json(
+      { error: text || "Erro desconhecido na Edge Function." },
+      { status: response.status },
+    );
   } catch (err) {
     return NextResponse.json(
-      { error: `Falha ao conectar com o serviço de canais: ${err instanceof Error ? err.message : "Erro desconhecido"}` },
+      { error: `Falha ao conectar com o servico de canais: ${err instanceof Error ? err.message : "Erro desconhecido"}` },
       { status: 500 },
     );
   }

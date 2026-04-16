@@ -114,6 +114,7 @@ export async function POST(req: NextRequest) {
           );
     const imageUrl = toText(body.image_url);
     const requestedChannels = normalizeChannels(body.channels);
+    const copyText = toText(body.copy_text);
     const slotType = toText(body.slot_type);
     const hubOfferId = toText(body.hub_offer_id);
     const publishToSite = Boolean(body.publish_to_site);
@@ -285,19 +286,6 @@ export async function POST(req: NextRequest) {
     revalidatePath("/admin/curadoria");
     revalidatePath("/admin/amazon");
 
-    if (!publishToSite && requestedChannels.length > 0) {
-      return NextResponse.json({
-        success: true,
-        queued: false,
-        message:
-          "Telegram e WhatsApp estao desativados. Nenhum job foi enfileirado.",
-        offer_id: offerId,
-        offer_status: offerStatus || "inactive",
-        needs_review: false,
-        distribution: { queued: 0, skipped: requestedChannels.length },
-      });
-    }
-
     if (publishToSite) {
       if (approvalDidNotStick) {
         return NextResponse.json(
@@ -309,7 +297,9 @@ export async function POST(req: NextRequest) {
           { status: 409 },
         );
       }
+    }
 
+    if (requestedChannels.length === 0) {
       if (hubOfferId) {
         await supabaseAdmin
           .from("hub_offers")
@@ -324,17 +314,47 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({
         success: true,
         offer_id: offerId,
-        message: "Oferta aprovada no Radar e pronta para a vitrine.",
+        offer_status: offerStatus || "inactive",
+        needs_review: false,
+        distribution: { queued: 0, skipped: 0 },
+        message: publishToSite
+          ? "Oferta aprovada no site com sucesso."
+          : "Oferta salva sem canais selecionados.",
       });
     }
 
-    const dispatch = await dispatchLegacyOffer({
-      offerId,
-      affiliateUrl,
-      channels: [],
-      copyByChannel: undefined,
-      allowRequeueSameDay: true,
-    });
+    const copyByChannel = copyText
+      ? requestedChannels.reduce<Partial<Record<DistributionChannel, string>>>(
+          (acc, channel) => {
+            acc[channel] = copyText;
+            return acc;
+          },
+          {},
+        )
+      : undefined;
+
+    let dispatch: Awaited<ReturnType<typeof dispatchLegacyOffer>>;
+    try {
+      dispatch = await dispatchLegacyOffer({
+        offerId,
+        affiliateUrl,
+        channels: requestedChannels,
+        copyByChannel,
+        allowRequeueSameDay: true,
+      });
+    } catch (dispatchError) {
+      const message =
+        dispatchError instanceof Error
+          ? dispatchError.message
+          : "Falha ao enfileirar distribuicao.";
+      const isFlagError =
+        message.toLowerCase().includes("feature flag") ||
+        message.toLowerCase().includes("distribuicao desativada");
+      return NextResponse.json(
+        { error: message },
+        { status: isFlagError ? 403 : 500 },
+      );
+    }
 
     if (hubOfferId) {
       await supabaseAdmin
@@ -352,7 +372,9 @@ export async function POST(req: NextRequest) {
       offer_id: offerId,
       message:
         dispatch.queued > 0
-          ? "Oferta aprovada e enviada para o pipeline de distribuicao."
+          ? publishToSite
+            ? "Oferta aprovada no site e enviada para a fila dos canais."
+            : "Oferta aprovada e enviada para o pipeline de distribuicao."
           : dispatch.skipped > 0
             ? "Oferta processada, mas nenhum novo job foi inserido na fila."
             : "Oferta processada com sucesso.",

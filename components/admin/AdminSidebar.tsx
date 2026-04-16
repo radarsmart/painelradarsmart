@@ -165,6 +165,12 @@ const MENU_ITEMS: SidebarGroup[] = [
         href: "/admin/criativos",
         activePatterns: ["/admin/criativos"],
       },
+      {
+        label: "TikTok Engine",
+        icon: Clapperboard,
+        href: "/admin/criativos/tiktok-engine",
+        activePatterns: ["/admin/criativos/tiktok-engine"],
+      },
     ],
   },
   {

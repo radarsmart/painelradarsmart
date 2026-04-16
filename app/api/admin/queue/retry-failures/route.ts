@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/admin-auth";
+import { getDistributionFlags } from "@/lib/distribution/feature-flags";
 import { getNextScheduledAt } from "@/lib/distribution/legacy-dispatch";
 import { supabaseAdmin } from "@/lib/supabase";
 
@@ -23,6 +24,14 @@ export async function POST(req: NextRequest) {
   }
 
   try {
+    const flags = await getDistributionFlags();
+    if (!flags.distribution_enabled) {
+      return NextResponse.json(
+        { error: "Distribuicao desativada via feature flag." },
+        { status: 403 },
+      );
+    }
+
     const body = (await req.json().catch(() => ({}))) as RetryFailuresBody;
     const channel = String(body.channel ?? "whatsapp").trim().toLowerCase();
     const limit = Math.min(Math.max(Number(body.limit ?? 50), 1), 200);
@@ -34,6 +43,15 @@ export async function POST(req: NextRequest) {
       );
     }
     const retryChannel = channel as RetryChannel;
+    if (
+      (retryChannel === "telegram" && !flags.channels.telegram.enabled) ||
+      (retryChannel === "whatsapp" && !flags.channels.whatsapp.enabled)
+    ) {
+      return NextResponse.json(
+        { error: `Canal ${retryChannel} desativado via feature flag.` },
+        { status: 403 },
+      );
+    }
 
     const { data: failedRows, error: readError } = await supabaseAdmin
       .from("post_queue")
@@ -62,7 +80,7 @@ export async function POST(req: NextRequest) {
     let retried = 0;
     for (const id of ids) {
       const now = new Date().toISOString();
-      const scheduledAt = await getNextScheduledAt(retryChannel);
+      const scheduledAt = await getNextScheduledAt(retryChannel, flags);
       const dedupeBucket = scheduledAt.slice(0, 10);
 
       const { error: updateError } = await supabaseAdmin

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   dispatchLegacyOffer,
   type DistributionChannel,
+  type LegacyDispatchResult,
 } from "@/lib/distribution/legacy-dispatch";
 import { sendPushNotification } from "@/lib/notifications/push";
 import { supabaseAdmin } from "@/lib/supabase";
@@ -148,6 +149,21 @@ export async function POST(req: NextRequest) {
     const sourceUrl = String(body.url ?? "").trim();
     const affiliateUrl = String(body.affiliate_url ?? "").trim();
     const channels = normalizeChannels(body.channels);
+    const adText = String(body.ad_text ?? "").trim();
+    const adTextByChannelRaw =
+      body.ad_text_by_channel && typeof body.ad_text_by_channel === "object"
+        ? (body.ad_text_by_channel as Record<string, unknown>)
+        : {};
+    const copyByChannel = channels.reduce<Partial<Record<DistributionChannel, string>>>(
+      (acc, channel) => {
+        const channelText = String(adTextByChannelRaw[channel] ?? "").trim() || adText;
+        if (channelText) {
+          acc[channel] = channelText;
+        }
+        return acc;
+      },
+      {},
+    );
     if (!marketplace) {
       return NextResponse.json(
         { error: "marketplace invalido. Use mercadolivre ou amazon." },
@@ -258,27 +274,39 @@ export async function POST(req: NextRequest) {
       | { ok: boolean; skipped: boolean; status?: number; reason?: string }
       | null = null;
 
-    if (!Boolean(body.publish_to_site) && channels.length > 0) {
-      return NextResponse.json({
-        success: true,
-        queued: false,
-        message:
-          "Envio para Telegram/WhatsApp desativado. Nenhum job foi enfileirado.",
-        offer_id: offerId,
-        offer_status: extracted.offer_status ?? "active",
-        needs_review: false,
-        extract: extracted,
-        distribution: { queued: 0, skipped: channels.length },
-        push: pushNotification,
-      });
-    }
-
-    const dispatch = await dispatchLegacyOffer({
-      offerId,
-      affiliateUrl,
+    let dispatch: LegacyDispatchResult = {
+      ok: true,
       channels: [],
-      copyByChannel: undefined,
-    });
+      queued: 0,
+      skipped: 0,
+      details: [],
+      workerResponse: { inserted: 0, skipped: 0, details: [] },
+      workerTriggers: [],
+    };
+
+    if (channels.length > 0) {
+      try {
+        dispatch = await dispatchLegacyOffer({
+          offerId,
+          affiliateUrl,
+          channels,
+          copyByChannel:
+            Object.keys(copyByChannel).length > 0 ? copyByChannel : undefined,
+        });
+      } catch (dispatchError) {
+        const message =
+          dispatchError instanceof Error
+            ? dispatchError.message
+            : "Falha ao enfileirar distribuicao.";
+        const isFlagError =
+          message.toLowerCase().includes("feature flag") ||
+          message.toLowerCase().includes("distribuicao desativada");
+        return NextResponse.json(
+          { error: message },
+          { status: isFlagError ? 403 : 500 },
+        );
+      }
+    }
 
     if (slotType === "flash") {
       const { data: offerForPush } = await supabaseAdmin

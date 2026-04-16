@@ -11,6 +11,7 @@ import {
   ShieldCheck,
   Smartphone,
 } from "lucide-react";
+import DistributionFlagsPanel from "@/components/admin/DistributionFlags";
 import { supabase } from "@/lib/supabase";
 
 type WhatsAppStatusResponse = {
@@ -36,6 +37,22 @@ type TelegramStatusResponse = {
   webhook?: Record<string, unknown> | null;
   response?: Record<string, unknown> | null;
 };
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isWhatsAppUnavailable(error?: string) {
+  const text = String(error ?? "").toLowerCase();
+  return (
+    text.includes("whatsapp_service_unavailable") ||
+    text.includes("servico de whatsapp indisponivel") ||
+    text.includes("serviço de whatsapp indisponível") ||
+    text.includes("bad gateway") ||
+    text.includes("gateway timeout") ||
+    text.includes("erro do servidor (502)")
+  );
+}
 
 function statusTone(status?: string) {
   const normalized = String(status ?? "").trim().toLowerCase();
@@ -134,12 +151,31 @@ export default function AdminChannelsPage() {
   const [globalInfo, setGlobalInfo] = useState("");
   const [telegramChatId, setTelegramChatId] = useState("");
   const [telegramTestLoading, setTelegramTestLoading] = useState(false);
+  const [whatsAppRetrying, setWhatsAppRetrying] = useState(false);
 
-  async function loadWhatsApp() {
+  async function loadWhatsApp(maxAttempts = 3) {
     setLoadingWhatsApp(true);
     try {
-      const payload = await adminFetch<WhatsAppStatusResponse>("/api/admin/channels/whatsapp");
-      setWhatsApp(payload);
+      let lastError: Error | null = null;
+
+      for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+        try {
+          const payload = await adminFetch<WhatsAppStatusResponse>("/api/admin/channels/whatsapp");
+          setWhatsApp(payload);
+          return;
+        } catch (error) {
+          const parsed = error instanceof Error ? error : new Error("Falha ao ler WhatsApp.");
+          lastError = parsed;
+
+          if (!isWhatsAppUnavailable(parsed.message) || attempt === maxAttempts) {
+            break;
+          }
+
+          await sleep(Math.min(1000 * 2 ** (attempt - 1), 4000));
+        }
+      }
+
+      setWhatsApp({ error: lastError?.message || "Falha ao ler WhatsApp." });
     } catch (error) {
       setWhatsApp({ error: error instanceof Error ? error.message : "Falha ao ler WhatsApp." });
     } finally {
@@ -203,6 +239,10 @@ export default function AdminChannelsPage() {
     void Promise.all([loadWhatsApp(), loadTelegram()]);
   }, []);
 
+  const isWhatsAppServiceDown = useMemo(
+    () => isWhatsAppUnavailable(whatsApp?.error),
+    [whatsApp?.error],
+  );
   const whatsAppBadge = useMemo(() => statusTone(whatsApp?.status), [whatsApp?.status]);
   const telegramBadge = useMemo(() => statusTone(telegram?.status), [telegram?.status]);
 
@@ -301,6 +341,33 @@ export default function AdminChannelsPage() {
                       ? `${whatsApp.error.substring(0, 500)}...`
                       : whatsApp.error}
                   </p>
+                  {isWhatsAppServiceDown ? (
+                    <div className="mt-3 flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          setWhatsAppRetrying(true);
+                          try {
+                            await loadWhatsApp(3);
+                          } finally {
+                            setWhatsAppRetrying(false);
+                          }
+                        }}
+                        disabled={loadingWhatsApp || whatsAppRetrying}
+                        className="inline-flex items-center gap-2 rounded-lg border border-red-300 bg-white px-3 py-1.5 text-xs font-bold text-red-700 transition hover:bg-red-50 disabled:opacity-60"
+                      >
+                        {whatsAppRetrying ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <RefreshCw className="h-3.5 w-3.5" />
+                        )}
+                        Tentar novamente
+                      </button>
+                      <span className="text-xs text-red-700/80">
+                        Modo degradado ativo: comandos de conexão bloqueados.
+                      </span>
+                    </div>
+                  ) : null}
                 </div>
               </div>
             </div>
@@ -340,7 +407,7 @@ export default function AdminChannelsPage() {
             <button
               type="button"
               onClick={() => void handleWhatsAppAction("connect")}
-              disabled={loadingWhatsApp}
+              disabled={loadingWhatsApp || isWhatsAppServiceDown}
               className="inline-flex items-center gap-2 rounded-xl bg-[#1A1A1A] px-4 py-2.5 text-sm font-bold text-white transition hover:bg-black disabled:opacity-60"
             >
               {loadingWhatsApp ? <Loader2 className="h-4 w-4 animate-spin" /> : <Smartphone className="h-4 w-4" />}
@@ -349,7 +416,7 @@ export default function AdminChannelsPage() {
             <button
               type="button"
               onClick={() => void handleWhatsAppAction("reconnect")}
-              disabled={loadingWhatsApp}
+              disabled={loadingWhatsApp || isWhatsAppServiceDown}
               className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 transition hover:bg-slate-50 disabled:opacity-60"
             >
               <RefreshCw className="h-4 w-4" />
@@ -358,7 +425,7 @@ export default function AdminChannelsPage() {
             <button
               type="button"
               onClick={() => void handleWhatsAppAction("qrcode")}
-              disabled={loadingWhatsApp}
+              disabled={loadingWhatsApp || isWhatsAppServiceDown}
               className="inline-flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm font-bold text-amber-700 transition hover:bg-amber-100 disabled:opacity-60"
             >
               <QrCode className="h-4 w-4" />
@@ -476,6 +543,8 @@ export default function AdminChannelsPage() {
           </div>
         </section>
       </div>
+
+      <DistributionFlagsPanel />
 
       <div className="rounded-3xl border border-slate-200 bg-white p-6 text-sm text-slate-600 shadow-sm">
         <div className="flex items-start gap-3">

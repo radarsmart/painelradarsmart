@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/admin-auth";
+import { getDistributionFlags } from "@/lib/distribution/feature-flags";
 import { getNextScheduledAt } from "@/lib/distribution/legacy-dispatch";
 import { supabaseAdmin } from "@/lib/supabase";
 
@@ -16,6 +17,14 @@ export async function POST(req: NextRequest) {
   }
 
   try {
+    const flags = await getDistributionFlags();
+    if (!flags.distribution_enabled) {
+      return NextResponse.json(
+        { error: "Distribuicao desativada via feature flag." },
+        { status: 403 },
+      );
+    }
+
     const { id } = (await req.json()) as { id?: number | string };
     const queueId = Number(id);
 
@@ -49,9 +58,19 @@ export async function POST(req: NextRequest) {
 
     const now = new Date().toISOString();
     const channel = String(row.channel ?? "").toLowerCase();
+    if (
+      (channel === "telegram" && !flags.channels.telegram.enabled) ||
+      (channel === "whatsapp" && !flags.channels.whatsapp.enabled)
+    ) {
+      return NextResponse.json(
+        { error: `Canal ${channel} desativado via feature flag.` },
+        { status: 403 },
+      );
+    }
+
     const scheduledAt =
       channel === "telegram" || channel === "whatsapp"
-        ? await getNextScheduledAt(channel)
+        ? await getNextScheduledAt(channel, flags)
         : now;
     const dedupeBucket = scheduledAt.slice(0, 10);
 

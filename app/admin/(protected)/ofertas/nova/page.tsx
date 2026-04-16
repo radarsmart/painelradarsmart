@@ -44,11 +44,38 @@ type ExtractResponse = {
   preview?: Partial<ExtractPreview>;
   extracted?: Record<string, unknown>;
   debug_info?: {
-    layer_used?: "rainforest" | "zenscrape" | "official" | "container" | "merged" | "html" | "apify";
+    layer_used?: string;
     missing_fields?: string[];
     latency_ms?: number;
   };
   error?: string;
+  attempts?: Array<{
+    method: string;
+    success: boolean;
+    duration_ms: number;
+    error?: string;
+  }>;
+  total_duration_ms?: number;
+  product?: {
+    title?: string;
+    price?: number | null;
+    original_price?: number | null;
+    image_url?: string | null;
+    url?: string;
+    extraction_method?: string;
+    rating?: number | null;
+    rating_count?: number | null;
+  };
+  meta?: {
+    extraction_method?: string;
+    attempts?: Array<{
+      method: string;
+      success: boolean;
+      duration_ms: number;
+      error?: string;
+    }>;
+    total_duration_ms?: number;
+  };
 };
 
 type PublishResponse = {
@@ -144,9 +171,9 @@ const DEFAULT_DESTINATIONS: PublishDestinations = {
 };
 
 const SLOT_OPTIONS: Array<{ id: OfferSlot; label: string; icon: string }> = [
-  { id: "flash", label: "Oferta RelÃ¢mpago", icon: "âš¡" },
-  { id: "best", label: "Melhores Ofertas", icon: "ðŸ†" },
-  { id: "comparator", label: "Comparador", icon: "ðŸ“Š" },
+  { id: "flash", label: "Oferta Relampago", icon: "⚡" },
+  { id: "best", label: "Melhores Ofertas", icon: "🏆" },
+  { id: "comparator", label: "Comparador", icon: "📊" },
 ];
 
 function toNumber(value: unknown): number {
@@ -291,7 +318,7 @@ async function parseApiResponse<T>(response: Response): Promise<T> {
       raw.includes("504: GATEWAY_TIMEOUT")
     ) {
       throw new Error(
-        "A extraÃ§Ã£o demorou demais no servidor. Tente novamente em alguns segundos. Se persistir, revise os campos manualmente e publique depois do preview.",
+        "A extracao demorou demais no servidor. Tente novamente em alguns segundos. Se persistir, revise os campos manualmente e publique depois do preview.",
       );
     }
     throw new Error(raw || `Resposta invalida do servidor (HTTP ${response.status}).`);
@@ -357,19 +384,19 @@ function buildAidaCopy(
   const discount = Number(preview.discount_pct ?? 0);
   const hasOldPrice = oldPrice > 0 && oldPrice > price;
 
-  const oldLine = hasOldPrice ? `\nâŒ De: ${formatBRL(oldPrice)}` : "";
+  const oldLine = hasOldPrice ? `\n❌ De: ${formatBRL(oldPrice)}` : "";
   const discountLine = discount > 0 ? ` (${Math.round(discount)}% de DESCONTO!)` : "";
 
   return [
-    "ðŸš¨ *ALERTA DE OFERTA IMPERDÃVEL!* ðŸš¨",
+    "🚨 *ALERTA DE OFERTA IMPERDIVEL!* 🚨",
     preview.title,
     "",
-    `${oldLine}\nâœ… *Por apenas: ${formatBRL(price)}*${discountLine}`.trim(),
+    `${oldLine}\n✅ *Por apenas: ${formatBRL(price)}*${discountLine}`.trim(),
     "",
-    "ðŸ”¥ *Por que vocÃª precisa disso agora?*",
-    "Essa Ã© uma daquelas oportunidades que esgotam em minutos. Qualidade premium pelo menor preÃ§o dos Ãºltimos meses.",
+    "🔥 *Por que voce precisa disso agora?*",
+    "Essa e uma daquelas oportunidades que esgotam em minutos. Qualidade premium pelo menor preco dos ultimos meses.",
     "",
-    "ðŸ‘‰ *Garanta o seu antes que acabe:*",
+    "👉 *Garanta o seu antes que acabe:*",
     affiliateUrl || preview.affiliate_url || preview.product_url,
   ].join("\n");
 }
@@ -389,30 +416,30 @@ const copyTemplates: Record<
     if (!preview) return "";
 
     return [
-      "ðŸš¨ *ESTOQUE BAIXO!*",
+      "🚨 *ESTOQUE BAIXO!*",
       "",
       `*${preview.title}*`,
       "",
-      `ðŸ”¥ Por apenas: *${formatBRL(toNumber(preview.price))}*`,
+      `🔥 Por apenas: *${formatBRL(toNumber(preview.price))}*`,
       "",
-      "O preÃ§o caiu agora e pode subir a qualquer momento. Aproveite antes que esgote.",
+      "O preco caiu agora e pode subir a qualquer momento. Aproveite antes que esgote.",
       "",
-      `ðŸ‘‰ Link: ${getOfferUrl(preview, affiliateUrl)}`,
+      `👉 Link: ${getOfferUrl(preview, affiliateUrl)}`,
     ].join("\n");
   },
   social: (preview, affiliateUrl) => {
     if (!preview) return "";
 
     return [
-      "â­ *O MAIS VENDIDO!*",
+      "⭐ *O MAIS VENDIDO!*",
       "",
       `*${preview.title}*`,
       "",
-      `ðŸ’° *${formatBRL(toNumber(preview.price))}*`,
+      `💰 *${formatBRL(toNumber(preview.price))}*`,
       "",
-      "Este item Ã© o campeÃ£o de vendas na categoria hoje. Quem comprou, aprovou!",
+      "Este item e o campeao de vendas na categoria hoje. Quem comprou, aprovou!",
       "",
-      `ðŸ‘‰ Garanta o seu: ${getOfferUrl(preview, affiliateUrl)}`,
+      `👉 Garanta o seu: ${getOfferUrl(preview, affiliateUrl)}`,
     ].join("\n");
   },
   tecnico: (preview, affiliateUrl) => {
@@ -422,16 +449,16 @@ const copyTemplates: Record<
     const hasOldPrice = oldPrice > toNumber(preview.price);
 
     return [
-      "âœ… *MENOR PREÃ‡O DETECTADO!*",
+      "✅ *MENOR PRECO DETECTADO!*",
       "",
       `*${preview.title}*`,
       "",
-      hasOldPrice ? `ðŸ“‰ De: ~~${formatBRL(oldPrice)}~~` : null,
-      `ðŸ”¥ Por: *${formatBRL(toNumber(preview.price))}*`,
+      hasOldPrice ? `📉 De: ~~${formatBRL(oldPrice)}~~` : null,
+      `🔥 Por: *${formatBRL(toNumber(preview.price))}*`,
       "",
-      "AnÃ¡lise do Radar Smart: Este Ã© o melhor momento de compra dos Ãºltimos 30 dias.",
+      "Analise do Radar Smart: Este e o melhor momento de compra dos ultimos 30 dias.",
       "",
-      `ðŸ‘‰ Link: ${getOfferUrl(preview, affiliateUrl)}`,
+      `👉 Link: ${getOfferUrl(preview, affiliateUrl)}`,
     ]
       .filter(Boolean)
       .join("\n");
@@ -454,11 +481,13 @@ async function generateWhatsAppCopyFromPreview(params: {
   preview: ExtractPreview;
   affiliateUrl: string;
   marketplace: Marketplace;
+  accessToken: string;
 }): Promise<WhatsAppCopyVariants> {
   const response = await fetch("/api/admin/criativos/whatsapp-copy", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
+      Authorization: `Bearer ${params.accessToken}`,
     },
     body: JSON.stringify({
       title: params.preview.title,
@@ -503,14 +532,14 @@ async function generateWhatsAppCopyFromPreview(params: {
 
 function getPriceScore(price: number, oldPrice: number) {
   if (price <= 0 || oldPrice <= price) {
-    return { label: "ðŸ¥‰ BRONZE", color: "text-orange-600" };
+    return { label: "🥉 BRONZE", color: "text-orange-600" };
   }
 
   const discount = ((oldPrice - price) / oldPrice) * 100;
 
-  if (discount >= 40) return { label: "ðŸ’Ž OURO", color: "text-yellow-600" };
-  if (discount >= 20) return { label: "ðŸ¥ˆ PRATA", color: "text-gray-500" };
-  return { label: "ðŸ¥‰ BRONZE", color: "text-orange-600" };
+  if (discount >= 40) return { label: "💎 OURO", color: "text-yellow-600" };
+  if (discount >= 20) return { label: "🥈 PRATA", color: "text-gray-500" };
+  return { label: "🥉 BRONZE", color: "text-orange-600" };
 }
 
 export default function AdminNovaOfertaPage() {
@@ -570,6 +599,7 @@ export default function AdminNovaOfertaPage() {
           preview: currentPreview,
           affiliateUrl: getOfferUrl(currentPreview, affiliateUrl.trim()),
           marketplace,
+          accessToken: await getAccessToken(),
         });
 
         if (cancelled) return;
@@ -626,7 +656,7 @@ export default function AdminNovaOfertaPage() {
 
         const payload = await parseApiResponse<{ offer?: AdminOfferRecord; error?: string }>(response);
         if (!response.ok || !payload.offer) {
-          throw new Error(payload.error ?? "Falha ao carregar oferta para ediÃ§Ã£o.");
+          throw new Error(payload.error ?? "Falha ao carregar oferta para edicao.");
         }
 
         const offer = payload.offer;
@@ -674,7 +704,7 @@ export default function AdminNovaOfertaPage() {
       } catch (error) {
         setFeedback({
           type: "error",
-          text: error instanceof Error ? error.message : "Falha ao abrir oferta para ediÃ§Ã£o.",
+          text: error instanceof Error ? error.message : "Falha ao abrir oferta para edicao.",
         });
       } finally {
         setLoadingExisting(false);
@@ -693,14 +723,14 @@ export default function AdminNovaOfertaPage() {
     const { data, error } = await supabase.auth.getSession();
     const token = data.session?.access_token;
     if (error || !token) {
-      throw new Error("SessÃ£o expirada. FaÃ§a login novamente.");
+      throw new Error("Sessao expirada. Faca login novamente.");
     }
     return token;
   };
 
   const handleSaveEdit = async () => {
     if (!isEditing || !editingOfferId || !preview) {
-      setFeedback({ type: "error", text: "Nenhuma oferta carregada para ediÃ§Ã£o." });
+      setFeedback({ type: "error", text: "Nenhuma oferta carregada para edicao." });
       return;
     }
 
@@ -709,7 +739,7 @@ export default function AdminNovaOfertaPage() {
     if (!url || !manualAffiliate) {
       setFeedback({
         type: "error",
-        text: "URL do produto e Link de Afiliado sÃ£o obrigatÃ³rios.",
+        text: "URL do produto e Link de Afiliado sao obrigatorios.",
       });
       return;
     }
@@ -742,7 +772,7 @@ export default function AdminNovaOfertaPage() {
 
       const payload = await parseApiResponse<{ offer?: AdminOfferRecord; error?: string }>(response);
       if (!response.ok) {
-        throw new Error(payload.error ?? "Falha ao salvar alteraÃ§Ãµes.");
+        throw new Error(payload.error ?? "Falha ao salvar alteracoes.");
       }
 
       setFeedback({
@@ -816,7 +846,7 @@ export default function AdminNovaOfertaPage() {
     if (!title || price <= 0) {
       setFeedback({
         type: "error",
-        text: "Informe pelo menos nome do produto e preÃ§o para criar o preview AWIN.",
+        text: "Informe pelo menos nome do produto e preco para criar o preview AWIN.",
       });
       return;
     }
@@ -875,7 +905,7 @@ export default function AdminNovaOfertaPage() {
     if (!title || price <= 0) {
       setFeedback({
         type: "error",
-        text: "Informe pelo menos nome do produto e preÃ§o para criar o preview manual.",
+        text: "Informe pelo menos nome do produto e preco para criar o preview manual.",
       });
       return;
     }
@@ -997,15 +1027,15 @@ export default function AdminNovaOfertaPage() {
             type: "info",
             text:
               fallbackPrice > 0
-                ? "Produto nÃ£o encontrado no feed AWIN, mas gerei o link afiliado direto e preenchi o preÃ§o encontrado na URL. Revise tÃ­tulo e imagem."
-                : "Produto nÃ£o encontrado no feed AWIN, mas gerei o link afiliado direto. Preencha tÃ­tulo, preÃ§o e imagem para criar o preview.",
+                ? "Produto nao encontrado no feed AWIN, mas gerei o link afiliado direto e preenchi o preco encontrado na URL. Revise titulo e imagem."
+                : "Produto nao encontrado no feed AWIN, mas gerei o link afiliado direto. Preencha titulo, preco e imagem para criar o preview.",
           });
           return;
         }
 
         setFeedback({
           type: "info",
-          text: "Produto nÃ£o encontrado no feed AWIN. VocÃª ainda pode preencher os campos manuais e gerar o preview.",
+          text: "Produto nao encontrado no feed AWIN. Voce ainda pode preencher os campos manuais e gerar o preview.",
         });
         setExtractDebug("Engine: awin-feed | Camada: awin_api | Missing: produto | 0ms");
         return;
@@ -1063,14 +1093,14 @@ export default function AdminNovaOfertaPage() {
       detectMarketplaceFromUrl(url) ?? (marketplace === "awin" ? "awin" : null);
 
     if (!url) {
-      setFeedback({ type: "error", text: "Informe a URL da oferta para extraÃ§Ã£o." });
+      setFeedback({ type: "error", text: "Informe a URL da oferta para extracao." });
       return;
     }
 
     if (!detectedMarketplace) {
       setFeedback({
         type: "error",
-        text: "URL invÃ¡lida. Use um link vÃ¡lido de Amazon, Mercado Livre ou AWIN.",
+        text: "URL invalida. Use um link valido de Amazon, Mercado Livre ou AWIN.",
       });
       return;
     }
@@ -1094,19 +1124,14 @@ export default function AdminNovaOfertaPage() {
     setExtractDebug("");
 
     try {
-      const accessToken = await getAccessToken();
       setMarketplace(detectedMarketplace);
-      const response = await fetch("/api/admin/extract", {
+      const response = await fetch("/api/scrape/extract", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${accessToken}`,
         },
         body: JSON.stringify({
           url,
-          affiliate_url: manualAffiliate,
-          marketplace: detectedMarketplace,
-          persist: false,
         }),
       });
 
@@ -1115,12 +1140,49 @@ export default function AdminNovaOfertaPage() {
         throw new Error(data.error ?? "Falha ao extrair a URL informada.");
       }
 
+      const unifiedProduct = data.product;
+      const legacyLike: ExtractResponse = unifiedProduct
+        ? {
+            success: true,
+            status: "ok",
+            extraction_layer:
+              data.meta?.extraction_method || unifiedProduct.extraction_method || "waterfall",
+            elapsed_ms: data.meta?.total_duration_ms ?? data.total_duration_ms ?? 0,
+            attempts: data.meta?.attempts ?? data.attempts ?? [],
+            preview: {
+              title: unifiedProduct.title,
+              price: unifiedProduct.price ?? undefined,
+              old_price: unifiedProduct.original_price ?? undefined,
+              original_price: unifiedProduct.original_price ?? undefined,
+              image_url: unifiedProduct.image_url ?? undefined,
+              product_url: unifiedProduct.url,
+              affiliate_url: manualAffiliate || unifiedProduct.url || url,
+              rating: unifiedProduct.rating ?? undefined,
+              reviews: unifiedProduct.rating_count ?? undefined,
+            },
+            title: unifiedProduct.title,
+            price: unifiedProduct.price ?? undefined,
+            old_price: unifiedProduct.original_price ?? undefined,
+            image_url: unifiedProduct.image_url ?? undefined,
+            product_url: unifiedProduct.url,
+            affiliate_url: manualAffiliate || unifiedProduct.url || url,
+            debug_info: {
+              layer_used:
+                data.meta?.extraction_method ||
+                unifiedProduct.extraction_method ||
+                "waterfall",
+              missing_fields: [],
+              latency_ms: data.meta?.total_duration_ms ?? data.total_duration_ms ?? 0,
+            },
+          }
+        : data;
+
       const img =
-        toCleanText(data.preview?.image_url) ||
-        toCleanText(data.image_url);
+        toCleanText(legacyLike.preview?.image_url) ||
+        toCleanText(legacyLike.image_url);
       setImageUrl(img);
 
-      const result = data;
+      const result = legacyLike;
       const nextPreview = buildPreviewFromExtractResponse(
         result,
         url,
@@ -1128,29 +1190,20 @@ export default function AdminNovaOfertaPage() {
         img,
       );
 
-      const layerUsed =
-        toCleanText(result.debug_info?.layer_used) ||
-        toCleanText(result.extraction_layer) ||
-        "n/a";
-      const engineUsed = toCleanText(result.engine) || "n/a";
-      const missingFields =
-        result.debug_info?.missing_fields?.length
-          ? result.debug_info.missing_fields.join(", ")
-          : result.missing_fields?.length
-            ? result.missing_fields.join(", ")
-            : "nenhum";
-      const latency =
-        Number(result.debug_info?.latency_ms ?? result.elapsed_ms ?? 0) || 0;
+      const layerUsed = toCleanText(result.debug_info?.layer_used) || toCleanText(result.extraction_layer) || "n/a";
+      const engineUsed = toCleanText(result.engine) || "waterfall";
+      const attemptsLabel =
+        result.attempts?.length
+          ? result.attempts
+              .map((attempt) => `${attempt.method}:${attempt.success ? "OK" : "FAIL"}`)
+              .join(", ")
+          : "n/a";
+      const latency = Number(result.debug_info?.latency_ms ?? result.elapsed_ms ?? 0) || 0;
       const errorHint = toCleanText(result.error);
-      const shouldShowErrorHint = missingFields !== "nenhum" && Boolean(errorHint);
-      const imageWarning =
-        result.missing_fields?.includes("image_url") ||
-        result.debug_info?.missing_fields?.includes("image_url")
-          ? " | imagem ausente"
-          : "";
+      const shouldShowErrorHint = Boolean(errorHint);
 
       setExtractDebug(
-        `Engine: ${engineUsed} | Camada: ${layerUsed} | Missing: ${missingFields} | ${latency}ms${imageWarning}${shouldShowErrorHint ? ` | Erro: ${errorHint}` : ""}`,
+        `Engine: ${engineUsed} | Camada: ${layerUsed} | Tentativas: ${attemptsLabel} | ${latency}ms${shouldShowErrorHint ? ` | Erro: ${errorHint}` : ""}`,
       );
 
       setPreview(nextPreview);
@@ -1158,8 +1211,8 @@ export default function AdminNovaOfertaPage() {
         type: result.status === "partial_failure" ? "info" : "success",
         text:
           result.status === "partial_failure"
-            ? `ExtraÃ§Ã£o parcial (${MARKETPLACE_LABEL[detectedMarketplace]}). Revise os campos antes de publicar.`
-            : `ExtraÃ§Ã£o concluÃ­da (${MARKETPLACE_LABEL[detectedMarketplace]}). Revise o preview antes de publicar.`,
+            ? `Extracao parcial (${MARKETPLACE_LABEL[detectedMarketplace]}). Revise os campos antes de publicar.`
+            : `Extracao concluida (${MARKETPLACE_LABEL[detectedMarketplace]}). Revise o preview antes de publicar.`,
       });
     } catch (error) {
       setExtractDebug(
@@ -1178,23 +1231,23 @@ export default function AdminNovaOfertaPage() {
     if (!copyText.trim()) return;
     try {
       await navigator.clipboard.writeText(copyText);
-      setCopyFeedback("âœ… Copiado!");
+      setCopyFeedback("✅ Copiado!");
     } catch {
-      setCopyFeedback("NÃ£o foi possÃ­vel copiar automaticamente.");
+      setCopyFeedback("Nao foi possivel copiar automaticamente.");
     }
   };
 
   const handleCopyWithImage = async () => {
     const image = toCleanText(preview?.image_url ?? preview?.imageUrl ?? imageUrl);
-    const payload = image ? `${copyText}\n\nðŸ–¼ï¸ Imagem: ${image}` : copyText;
+    const payload = image ? `${copyText}\n\n🖼️ Imagem: ${image}` : copyText;
 
     if (!payload.trim()) return;
 
     try {
       await navigator.clipboard.writeText(payload);
-      setCopyFeedback("âœ… Copiado!");
+      setCopyFeedback("✅ Copiado!");
     } catch {
-      setCopyFeedback("NÃ£o foi possÃ­vel copiar automaticamente.");
+      setCopyFeedback("Nao foi possivel copiar automaticamente.");
     }
   };
 
@@ -1259,7 +1312,7 @@ export default function AdminNovaOfertaPage() {
     if (!url || !manualAffiliate) {
       setFeedback({
         type: "error",
-        text: "URL e Link de Afiliado sÃ£o obrigatÃ³rios para publicar.",
+        text: "URL e Link de Afiliado sao obrigatorios para publicar.",
       });
       return;
     }
@@ -1308,7 +1361,7 @@ export default function AdminNovaOfertaPage() {
         type: "success",
         text:
           action === "site"
-            ? `Enviado para: ${selectedSlot === "flash" ? "Ofertas RelÃ¢mpago" : selectedSlot === "best" ? "Melhores Ofertas" : "Comparador"} âœ…`
+            ? `Enviado para: ${selectedSlot === "flash" ? "Ofertas Relampago" : selectedSlot === "best" ? "Melhores Ofertas" : "Comparador"} ✅`
             : queued > 0
               ? `${baseMessage} Jobs enfileirados: ${queued}${skipped ? ` | Ignorados: ${skipped}` : ""}. Esta acao nao publica no site; para aparecer na vitrine, clique em "Aprovar no Radar (Site)".`
               : `${baseMessage} Esta acao nao publica no site; para aparecer na vitrine, clique em "Aprovar no Radar (Site)".`,
@@ -1438,11 +1491,11 @@ export default function AdminNovaOfertaPage() {
       <div>
         <h1 className="font-display text-3xl font-bold text-navy">Central de Oferta</h1>
         <p className="text-sm text-rs-muted">
-          Extraia, valide e publique ofertas com distribuiÃ§Ã£o para WhatsApp e Telegram.
+          Extraia, valide e publique ofertas com distribuicao para WhatsApp e Telegram.
         </p>
         {isEditing ? (
           <p className="mt-2 text-sm font-semibold text-[#9e6a18]">
-            Editando uma oferta jÃ¡ aprovada/postada no site.
+            Editando uma oferta ja aprovada/postada no site.
           </p>
         ) : null}
       </div>
@@ -1450,10 +1503,10 @@ export default function AdminNovaOfertaPage() {
       <section className="rounded-xl border border-rs-border bg-white p-5">
         <div className="grid gap-3">
           <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-            <p className="font-semibold">Regra de publicaÃ§Ã£o</p>
+            <p className="font-semibold">Regra de publicacao</p>
             <p className="mt-1">
               Toda oferta exibida no site precisa ter <strong>link de afiliado</strong>.
-              Sem <code>affiliate_url</code>, o card nÃ£o aparece nas vitrines pÃºblicas.
+              Sem <code>affiliate_url</code>, o card nao aparece nas vitrines publicas.
             </p>
           </div>
 
@@ -1492,8 +1545,8 @@ export default function AdminNovaOfertaPage() {
             />
             <p className="text-xs text-slate-500">
               {marketplace === "awin"
-                ? "Na AWIN, esta URL Ã© usada como referÃªncia do produto; o link de afiliado abaixo serÃ¡ usado no card e na copy."
-                : "Usada apenas para extrair tÃ­tulo, imagem e preÃ§o do produto."}
+                ? "Na AWIN, esta URL e usada como referencia do produto; o link de afiliado abaixo sera usado no card e na copy."
+                : "Usada apenas para extrair titulo, imagem e preco do produto."}
             </p>
           </div>
 
@@ -1501,7 +1554,7 @@ export default function AdminNovaOfertaPage() {
             <label className="text-xs font-semibold uppercase tracking-wide text-slate-600">
               Link de afiliado{" "}
               <span className="text-red-600">
-                {marketplace === "awin" ? "(gerado pela API ou obrigatÃ³rio no manual)" : "(obrigatÃ³rio)"}
+                {marketplace === "awin" ? "(gerado pela API ou obrigatorio no manual)" : "(obrigatorio)"}
               </span>
             </label>
             <input
@@ -1517,7 +1570,7 @@ export default function AdminNovaOfertaPage() {
               className="h-11 w-full rounded-lg border-2 border-amber-300 bg-amber-50 px-3 text-sm outline-none focus:border-orange"
             />
             <p className="text-xs text-slate-500">
-              Esse Ã© o link final usado no card, na copy e nas pÃ¡ginas pÃºblicas.
+              Esse e o link final usado no card, na copy e nas paginas publicas.
             </p>
           </div>
 
@@ -1542,7 +1595,7 @@ export default function AdminNovaOfertaPage() {
 
               <div className="space-y-1">
                 <label className="text-xs font-semibold uppercase tracking-wide text-slate-600">
-                  PreÃ§o atual
+                  Preco atual
                 </label>
                 <input
                   value={manualPrice}
@@ -1555,7 +1608,7 @@ export default function AdminNovaOfertaPage() {
 
               <div className="space-y-1">
                 <label className="text-xs font-semibold uppercase tracking-wide text-slate-600">
-                  PreÃ§o antigo
+                  Preco antigo
                 </label>
                 <input
                   value={manualOldPrice}
@@ -1571,7 +1624,7 @@ export default function AdminNovaOfertaPage() {
                   Fluxo manual
                 </p>
                 <p className="rounded-lg bg-white px-3 py-2 text-xs leading-5 text-slate-600">
-                  Primeiro tente <strong>Buscar na API AWIN</strong>. Use estes campos manuais apenas se o produto nÃ£o for encontrado no feed.
+                  Primeiro tente <strong>Buscar na API AWIN</strong>. Use estes campos manuais apenas se o produto nao for encontrado no feed.
                 </p>
               </div>
             </div>
@@ -1586,7 +1639,7 @@ export default function AdminNovaOfertaPage() {
               placeholder={
                 marketplace === "awin"
                   ? "URL da imagem do produto AWIN"
-                  : "URL da imagem (preenchida automaticamente apÃ³s extraÃ§Ã£o)"
+                  : "URL da imagem (preenchida automaticamente apos extracao)"
               }
               className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm outline-none focus:border-orange"
             />
@@ -1648,7 +1701,7 @@ export default function AdminNovaOfertaPage() {
                   className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 text-sm font-semibold text-white disabled:opacity-60 sm:w-fit"
                 >
                   {savingEdit ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                  {savingEdit ? "Salvando..." : "Salvar alteraÃ§Ãµes"}
+                  {savingEdit ? "Salvando..." : "Salvar alteracoes"}
                 </button>
 
                 <button
@@ -1667,17 +1720,17 @@ export default function AdminNovaOfertaPage() {
               <p className="text-xs text-slate-500">{extractDebug}</p>
             ) : null}
             {loadingExisting ? (
-              <p className="text-xs text-slate-500">Carregando dados da oferta para ediÃ§Ã£o...</p>
+              <p className="text-xs text-slate-500">Carregando dados da oferta para edicao...</p>
             ) : null}
         </div>
       </section>
 
       <section className="rounded-xl border border-rs-border bg-white p-5">
-        <h2 className="text-lg font-semibold text-navy">Preview de publicaÃ§Ã£o</h2>
+        <h2 className="text-lg font-semibold text-navy">Preview de publicacao</h2>
 
         {!preview ? (
           <p className="mt-3 text-sm text-rs-muted">
-            Use a extraÃ§Ã£o por URL para carregar foto, tÃ­tulo, preÃ§o e desconto. Para AWIN, preencha os campos manuais e gere o preview.
+            Use a extracao por URL para carregar foto, titulo, preco e desconto. Para AWIN, preencha os campos manuais e gere o preview.
           </p>
         ) : (
           <div className="mt-4 space-y-4">
@@ -1730,11 +1783,15 @@ export default function AdminNovaOfertaPage() {
                   onClick={() => {
                     if (!preview) return;
                     setCopyLoading(true);
-                    void generateWhatsAppCopyFromPreview({
-                      preview,
-                      affiliateUrl: getOfferUrl(preview, affiliateUrl.trim()),
-                      marketplace,
-                    })
+                    void getAccessToken()
+                      .then((accessToken) =>
+                        generateWhatsAppCopyFromPreview({
+                          preview,
+                          affiliateUrl: getOfferUrl(preview, affiliateUrl.trim()),
+                          marketplace,
+                          accessToken,
+                        }),
+                      )
                       .then((generated) => {
                         setWhatsAppCopyVariants(generated);
                         setSelectedTemplate("medium");
@@ -1838,7 +1895,7 @@ export default function AdminNovaOfertaPage() {
 
             <div className="mt-8 rounded-xl border-2 border-dashed border-gray-200 bg-gray-50 p-6">
               <h3 className="mb-4 flex items-center gap-2 text-lg font-bold text-navy">
-                <span aria-hidden="true">ðŸŽ¯</span>
+                <span aria-hidden="true">🎯</span>
                 Onde essa oferta vai aparecer no Radar Smart?
               </h3>
               <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">

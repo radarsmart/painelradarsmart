@@ -55,14 +55,46 @@ function normalizeInput(body: Record<string, unknown>): OfferCopyInput {
   };
 }
 
+function formatCurrency(value: number): string {
+  return new Intl.NumberFormat("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+  }).format(value);
+}
+
+function buildFallbackCopy(offer: OfferCopyInput) {
+  const hook = `🔥 Oferta em destaque para ${offer.title}!`;
+  const base = [
+    `🎯 ${hook}`,
+    "",
+    `*${offer.title}*`,
+    "",
+    `✅ Por: ${formatCurrency(offer.price)}`,
+    "",
+    "⚡ Oferta ativa agora. Aproveite enquanto está disponível.",
+    "",
+    `👉 ${offer.affiliate_url}`,
+  ].join("\n");
+
+  return {
+    hook,
+    short: base,
+    medium: base,
+    long: base,
+    warning:
+      "IA indisponível no momento. Copy gerada com fallback básico para você editar.",
+  };
+}
+
 export async function POST(req: NextRequest) {
   const adminGuard = await requireAdmin(req);
   if (!adminGuard.ok) {
     return NextResponse.json({ error: adminGuard.error }, { status: adminGuard.status });
   }
 
+  const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+
   try {
-    const body = (await req.json()) as Record<string, unknown>;
     const offer = normalizeInput(body);
     const copy = await generateWhatsAppCopy(offer);
 
@@ -73,15 +105,20 @@ export async function POST(req: NextRequest) {
       hook: copy.hook,
     });
   } catch (error) {
-    return NextResponse.json(
-      {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Falha ao gerar copy do WhatsApp.",
-      },
-      { status: 500 },
-    );
+    try {
+      const offer = normalizeInput(body);
+      const fallback = buildFallbackCopy(offer);
+      return NextResponse.json(fallback, { status: 200 });
+    } catch {
+      return NextResponse.json(
+        {
+          error:
+            error instanceof Error
+              ? error.message
+              : "Falha ao gerar copy do WhatsApp.",
+        },
+        { status: 500 },
+      );
+    }
   }
 }
-

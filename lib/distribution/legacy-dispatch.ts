@@ -1,4 +1,8 @@
 import { supabaseAdmin } from "@/lib/supabase";
+import {
+  getDistributionFlags,
+  type DistributionFlags,
+} from "@/lib/distribution/feature-flags";
 
 export type DistributionChannel = "telegram" | "whatsapp";
 
@@ -37,10 +41,10 @@ export type LegacyDispatchResult = {
 const DEFAULT_CHANNELS: DistributionChannel[] = ["telegram", "whatsapp"];
 const DIRECT_QUEUE_OFFER_SELECT =
   "id,title,brand,category,marketplace,seller_name,price,original_price,discount_pct,currency,image_url,best_image_url,affiliate_url,product_url,manual_copy,raw";
-const SEND_WINDOW_START_HOUR = 8;
-const SEND_WINDOW_END_HOUR = 22;
-const SEND_INTERVAL_MINUTES = 20;
-const SEND_TIMEZONE = "America/Sao_Paulo";
+const DEFAULT_SEND_WINDOW_START_HOUR = 8;
+const DEFAULT_SEND_WINDOW_END_HOUR = 22;
+const DEFAULT_SEND_INTERVAL_MINUTES = 20;
+const DEFAULT_SEND_TIMEZONE = "America/Sao_Paulo";
 
 function normalizeChannels(
   channels: DistributionChannel[] | undefined,
@@ -65,6 +69,33 @@ function normalizeCopyByChannel(
   }
 
   return normalized;
+}
+
+function getConfiguredDestinationIds(
+  channel: DistributionChannel,
+  flags: DistributionFlags,
+): string[] {
+  if (channel === "telegram") {
+    return flags.channels.telegram.chats;
+  }
+  return flags.channels.whatsapp.groups;
+}
+
+function getDistributionTargetsFromFlags(flags: DistributionFlags): Record<string, unknown> {
+  return {
+    telegram: {
+      enabled: flags.channels.telegram.enabled,
+      chat_ids: flags.channels.telegram.chats,
+    },
+    whatsapp: {
+      enabled: flags.channels.whatsapp.enabled,
+      group_ids: flags.channels.whatsapp.groups,
+    },
+    instagram: {
+      enabled: flags.channels.instagram.enabled,
+      post_as_reel: flags.channels.instagram.post_as_reel,
+    },
+  };
 }
 
 async function readInvokeError(error: unknown): Promise<string> {
@@ -174,7 +205,7 @@ type TimeZoneParts = {
   second: number;
 };
 
-function getTimeZoneParts(date: Date, timeZone = SEND_TIMEZONE): TimeZoneParts {
+function getTimeZoneParts(date: Date, timeZone = DEFAULT_SEND_TIMEZONE): TimeZoneParts {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone,
     year: "numeric",
@@ -199,7 +230,7 @@ function getTimeZoneParts(date: Date, timeZone = SEND_TIMEZONE): TimeZoneParts {
   };
 }
 
-function getTimeZoneOffsetMinutes(date: Date, timeZone = SEND_TIMEZONE): number {
+function getTimeZoneOffsetMinutes(date: Date, timeZone = DEFAULT_SEND_TIMEZONE): number {
   const local = getTimeZoneParts(date, timeZone);
   const asUtc = Date.UTC(
     local.year,
@@ -215,7 +246,7 @@ function getTimeZoneOffsetMinutes(date: Date, timeZone = SEND_TIMEZONE): number 
 
 function dateFromTimeZoneParts(
   parts: TimeZoneParts,
-  timeZone = SEND_TIMEZONE,
+  timeZone = DEFAULT_SEND_TIMEZONE,
 ): Date {
   const baseUtc = Date.UTC(
     parts.year,
@@ -240,7 +271,11 @@ function dateFromTimeZoneParts(
   return new Date(adjusted);
 }
 
-function nextWindowStart(date: Date, timeZone = SEND_TIMEZONE): Date {
+function nextWindowStart(
+  date: Date,
+  timeZone = DEFAULT_SEND_TIMEZONE,
+  startHour = DEFAULT_SEND_WINDOW_START_HOUR,
+): Date {
   const local = getTimeZoneParts(date, timeZone);
   const midday = dateFromTimeZoneParts(
     {
@@ -261,7 +296,7 @@ function nextWindowStart(date: Date, timeZone = SEND_TIMEZONE): Date {
       year: tomorrow.year,
       month: tomorrow.month,
       day: tomorrow.day,
-      hour: SEND_WINDOW_START_HOUR,
+      hour: startHour,
       minute: 0,
       second: 0,
     },
@@ -269,16 +304,21 @@ function nextWindowStart(date: Date, timeZone = SEND_TIMEZONE): Date {
   );
 }
 
-function clampToSendWindow(date: Date, timeZone = SEND_TIMEZONE): Date {
+function clampToSendWindow(
+  date: Date,
+  timeZone = DEFAULT_SEND_TIMEZONE,
+  startHour = DEFAULT_SEND_WINDOW_START_HOUR,
+  endHour = DEFAULT_SEND_WINDOW_END_HOUR,
+): Date {
   const local = getTimeZoneParts(date, timeZone);
 
-  if (local.hour < SEND_WINDOW_START_HOUR) {
+  if (local.hour < startHour) {
     return dateFromTimeZoneParts(
       {
         year: local.year,
         month: local.month,
         day: local.day,
-        hour: SEND_WINDOW_START_HOUR,
+        hour: startHour,
         minute: 0,
         second: 0,
       },
@@ -286,18 +326,24 @@ function clampToSendWindow(date: Date, timeZone = SEND_TIMEZONE): Date {
     );
   }
 
-  if (local.hour >= SEND_WINDOW_END_HOUR) {
-    return nextWindowStart(date, timeZone);
+  if (local.hour >= endHour) {
+    return nextWindowStart(date, timeZone, startHour);
   }
 
   return date;
 }
 
-function alignToNextInterval(date: Date, timeZone = SEND_TIMEZONE): Date {
+function alignToNextInterval(
+  date: Date,
+  timeZone = DEFAULT_SEND_TIMEZONE,
+  intervalMinutes = DEFAULT_SEND_INTERVAL_MINUTES,
+): Date {
   const local = getTimeZoneParts(date, timeZone);
-  const remainder = local.minute % SEND_INTERVAL_MINUTES;
+  const remainder = local.minute % intervalMinutes;
   const deltaMinutes =
-    remainder === 0 && local.second === 0 ? SEND_INTERVAL_MINUTES : SEND_INTERVAL_MINUTES - remainder;
+    remainder === 0 && local.second === 0
+      ? intervalMinutes
+      : intervalMinutes - remainder;
 
   const aligned = new Date(date.getTime() + deltaMinutes * 60 * 1000);
   const alignedLocal = getTimeZoneParts(aligned, timeZone);
@@ -315,7 +361,22 @@ function alignToNextInterval(date: Date, timeZone = SEND_TIMEZONE): Date {
   );
 }
 
-export async function getNextScheduledAt(channel: DistributionChannel): Promise<string> {
+export async function getNextScheduledAt(
+  channel: DistributionChannel,
+  flags?: DistributionFlags,
+): Promise<string> {
+  const timezone = flags?.scheduling.timezone || DEFAULT_SEND_TIMEZONE;
+  const intervalMinutes =
+    flags?.scheduling.delay_between_posts_minutes || DEFAULT_SEND_INTERVAL_MINUTES;
+  const preferredHours =
+    flags?.scheduling.best_hours?.length ? flags.scheduling.best_hours : [9, 12, 15, 18, 21];
+  const startHour =
+    Math.min(...preferredHours.filter((hour) => hour >= 0 && hour <= 23)) ||
+    DEFAULT_SEND_WINDOW_START_HOUR;
+  const endHour =
+    Math.max(...preferredHours.filter((hour) => hour >= 0 && hour <= 23)) + 1 ||
+    DEFAULT_SEND_WINDOW_END_HOUR;
+
   const now = new Date();
   const { data, error } = await supabaseAdmin.rpc("get_last_scheduled_at", {
     p_channel: channel,
@@ -327,14 +388,15 @@ export async function getNextScheduledAt(channel: DistributionChannel): Promise<
 
   const lastScheduled = data ? new Date(String(data)) : now;
   const base = lastScheduled.getTime() > now.getTime() ? lastScheduled : now;
-  const windowBase = clampToSendWindow(base);
-  const aligned = alignToNextInterval(windowBase);
+  const windowBase = clampToSendWindow(base, timezone, startHour, endHour);
+  const aligned = alignToNextInterval(windowBase, timezone, intervalMinutes);
 
   return aligned.toISOString();
 }
 
 async function buildChannelSchedule(
   channels: DistributionChannel[],
+  flags: DistributionFlags,
   scheduleNow = false,
 ): Promise<Partial<Record<DistributionChannel, string>>> {
   if (scheduleNow) {
@@ -345,7 +407,9 @@ async function buildChannelSchedule(
   }
 
   const scheduleEntries = await Promise.all(
-    channels.map(async (channel) => [channel, await getNextScheduledAt(channel)] as const),
+    channels.map(
+      async (channel) => [channel, await getNextScheduledAt(channel, flags)] as const,
+    ),
   );
 
   return Object.fromEntries(scheduleEntries) as Partial<Record<DistributionChannel, string>>;
@@ -355,6 +419,7 @@ async function queueDirectlyOnPostQueue(input: {
   offerId: string;
   channels: DistributionChannel[];
   copyByChannel: Partial<Record<DistributionChannel, string>>;
+  flags: DistributionFlags;
   affiliateUrl?: string | null;
   allowRequeueSameDay: boolean;
   scheduleNow?: boolean;
@@ -381,14 +446,24 @@ async function queueDirectlyOnPostQueue(input: {
     throw new Error(`Falha ao carregar post_targets ativos: ${targetsError.message}`);
   }
 
-  const activeTargets = (targets ?? []).filter(
+  const activeTargetsUnfiltered = (targets ?? []).filter(
     (target) => target?.id && target?.channel && target?.is_active,
   );
+  const activeTargets = activeTargetsUnfiltered.filter((target) => {
+    const channel = target.channel as DistributionChannel;
+    const configuredIds = getConfiguredDestinationIds(channel, input.flags);
+    if (!configuredIds.length) return true;
+    return configuredIds.includes(String(target.external_id ?? "").trim());
+  });
   if (!activeTargets.length) {
     throw new Error("Nenhum target ativo encontrado para os canais selecionados.");
   }
 
-  const channelSchedule = await buildChannelSchedule(input.channels, input.scheduleNow === true);
+  const channelSchedule = await buildChannelSchedule(
+    input.channels,
+    input.flags,
+    input.scheduleNow === true,
+  );
 
   const details: Array<Record<string, unknown>> = [];
   let queued = 0;
@@ -408,6 +483,32 @@ async function queueDirectlyOnPostQueue(input: {
         dedupeBucket = scheduledDate.toISOString().slice(0, 10);
       }
     }
+
+    const maxPostsPerDay = Number(input.flags.scheduling.max_posts_per_day ?? 0);
+    if (maxPostsPerDay > 0) {
+      const { count: queuedForDay, error: countError } = await supabaseAdmin
+        .from("post_queue")
+        .select("id", { count: "exact", head: true })
+        .eq("channel", channel)
+        .eq("dedupe_bucket", dedupeBucket)
+        .in("status", ["queued", "processing", "sent"]);
+      if (countError) {
+        throw new Error(
+          `Falha ao validar limite diario de fila (${channel}): ${countError.message}`,
+        );
+      }
+      if ((queuedForDay ?? 0) >= maxPostsPerDay) {
+        skipped += 1;
+        details.push({
+          channel,
+          target_id: target.id,
+          action: "skipped",
+          reason: "max_posts_per_day_reached",
+        });
+        continue;
+      }
+    }
+
     const payload = {
       ad_text: resolveChannelCopy(offer as Record<string, unknown>, channel, input.copyByChannel),
       offer: {
@@ -547,14 +648,31 @@ async function queueDirectlyOnPostQueue(input: {
 export async function dispatchLegacyOffer(
   input: LegacyDispatchInput,
 ): Promise<LegacyDispatchResult> {
+  const flags = await getDistributionFlags();
+  if (!flags.distribution_enabled) {
+    throw new Error(
+      "Distribuicao desativada via feature flag. Ative em /api/admin/distribution/flags.",
+    );
+  }
+
   const offerId = String(input.offerId ?? "").trim();
   if (!offerId) {
     throw new Error("offerId e obrigatorio para distribuicao.");
   }
 
-  const channels = normalizeChannels(input.channels);
-  if (!channels.length) {
+  const requestedChannels = normalizeChannels(input.channels);
+  if (!requestedChannels.length) {
     throw new Error("Nenhum canal valido selecionado para distribuicao.");
+  }
+  const channels = requestedChannels.filter((channel) => {
+    if (channel === "telegram") return flags.channels.telegram.enabled;
+    if (channel === "whatsapp") return flags.channels.whatsapp.enabled;
+    return false;
+  });
+  if (!channels.length) {
+    throw new Error(
+      "Nenhum canal habilitado nas feature flags para a distribuicao solicitada.",
+    );
   }
 
   const affiliateUrl = String(input.affiliateUrl ?? "").trim();
@@ -578,7 +696,7 @@ export async function dispatchLegacyOffer(
   const copyByChannel = normalizeCopyByChannel(input.copyByChannel);
   const allowRequeueSameDay = input.allowRequeueSameDay ?? true;
   const scheduleNow = input.scheduleNow === true;
-  const scheduleByChannel = await buildChannelSchedule(channels, scheduleNow);
+  const scheduleByChannel = await buildChannelSchedule(channels, flags, scheduleNow);
   const payload: Record<string, unknown> = {
     offer_id: offerId,
     channels,
@@ -586,6 +704,7 @@ export async function dispatchLegacyOffer(
     auto_approve_if_needed: false,
     force_admin_dispatch: true,
     schedule_now: scheduleNow,
+    distribution_targets: getDistributionTargetsFromFlags(flags),
   };
 
   if (!scheduleNow) {
@@ -608,6 +727,7 @@ export async function dispatchLegacyOffer(
       return queueDirectlyOnPostQueue({
         offerId,
         channels,
+        flags,
         copyByChannel,
         affiliateUrl,
         allowRequeueSameDay,
@@ -642,4 +762,3 @@ export async function dispatchLegacyOffer(
     workerTriggers,
   };
 }
-

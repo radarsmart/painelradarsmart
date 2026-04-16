@@ -213,6 +213,7 @@ function buildSystemPrompt(): string {
     "- Use emojis com moderação.",
     "- Gere urgencia sem mentir.",
     "- O CTA final deve apontar para Radar Smart e o link afiliado.",
+    "- Nao incluir assinatura final, rodape de marca ou texto como _Curadoria Radar Smart_.",
     "- O texto precisa funcionar para WhatsApp e Telegram.",
     "",
     "Formato de saida obrigatorio:",
@@ -254,8 +255,6 @@ function buildUserPrompt(offer: OfferCopyInput): string {
     "⚡ Estoque limitado — garanta o seu agora!",
     "",
     `👉 ${offer.affiliate_url}`,
-    "",
-    "_Curadoria Radar Smart_ 🎯",
   ]
     .filter(Boolean)
     .join("\n");
@@ -371,7 +370,14 @@ async function requestOpenAIJson(params: {
 }
 
 function normalizeVariant(value: unknown): string {
-  return normalizeWhitespace(toText(value));
+  return stripBrandSignature(normalizeWhitespace(toText(value)));
+}
+
+function stripBrandSignature(value: string): string {
+  return value
+    .replace(/_?\s*curadoria\s+radar\s+smart_?/gi, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 function normalizeCopyOutput(raw: Record<string, unknown>): WhatsAppCopyVariants {
@@ -435,4 +441,3 @@ export async function generateWhatsAppCopy(
 
   return normalizeCopyOutput(raw);
 }
-

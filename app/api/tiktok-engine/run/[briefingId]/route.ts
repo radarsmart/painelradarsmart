@@ -35,6 +35,8 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
   }
 
   const briefingId = String(params.briefingId ?? "").trim();
+  console.info("[tiktok-run] start", { briefingId });
+
   if (!briefingId) {
     return NextResponse.json({ success: false, error: "briefingId obrigatorio." }, { status: 400 });
   }
@@ -46,14 +48,25 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     .maybeSingle();
 
   if (briefingQuery.error) {
+    console.error("[tiktok-run] briefing query failed", {
+      briefingId,
+      error: briefingQuery.error.message,
+    });
     return NextResponse.json({ success: false, error: briefingQuery.error.message }, { status: 500 });
   }
 
   if (!briefingQuery.data) {
+    console.error("[tiktok-run] briefing not found", { briefingId });
     return NextResponse.json({ success: false, error: "Briefing nao encontrado." }, { status: 404 });
   }
 
+  console.info("[tiktok-run] briefing loaded", {
+    briefingId,
+    status: briefingQuery.data.status,
+  });
+
   try {
+    console.info("[tiktok-run] starting pipeline", { briefingId });
     await runTikTokPipeline(briefingId);
 
     const jobsQuery = await supabaseAdmin
@@ -61,9 +74,20 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       .select("status")
       .eq("briefing_id", briefingId);
 
+    if (jobsQuery.error) {
+      throw new Error(jobsQuery.error.message);
+    }
+
     const jobs = jobsQuery.data ?? [];
     const completed = jobs.filter((job) => job.status === "completed").length;
     const failed = jobs.filter((job) => job.status === "failed").length;
+
+    console.info("[tiktok-run] completed", {
+      briefingId,
+      jobsCount: jobs.length,
+      completed,
+      failed,
+    });
 
     return NextResponse.json({
       success: true,
@@ -76,6 +100,13 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Erro no pipeline.";
+    const stack = error instanceof Error ? error.stack : undefined;
+
+    console.error("[tiktok-run] fatal error", {
+      briefingId,
+      error: message,
+      stack,
+    });
 
     await supabaseAdmin
       .from("tiktok_engine_briefings")

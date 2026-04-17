@@ -57,13 +57,6 @@ function getModelPromptBase(modelId: number): string {
   return presets[modelId] ?? "Gancho curto, beneficio claro e CTA objetivo.";
 }
 
-async function updateBriefingStatus(briefingId: string, status: BriefingStatus) {
-  await supabaseAdmin
-    .from("tiktok_engine_briefings")
-    .update({ status, updated_at: new Date().toISOString() })
-    .eq("id", briefingId);
-}
-
 async function updateJob(jobId: string, status: JobStatus, patch: Record<string, unknown> = {}) {
   await supabaseAdmin
     .from("tiktok_engine_jobs")
@@ -487,6 +480,8 @@ async function processOneJob(job: JobRow, briefing: TikTokGenerateRequest, defau
 }
 
 export async function runTikTokPipeline(briefingId: string) {
+  console.info("[tiktok-run] pipeline start", { briefingId });
+
   const briefingQuery = await supabaseAdmin
     .from("tiktok_engine_briefings")
     .select("*")
@@ -496,8 +491,16 @@ export async function runTikTokPipeline(briefingId: string) {
     throw new Error(briefingQuery.error?.message ?? "Briefing nao encontrado.");
   }
 
+  console.info("[tiktok-run] briefing loaded", { briefingId });
   const briefing = briefingQuery.data as unknown as TikTokGenerateRequest;
-  await updateBriefingStatus(briefingId, "processing");
+  await supabaseAdmin
+    .from("tiktok_engine_briefings")
+    .update({
+      status: "processing",
+      last_error: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", briefingId);
 
   const registeredDefaultVoiceId = await getRegisteredDefaultVoiceId();
   const fallbackVoiceId =
@@ -514,14 +517,46 @@ export async function runTikTokPipeline(briefingId: string) {
   if (jobsQuery.error) throw new Error(jobsQuery.error.message);
 
   const jobs = (jobsQuery.data ?? []) as JobRow[];
+  console.info("[tiktok-run] jobs loaded", {
+    briefingId,
+    jobsCount: jobs.length,
+    fallbackVoiceId,
+  });
+  console.info("[tiktok-run] before first processOneJob", {
+    briefingId,
+    firstJobId: jobs[0]?.id ?? null,
+  });
+
   const settled = await Promise.allSettled(jobs.map((job) => processOneJob(job, briefing, fallbackVoiceId)));
   const failedCount = settled.filter((result) => result.status === "rejected").length;
   const completedCount = settled.length - failedCount;
+  const firstFailure = settled.find((result) => result.status === "rejected");
+  const failureReason =
+    firstFailure?.status === "rejected"
+      ? firstFailure.reason instanceof Error
+        ? firstFailure.reason.message
+        : String(firstFailure.reason ?? "Falha desconhecida no pipeline")
+      : null;
 
   let finalStatus: BriefingStatus = "completed";
   if (completedCount === 0 && failedCount > 0) finalStatus = "failed";
   if (completedCount > 0 && failedCount > 0) finalStatus = "partial_failed";
-  await updateBriefingStatus(briefingId, finalStatus);
+  await supabaseAdmin
+    .from("tiktok_engine_briefings")
+    .update({
+      status: finalStatus,
+      last_error: failureReason,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", briefingId);
+
+  console.info("[tiktok-run] pipeline finished", {
+    briefingId,
+    finalStatus,
+    completedCount,
+    failedCount,
+    failureReason,
+  });
 
   await sendWebhook(briefing.webhook_url ?? "", {
     briefing_id: briefingId,

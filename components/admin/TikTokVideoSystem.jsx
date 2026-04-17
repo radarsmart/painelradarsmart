@@ -271,9 +271,11 @@ export default function TikTokVideoSystem() {
   );
 
   const startGeneration = useCallback(async () => {
+    stopPolling();
     setRunning(true);
     setLogs([]);
     setJobs([]);
+    setBriefingId("");
     setProgress("0%");
     setOverallStatus("pending");
     addLog("Iniciando pipeline...");
@@ -351,6 +353,7 @@ export default function TikTokVideoSystem() {
     productPrice,
     selectedModels,
     shopUrl,
+    stopPolling,
     voiceId,
   ]);
 

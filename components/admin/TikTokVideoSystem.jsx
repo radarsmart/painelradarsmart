@@ -27,6 +27,10 @@ async function getAccessToken() {
 
 async function apiFetch(url, init = {}) {
   const token = await getAccessToken();
+  console.log("[tiktok] fetch:start", {
+    url,
+    method: init.method || "GET",
+  });
   const response = await fetch(url, {
     ...init,
     headers: {
@@ -37,8 +41,20 @@ async function apiFetch(url, init = {}) {
     cache: "no-store",
   });
 
+  console.log("[tiktok] fetch:response", {
+    url,
+    method: init.method || "GET",
+    status: response.status,
+    ok: response.ok,
+  });
   const json = await response.json().catch(() => ({}));
   if (!response.ok) {
+    console.error("[tiktok] fetch:error", {
+      url,
+      method: init.method || "GET",
+      status: response.status,
+      error: json?.error || `Falha na API (${response.status}).`,
+    });
     throw new Error(json?.error || `Falha na API (${response.status}).`);
   }
   return json;
@@ -46,7 +62,10 @@ async function apiFetch(url, init = {}) {
 
 async function apiFetchInBackground(url, init = {}) {
   const token = await getAccessToken();
-  console.log("[tiktok] calling run", url);
+  console.log("[tiktok] background:start", {
+    url,
+    method: init.method || "GET",
+  });
   const response = await fetch(url, {
     ...init,
     headers: {
@@ -57,8 +76,20 @@ async function apiFetchInBackground(url, init = {}) {
     cache: "no-store",
   });
 
+  console.log("[tiktok] background:response", {
+    url,
+    method: init.method || "GET",
+    status: response.status,
+    ok: response.ok,
+  });
   const json = await response.json().catch(() => ({}));
   if (!response.ok) {
+    console.error("[tiktok] background:error", {
+      url,
+      method: init.method || "GET",
+      status: response.status,
+      error: json?.error || `Falha na API (${response.status}).`,
+    });
     throw new Error(json?.error || `Falha na API (${response.status}).`);
   }
   return json;
@@ -264,11 +295,14 @@ export default function TikTokVideoSystem() {
 
     let data;
     try {
+      console.log("[tiktok] calling generate");
       data = await apiFetch("/api/tiktok-engine/generate", {
         method: "POST",
         body: JSON.stringify(payload),
       });
+      console.log("[tiktok] generate ok", data?.briefing_id, data);
     } catch (error) {
+      console.error("[tiktok] generate failed", error);
       setRunning(false);
       addLog(error instanceof Error ? error.message : "Erro ao iniciar geracao.", "error");
       return;
@@ -280,10 +314,13 @@ export default function TikTokVideoSystem() {
     void (async () => {
       try {
         addLog("Executando pipeline em background...");
+        console.log("[tiktok] calling run", `/api/tiktok-engine/run/${data.briefing_id}`);
         await apiFetchInBackground(`/api/tiktok-engine/run/${data.briefing_id}`, {
           method: "POST",
         });
+        console.log("[tiktok] run ok", data.briefing_id);
       } catch (error) {
+        console.error("[tiktok] run failed", error);
         addLog(
           error instanceof Error ? error.message : "Falha ao executar pipeline.",
           "error",

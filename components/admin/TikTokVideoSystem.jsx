@@ -46,6 +46,7 @@ async function apiFetch(url, init = {}) {
 
 async function apiFetchInBackground(url, init = {}) {
   const token = await getAccessToken();
+  console.log("[tiktok] calling run", url);
   const response = await fetch(url, {
     ...init,
     headers: {
@@ -275,10 +276,6 @@ export default function TikTokVideoSystem() {
 
     setBriefingId(data.briefing_id);
     addLog(data?.message ?? "Briefing criado.", "success");
-    await fetchStatus(data.briefing_id);
-    intervalRef.current = setInterval(() => {
-      void fetchStatus(data.briefing_id);
-    }, 8000);
 
     void (async () => {
       try {
@@ -293,6 +290,16 @@ export default function TikTokVideoSystem() {
         );
       }
     })();
+
+    try {
+      await fetchStatus(data.briefing_id);
+    } catch {
+      // fetchStatus ja registra erro e interrompe o polling se necessario
+    }
+
+    intervalRef.current = setInterval(() => {
+      void fetchStatus(data.briefing_id);
+    }, 8000);
   }, [
     addLog,
     avatarId,

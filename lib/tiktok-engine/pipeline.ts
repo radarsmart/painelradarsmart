@@ -15,6 +15,13 @@ const MAX_SCRIPT_OUTPUT_TOKENS = 380;
 const HEYGEN_POLL_ATTEMPTS = 24;
 const HEYGEN_POLL_INTERVAL_MS = 5000;
 
+function maskSecretSuffix(secret: string, visible = 4): string {
+  const normalized = String(secret ?? "").trim();
+  if (!normalized) return "missing";
+  if (normalized.length <= visible) return normalized;
+  return normalized.slice(-visible);
+}
+
 function requiredEnv(name: string): string {
   const value = (process.env[name] ?? "").trim();
   if (!value) throw new Error(`Variavel ${name} ausente.`);
@@ -173,6 +180,14 @@ async function generateScriptWithOpenAI(
   const openAiKey = requiredEnv("OPENAI_API_KEY");
   const { system, user, durationTargetSeconds } = buildScriptPrompts(input, modelId);
 
+  console.info("[tiktok-openai]", {
+    step: "script_request_start",
+    modelId,
+    model: OPENAI_MODEL,
+    hasKey: Boolean(openAiKey),
+    keySuffix: maskSecretSuffix(openAiKey),
+  });
+
   const schema = {
     type: "object",
     additionalProperties: false,
@@ -222,12 +237,29 @@ async function generateScriptWithOpenAI(
 
   if (!res.ok) {
     const body = await res.text();
+    console.error("[tiktok-openai]", {
+      step: "script_request_failed",
+      modelId,
+      model: OPENAI_MODEL,
+      hasKey: Boolean(openAiKey),
+      keySuffix: maskSecretSuffix(openAiKey),
+      status: res.status,
+      bodyPreview: body.slice(0, 300),
+    });
     throw new Error(`OpenAI falhou (${res.status}): ${body.slice(0, 300)}`);
   }
 
   const payload = (await res.json()) as OpenAIResponsesApiResponse;
   const text = extractResponseText(payload);
   if (!text) throw new Error("OpenAI retornou resposta vazia para script.");
+
+  console.info("[tiktok-openai]", {
+    step: "script_request_ok",
+    modelId,
+    model: OPENAI_MODEL,
+    hasKey: Boolean(openAiKey),
+    keySuffix: maskSecretSuffix(openAiKey),
+  });
 
   const parsed = JSON.parse(text) as ScriptPayload;
   const scriptJson = sanitizeScriptPayload(parsed, durationTargetSeconds);

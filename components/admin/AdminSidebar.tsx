@@ -166,6 +166,12 @@ const MENU_ITEMS: SidebarGroup[] = [
         activePatterns: ["/admin/criativos"],
       },
       {
+        label: "Video Jobs",
+        icon: BarChart3,
+        href: "/admin/criativos/video-jobs",
+        activePatterns: ["/admin/criativos/video-jobs"],
+      },
+      {
         label: "TikTok Engine",
         icon: Clapperboard,
         href: "/admin/criativos/tiktok-engine",
@@ -195,6 +201,13 @@ const MENU_ITEMS: SidebarGroup[] = [
 function isItemActive(pathname: string, item: SidebarItem) {
   if (!item.href) return false;
   if (item.href === "/admin/hub-awin" && pathname.startsWith("/admin/hub-awin/automation")) {
+    return false;
+  }
+  if (
+    item.href === "/admin/criativos" &&
+    (pathname.startsWith("/admin/criativos/tiktok-engine") ||
+      pathname.startsWith("/admin/criativos/video-jobs"))
+  ) {
     return false;
   }
 

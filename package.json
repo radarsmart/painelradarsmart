@@ -9,6 +9,9 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@remotion/bundler": "^4.0.448",
+    "@remotion/media-utils": "^4.0.448",
+    "@remotion/renderer": "^4.0.448",
     "@supabase/supabase-js": "^2.50.5",
     "cheerio": "^1.2.0",
     "clsx": "^2.1.1",
@@ -17,11 +20,13 @@
     "framer-motion": "^12.23.24",
     "lucide-react": "^0.544.0",
     "next": "14.2.35",
+    "openai": "^6.35.0",
     "pdfkit": "^0.18.0",
     "playwright": "^1.59.1",
     "react": "18.3.1",
     "react-dom": "18.3.1",
     "recharts": "^2.15.4",
+    "remotion": "^4.0.454",
     "undici": "^6.21.2"
   },
   "devDependencies": {

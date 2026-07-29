@@ -40,6 +40,7 @@
     "node_modules",
     "scripts",
     "temp",
+    "anna-helena-tarot",
     ".agent",
     ".agents"
   ]

@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@remotion/bundler": "^4.0.448",
+    "@remotion/lambda": "^4.0.448",
     "@remotion/media-utils": "^4.0.448",
     "@remotion/renderer": "^4.0.448",
     "@supabase/supabase-js": "^2.50.5",

@@ -101,6 +101,15 @@ export default function VideoJobDrawer({
               <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-emerald-600">
                 Video publicado
               </p>
+              <div className="mt-3 overflow-hidden rounded-2xl bg-slate-950">
+                <video
+                  controls
+                  playsInline
+                  preload="metadata"
+                  className="mx-auto aspect-[9/16] max-h-[520px] w-full bg-slate-950 object-contain"
+                  src={job.published_url}
+                />
+              </div>
               <a
                 href={job.published_url}
                 target="_blank"
@@ -111,7 +120,16 @@ export default function VideoJobDrawer({
                 <ExternalLink className="h-4 w-4 shrink-0" />
               </a>
             </section>
-          ) : null}
+          ) : (
+            <section className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
+              <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-slate-500">
+                Preview do video
+              </p>
+              <p className="mt-2 text-sm text-slate-600">
+                O player aparece aqui quando o job chega em published e possui URL publica no Supabase Storage.
+              </p>
+            </section>
+          )}
 
           <section>
             <h3 className="mb-3 text-sm font-black text-slate-900">Trilha de eventos</h3>

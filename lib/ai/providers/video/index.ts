@@ -1,5 +1,6 @@
 import { IVideoProvider } from '../../contracts/video';
 import { RemotionVideoProvider } from './remotion';
+import { RemotionLambdaVideoProvider } from './remotion-lambda';
 import { MockVideoProvider } from './mock';
 
 export function createVideoProvider(type?: string): IVideoProvider {
@@ -8,10 +9,12 @@ export function createVideoProvider(type?: string): IVideoProvider {
   switch (providerType) {
     case 'mock':
       return new MockVideoProvider();
+    case 'remotion-lambda':
+      return new RemotionLambdaVideoProvider();
     case 'remotion':
     default:
       return new RemotionVideoProvider();
   }
 }
 
-export { RemotionVideoProvider, MockVideoProvider };
+export { RemotionVideoProvider, RemotionLambdaVideoProvider, MockVideoProvider };

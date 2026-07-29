@@ -177,9 +177,12 @@ export async function POST(request: NextRequest) {
       console.log(`[/api/ai/video/full-pipeline] job=${jobId} uploading`);
     }
 
-    const publishResult = shouldPublish && renderResult.localFilePath
+    // Remotion local → localFilePath | Remotion Lambda → videoUrl (S3 pública)
+    const hasRenderOutput = renderResult.localFilePath || renderResult.videoUrl;
+    const publishResult = shouldPublish && hasRenderOutput
       ? await publishVideoToSupabase({
           localFilePath: renderResult.localFilePath,
+          videoUrl: renderResult.localFilePath ? undefined : renderResult.videoUrl,
           bucket: body.bucket,
           fileName: `${body.productName.trim()}.mp4`,
           metadata: {

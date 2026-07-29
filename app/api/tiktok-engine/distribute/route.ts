@@ -6,6 +6,7 @@ import { scheduleTikTokDistribution } from "@/lib/distribution/tiktok-engine-dis
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 type DistributeBody = {
   briefing_id?: string;

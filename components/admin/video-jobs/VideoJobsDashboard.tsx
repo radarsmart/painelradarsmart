@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Clapperboard, Loader2, RefreshCw } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import VideoJobCreatePanel from "./VideoJobCreatePanel";
 import VideoJobDrawer from "./VideoJobDrawer";
 import VideoJobFilters from "./VideoJobFilters";
 import VideoJobKpiCards from "./VideoJobKpiCards";
@@ -161,6 +162,15 @@ export default function VideoJobsDashboard() {
           {error}
         </div>
       ) : null}
+
+      <VideoJobCreatePanel
+        onCreated={(result) => {
+          setMessage(
+            `Video criado: job ${result.jobId.slice(0, 8)}${result.videoUrl ? " com MP4 publicado." : "."}`,
+          );
+          void loadJobs();
+        }}
+      />
 
       <VideoJobKpiCards kpis={kpis} />
       <VideoJobFilters filters={filters} providers={providers} onChange={setFilters} />

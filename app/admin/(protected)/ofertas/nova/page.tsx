@@ -1125,13 +1125,14 @@ export default function AdminNovaOfertaPage() {
 
     try {
       setMarketplace(detectedMarketplace);
-      const response = await fetch("/api/scrape/extract", {
+      const response = await fetch("/api/admin/extract", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
           url,
+          affiliate_url: manualAffiliate,
         }),
       });
 
@@ -1338,6 +1339,7 @@ export default function AdminNovaOfertaPage() {
           marketplace,
           slot_type: selectedSlot,
           copy_text: copyText,
+          publish_to_site: action === "site",
           channels:
             action === "site"
               ? []

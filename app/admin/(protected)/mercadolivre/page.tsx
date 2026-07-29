@@ -249,6 +249,7 @@ export default function MercadoLivreHub() {
           hub_offer_id: product.hub_offer_id,
           marketplace: "mercadolivre",
           slot_type: slotType,
+          publish_to_site: action === "site",
           channels:
             action === "site"
               ? []

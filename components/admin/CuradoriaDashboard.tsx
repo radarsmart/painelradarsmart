@@ -270,6 +270,7 @@ export default function CuradoriaDashboard() {
           affiliate_url: affiliate,
           marketplace: product.marketplace,
           slot_type: "best",
+          publish_to_site: true,
           channels: [],
           raw_data: {
             category,

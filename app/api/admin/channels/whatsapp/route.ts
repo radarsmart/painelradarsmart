@@ -27,8 +27,13 @@ function unavailablePayload(status: number) {
     status: "unavailable",
     code: "WHATSAPP_SERVICE_UNAVAILABLE",
     degraded: true,
+    upstream_status: status,
     error: `Servico de WhatsApp indisponivel no momento (${status}). Tente novamente em instantes.`,
   };
+}
+
+function resolveUnavailableHttpStatus(action: unknown) {
+  return String(action ?? "").trim().toLowerCase() === "status" ? 200 : 503;
 }
 
 async function callEdgeFunction(body: Record<string, unknown>) {
@@ -60,7 +65,9 @@ async function callEdgeFunction(body: Record<string, unknown>) {
       const rawError = String(payload.error ?? payload.message ?? "");
 
       if (looksLikeGatewayError(response.status, rawError)) {
-        return NextResponse.json(unavailablePayload(response.status), { status: response.status });
+        return NextResponse.json(unavailablePayload(response.status), {
+          status: resolveUnavailableHttpStatus(body.action),
+        });
       }
 
       return NextResponse.json(payload, { status: response.status });
@@ -68,7 +75,9 @@ async function callEdgeFunction(body: Record<string, unknown>) {
 
     const text = await response.text().catch(() => "");
     if (looksLikeGatewayError(response.status, text)) {
-      return NextResponse.json(unavailablePayload(response.status), { status: response.status });
+      return NextResponse.json(unavailablePayload(response.status), {
+        status: resolveUnavailableHttpStatus(body.action),
+      });
     }
 
     return NextResponse.json(

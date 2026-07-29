@@ -1,5 +1,6 @@
 import { load } from "cheerio";
 import { fetch as undiciFetch, ProxyAgent } from "undici";
+import { getValidToken } from "@/lib/supabase";
 import {
   classifyExtractionError,
   extractHttpStatusFromError,
@@ -119,9 +120,37 @@ function pickFirst<T>(...values: Array<T | null | undefined>): T | null {
 
 function extractMlItemId(url: string): string | null {
   const decoded = decodeURIComponent(url);
+  try {
+    const parsed = new URL(decoded);
+    const hashRaw = decodeURIComponent((parsed.hash || "").replace(/^#/, ""));
+    const hashParams = new URLSearchParams(hashRaw);
+    const explicitHashId =
+      hashParams.get("wid") ||
+      hashParams.get("item_id") ||
+      hashParams.get("itemId") ||
+      hashRaw.match(/item_id(?:%3A|:|=)\s*(ML[AB]-?\d{8,14})/i)?.[1];
+    if (explicitHashId) {
+      const explicit = String(explicitHashId).match(/\b(ML[AB]-?\d{8,14})\b/i);
+      if (explicit?.[1]) return explicit[1].toUpperCase().replace("-", "");
+    }
+
+    const explicitQueryId =
+      parsed.searchParams.get("wid") ||
+      parsed.searchParams.get("item_id") ||
+      parsed.searchParams.get("itemId") ||
+      decodeURIComponent(parsed.searchParams.get("pdp_filters") || "")
+        .match(/item_id(?:%3A|:|=)\s*(ML[AB]-?\d{8,14})/i)?.[1];
+    if (explicitQueryId) {
+      const explicit = String(explicitQueryId).match(/\b(ML[AB]-?\d{8,14})\b/i);
+      if (explicit?.[1]) return explicit[1].toUpperCase().replace("-", "");
+    }
+  } catch {
+    // Fall through to broad URL matching.
+  }
+
   const match =
-    decoded.match(/\b(ML[AB]\d{8,14})\b/i) ||
     decoded.match(/\/p\/(ML[AB]\d{8,14})/i) ||
+    decoded.match(/\b(ML[AB]\d{8,14})\b/i) ||
     decoded.match(/\/(ML[AB]\d{8,14})-/i);
 
   return match?.[1]?.toUpperCase().replace("-", "") ?? null;
@@ -173,12 +202,21 @@ async function extractViaMLApi(url: string): Promise<Partial<PartialProduct>> {
   const itemId = extractMlItemId(url);
   if (!itemId) throw new Error("Item ID nao encontrado na URL.");
 
-  const accessToken = toText(process.env.ML_ACCESS_TOKEN);
   const endpoint = `https://api.mercadolibre.com/items/${itemId}`;
 
-  const response = await undiciFetch(endpoint, {
-    headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
-  });
+  let response = await undiciFetch(endpoint);
+  if (response.status === 401 || response.status === 403) {
+    let accessToken = toText(process.env.ML_ACCESS_TOKEN);
+    if (!accessToken) {
+      accessToken = await getValidToken().catch(() => "");
+    }
+
+    if (accessToken) {
+      response = await undiciFetch(endpoint, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+    }
+  }
 
   if (!response.ok) {
     throw new Error(`ML API ${response.status}: ${response.statusText}`);
@@ -440,28 +478,41 @@ async function extractViaShopeeApi(url: string): Promise<Partial<PartialProduct>
 }
 
 function getLayersForMarketplace(marketplace: Marketplace): ExtractorLayer[] {
+  const paidFallbacksEnabled =
+    toText(process.env.ENABLE_PAID_SCRAPER_FALLBACKS).toLowerCase() === "true";
+
   switch (marketplace) {
     case "mercadolivre":
       return [
-        { name: "html_cheerio", fn: extractViaCheerio, timeoutMs: 5000 },
         { name: "ml_api_official", fn: extractViaMLApi, timeoutMs: 8000 },
-        { name: "firecrawl", fn: extractViaFirecrawl, timeoutMs: 15000 },
+        { name: "html_cheerio", fn: extractViaCheerio, timeoutMs: 5000 },
+        ...(paidFallbacksEnabled
+          ? [{ name: "firecrawl", fn: extractViaFirecrawl, timeoutMs: 15000 }]
+          : []),
       ];
     case "amazon":
       return [
         { name: "html_cheerio", fn: extractViaCheerio, timeoutMs: 10000 },
-        { name: "firecrawl", fn: extractViaFirecrawl, timeoutMs: 15000 },
-        { name: "brightdata", fn: extractViaBrightData, timeoutMs: 20000 },
+        ...(paidFallbacksEnabled
+          ? [
+              { name: "firecrawl", fn: extractViaFirecrawl, timeoutMs: 15000 },
+              { name: "brightdata", fn: extractViaBrightData, timeoutMs: 20000 },
+            ]
+          : []),
       ];
     case "shopee":
       return [
         { name: "shopee_api", fn: extractViaShopeeApi, timeoutMs: 8000 },
-        { name: "firecrawl", fn: extractViaFirecrawl, timeoutMs: 15000 },
+        ...(paidFallbacksEnabled
+          ? [{ name: "firecrawl", fn: extractViaFirecrawl, timeoutMs: 15000 }]
+          : []),
       ];
     default:
       return [
         { name: "html_cheerio", fn: extractViaCheerio, timeoutMs: 10000 },
-        { name: "firecrawl", fn: extractViaFirecrawl, timeoutMs: 15000 },
+        ...(paidFallbacksEnabled
+          ? [{ name: "firecrawl", fn: extractViaFirecrawl, timeoutMs: 15000 }]
+          : []),
       ];
   }
 }

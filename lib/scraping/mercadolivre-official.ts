@@ -179,9 +179,18 @@ function normalizeMercadoLivreUrl(rawUrl: string): string {
 
   try {
     const parsed = new URL(value);
+    const hashRaw = decodeURIComponent((parsed.hash || "").replace(/^#/, ""));
+    if (hashRaw.includes("=")) {
+      const hashParams = new URLSearchParams(hashRaw);
+      for (const key of ["wid", "item_id", "itemId", "id", "pdp_filters"]) {
+        const param = hashParams.get(key);
+        if (param && !parsed.searchParams.has(key)) parsed.searchParams.set(key, param);
+      }
+    }
+
     const keepParams = new URLSearchParams();
 
-    for (const key of ["wid", "item_id", "itemId", "id"]) {
+    for (const key of ["wid", "item_id", "itemId", "id", "pdp_filters"]) {
       const param = parsed.searchParams.get(key);
       if (param) keepParams.set(key, param);
     }
@@ -230,6 +239,28 @@ function extractIdsFromUrl(url: string): ExtractedMlIds {
       if (candidate) return { itemId: candidate, productId: null };
     }
 
+    const byPdpFilters = findExplicitItemIdInFilters(
+      decodeURIComponent(parsed.searchParams.get("pdp_filters") ?? ""),
+    );
+    if (byPdpFilters) return { itemId: byPdpFilters, productId: null };
+
+    const hashRaw = decodeURIComponent((parsed.hash || "").replace(/^#/, ""));
+    if (hashRaw) {
+      const hashParams = new URLSearchParams(hashRaw);
+      const byHashWid = findMlbCandidate(hashParams.get("wid") ?? "");
+      if (byHashWid) return { itemId: byHashWid, productId: null };
+
+      for (const key of candidateKeys) {
+        const candidate = findMlbCandidate(hashParams.get(key) ?? "");
+        if (candidate) return { itemId: candidate, productId: null };
+      }
+
+      const byHashPdpFilters = findExplicitItemIdInFilters(
+        decodeURIComponent(hashParams.get("pdp_filters") ?? ""),
+      );
+      if (byHashPdpFilters) return { itemId: byHashPdpFilters, productId: null };
+    }
+
     const fromPath = findMlbCandidate(parsed.pathname);
     if (fromPath) {
       if (pathLower.includes("/p/")) {
@@ -245,11 +276,6 @@ function extractIdsFromUrl(url: string): ExtractedMlIds {
       }
       return { itemId: null, productId: productIdFromPath };
     }
-
-    const byPdpFilters = findExplicitItemIdInFilters(
-      parsed.searchParams.get("pdp_filters") ?? "",
-    );
-    if (byPdpFilters) return { itemId: byPdpFilters, productId: null };
 
     const fromHash = findMlbCandidate(parsed.hash);
     if (fromHash) return { itemId: fromHash, productId: null };

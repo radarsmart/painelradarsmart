@@ -134,6 +134,10 @@ function toText(value: unknown): string {
   return String(value ?? "").trim();
 }
 
+function paidScraperFallbacksEnabled(): boolean {
+  return toText(process.env.ENABLE_PAID_SCRAPER_FALLBACKS).toLowerCase() === "true";
+}
+
 function toNumber(value: unknown): number | null {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
@@ -1432,6 +1436,7 @@ export async function POST(req: NextRequest) {
     const couponCode = toText(body?.coupon_code).toUpperCase();
     const couponDiscountPct = normalizeCouponDiscountPct(body?.coupon_discount_pct);
     const persist = Boolean(body?.persist);
+    const allowPaidFallbacks = paidScraperFallbacksEnabled();
     if (!marketplace) {
       return NextResponse.json(
         { error: "URL invalida. Use link do Mercado Livre, Amazon ou Shopee." },
@@ -1513,7 +1518,7 @@ export async function POST(req: NextRequest) {
             console.log("[ML Preview] Falha no HTML Metadata:", htmlError);
           }
 
-          if (shouldKeepTryingPreview(bestPreviewPayload)) {
+          if (allowPaidFallbacks && shouldKeepTryingPreview(bestPreviewPayload)) {
             try {
               console.log("[ML Preview] Tentando Bright Data...");
               const mlBrightData = await withTimeout(
@@ -1548,7 +1553,7 @@ export async function POST(req: NextRequest) {
             }
           }
 
-          if (shouldKeepTryingPreview(bestPreviewPayload)) {
+          if (allowPaidFallbacks && shouldKeepTryingPreview(bestPreviewPayload)) {
             try {
               console.log("[ML Preview] Tentando Container Engine...");
               const extractedEngine = await withTimeout(
@@ -1567,7 +1572,7 @@ export async function POST(req: NextRequest) {
             }
           }
 
-          if (shouldKeepTryingPreview(bestPreviewPayload)) {
+          if (allowPaidFallbacks && shouldKeepTryingPreview(bestPreviewPayload)) {
             try {
               console.log("[ML Preview] Tentando API Oficial...");
               const mlOfficial = await withTimeout(
@@ -1713,7 +1718,7 @@ export async function POST(req: NextRequest) {
           } catch (error) {
             officialError = extractErrorMessage(error);
 
-            try {
+            if (allowPaidFallbacks) try {
               const mlBrightData = await withTimeout(
                 extractMercadoLivreWithBrightData({
                   url: mercadoLivreExtractionUrl,
@@ -1813,7 +1818,7 @@ export async function POST(req: NextRequest) {
               fallbackError = extractErrorMessage(htmlError);
             }
 
-            try {
+            if (allowPaidFallbacks) try {
               const apifyPayload = await withTimeout(
                 extractMercadoLivreWithApifySearch({
                   url: sourceUrl,
@@ -1920,7 +1925,7 @@ export async function POST(req: NextRequest) {
             toText(officialPayload.image_url),
         );
 
-        if (!officialPayload || !officialHasCoreFieldsLocally) {
+        if (allowPaidFallbacks && (!officialPayload || !officialHasCoreFieldsLocally)) {
           try {
             console.log("[ML Persist] Tentando Zenscrape...");
             const startedAt = Date.now();
@@ -2031,7 +2036,7 @@ export async function POST(req: NextRequest) {
             toText(enrichedPayload.image_url),
         );
 
-        if (!legacyHasCoreFields) {
+        if (allowPaidFallbacks && !legacyHasCoreFields) {
           try {
             const apifyPayload = await withTimeout(
               extractMercadoLivreWithApifySearch({

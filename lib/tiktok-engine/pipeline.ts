@@ -2,8 +2,11 @@ import { randomUUID } from "node:crypto";
 
 import { supabaseAdmin } from "@/lib/supabase";
 import { getModelById } from "@/lib/tiktok-engine/models";
+import { pickHookVariation, resolveHookPlaceholders } from "@/lib/tiktok-engine/hooks";
+import { renderTikTokVideoWithRemotion } from "@/lib/tiktok-engine/remotion/render";
 import type {
   BriefingStatus,
+  JobLogStep,
   JobStatus,
   ScriptPayload,
   TikTokGenerateRequest,
@@ -11,9 +14,13 @@ import type {
 
 const AUDIO_BUCKET = "tiktok-engine-assets";
 const OPENAI_MODEL = "gpt-4o-mini";
-const MAX_SCRIPT_OUTPUT_TOKENS = 380;
+const MAX_SCRIPT_OUTPUT_TOKENS = 420;
 const HEYGEN_POLL_ATTEMPTS = 24;
 const HEYGEN_POLL_INTERVAL_MS = 5000;
+const DEFAULT_VIDEO_PROVIDER = "remotion";
+const MAX_HOOK_COUNT = 5;
+
+// ─── Utilitários ───────────────────────────────────────────────────────────────
 
 function maskSecretSuffix(secret: string, visible = 4): string {
   const normalized = String(secret ?? "").trim();
@@ -26,6 +33,10 @@ function requiredEnv(name: string): string {
   const value = (process.env[name] ?? "").trim();
   if (!value) throw new Error(`Variavel ${name} ausente.`);
   return value;
+}
+
+function isTruthy(value: string | undefined) {
+  return ["1", "true", "yes", "on"].includes(String(value ?? "").trim().toLowerCase());
 }
 
 function parsePrice(value: string | null | undefined): number {
@@ -44,8 +55,8 @@ function toBRL(value: number): string {
 function buildDurationTargetSeconds(durationLabel: string): number {
   const matches = durationLabel.match(/\d+/g)?.map((item) => Number(item)) ?? [];
   if (!matches.length) return 20;
-  if (matches.length === 1) return matches[0];
-  return Math.round((matches[0] + matches[1]) / 2);
+  if (matches.length === 1) return matches[0]!;
+  return Math.round((matches[0]! + matches[1]!) / 2);
 }
 
 function getModelPromptBase(modelId: number): string {
@@ -64,7 +75,47 @@ function getModelPromptBase(modelId: number): string {
   return presets[modelId] ?? "Gancho curto, beneficio claro e CTA objetivo.";
 }
 
-async function updateJob(jobId: string, status: JobStatus, patch: Record<string, unknown> = {}) {
+// ─── Logs por etapa ───────────────────────────────────────────────────────────
+
+async function appendJobLog(
+  jobId: string,
+  step: string,
+  detail: string,
+  ok: boolean,
+): Promise<void> {
+  try {
+    // Busca log_steps atual
+    const { data } = await supabaseAdmin
+      .from("tiktok_engine_jobs")
+      .select("log_steps")
+      .eq("id", jobId)
+      .maybeSingle();
+
+    const existing: JobLogStep[] = Array.isArray(data?.log_steps) ? (data.log_steps as JobLogStep[]) : [];
+    const newEntry: JobLogStep = {
+      step,
+      detail,
+      ok,
+      ts: new Date().toISOString(),
+    };
+
+    await supabaseAdmin
+      .from("tiktok_engine_jobs")
+      .update({ log_steps: [...existing, newEntry] })
+      .eq("id", jobId);
+  } catch {
+    // Silencia erros de log — nunca deve bloquear o pipeline
+  }
+}
+
+// ─── Atualização de Job ───────────────────────────────────────────────────────
+
+async function updateJob(
+  jobId: string,
+  status: JobStatus,
+  patch: Record<string, unknown> = {},
+  logStep?: { step: string; detail: string; ok: boolean },
+) {
   await supabaseAdmin
     .from("tiktok_engine_jobs")
     .update({
@@ -77,9 +128,19 @@ async function updateJob(jobId: string, status: JobStatus, patch: Record<string,
       ...patch,
     })
     .eq("id", jobId);
+
+  if (logStep) {
+    await appendJobLog(jobId, logStep.step, logStep.detail, logStep.ok);
+  }
 }
 
-function buildScriptPrompts(input: TikTokGenerateRequest, modelId: number) {
+// ─── Geração de Roteiro ───────────────────────────────────────────────────────
+
+function buildScriptPrompts(
+  input: TikTokGenerateRequest,
+  modelId: number,
+  hookSuggestion: string,
+) {
   const model = getModelById(modelId);
   if (!model) throw new Error(`Modelo ${modelId} nao encontrado.`);
 
@@ -89,7 +150,8 @@ function buildScriptPrompts(input: TikTokGenerateRequest, modelId: number) {
     "Responda em JSON aderente ao schema.",
     "Frases curtas, ritmo rapido, sem tom institucional.",
     "Nao invente dados e nao use promessas falsas.",
-    "CTA final deve direcionar para Radar Smart.",
+    "CTA final deve direcionar para Radar Smart — nunca mencionar marketplace.",
+    `Sugestao de abertura (hook): "${hookSuggestion}" — adapte livremente mantendo o estilo.`,
   ].join(" ");
 
   const user = [
@@ -105,6 +167,7 @@ function buildScriptPrompts(input: TikTokGenerateRequest, modelId: number) {
     `Duracao alvo: ${durationTargetSeconds} segundos`,
     "Regras: hook maximo 14 palavras, body em 2-4 linhas curtas, cta curto.",
     "on_screen_text deve ter entre 3 e 5 linhas curtas.",
+    "O hook deve ser impactante e parar o scroll nos primeiros 2 segundos.",
   ].join("\n");
 
   return { system, user, durationTargetSeconds };
@@ -161,7 +224,7 @@ function sanitizeScriptPayload(payload: ScriptPayload, durationTargetSeconds: nu
     on_screen_text: safeOnScreen,
     duration_target_seconds:
       Number.isFinite(payload.duration_target_seconds) && payload.duration_target_seconds > 0
-        ? Math.max(10, Math.min(45, Math.round(payload.duration_target_seconds)))
+        ? Math.max(10, Math.min(60, Math.round(payload.duration_target_seconds)))
         : durationTargetSeconds,
   };
 }
@@ -176,9 +239,10 @@ function buildScriptTextForTTS(script: ScriptPayload): string {
 async function generateScriptWithOpenAI(
   input: TikTokGenerateRequest,
   modelId: number,
+  hookSuggestion: string,
 ): Promise<{ scriptJson: ScriptPayload; scriptTextFinal: string }> {
   const openAiKey = requiredEnv("OPENAI_API_KEY");
-  const { system, user, durationTargetSeconds } = buildScriptPrompts(input, modelId);
+  const { system, user, durationTargetSeconds } = buildScriptPrompts(input, modelId, hookSuggestion);
 
   console.info("[tiktok-openai]", {
     step: "script_request_start",
@@ -186,6 +250,7 @@ async function generateScriptWithOpenAI(
     model: OPENAI_MODEL,
     hasKey: Boolean(openAiKey),
     keySuffix: maskSecretSuffix(openAiKey),
+    hookSuggestion: hookSuggestion.slice(0, 60),
   });
 
   const schema = {
@@ -240,9 +305,6 @@ async function generateScriptWithOpenAI(
     console.error("[tiktok-openai]", {
       step: "script_request_failed",
       modelId,
-      model: OPENAI_MODEL,
-      hasKey: Boolean(openAiKey),
-      keySuffix: maskSecretSuffix(openAiKey),
       status: res.status,
       bodyPreview: body.slice(0, 300),
     });
@@ -253,13 +315,7 @@ async function generateScriptWithOpenAI(
   const text = extractResponseText(payload);
   if (!text) throw new Error("OpenAI retornou resposta vazia para script.");
 
-  console.info("[tiktok-openai]", {
-    step: "script_request_ok",
-    modelId,
-    model: OPENAI_MODEL,
-    hasKey: Boolean(openAiKey),
-    keySuffix: maskSecretSuffix(openAiKey),
-  });
+  console.info("[tiktok-openai]", { step: "script_request_ok", modelId });
 
   const parsed = JSON.parse(text) as ScriptPayload;
   const scriptJson = sanitizeScriptPayload(parsed, durationTargetSeconds);
@@ -268,6 +324,8 @@ async function generateScriptWithOpenAI(
 
   return { scriptJson, scriptTextFinal };
 }
+
+// ─── Áudio ───────────────────────────────────────────────────────────────────
 
 async function generateAudioWithElevenLabs(scriptText: string, voiceId: string): Promise<Buffer> {
   const elevenApiKey = requiredEnv("ELEVENLABS_API_KEY");
@@ -285,6 +343,7 @@ async function generateAudioWithElevenLabs(scriptText: string, voiceId: string):
         similarity_boost: 0.8,
         style: 0.5,
         speed: 1.12,
+        use_speaker_boost: true,
       },
     }),
   });
@@ -296,6 +355,8 @@ async function generateAudioWithElevenLabs(scriptText: string, voiceId: string):
   return Buffer.from(arr);
 }
 
+// ─── Storage ──────────────────────────────────────────────────────────────────
+
 async function uploadAudioToStorage(briefingId: string, jobId: string, audio: Buffer) {
   const path = `briefings/${briefingId}/audio/${jobId}-${randomUUID()}.mp3`;
   const upload = await supabaseAdmin.storage
@@ -305,6 +366,18 @@ async function uploadAudioToStorage(briefingId: string, jobId: string, audio: Bu
   const publicData = supabaseAdmin.storage.from(AUDIO_BUCKET).getPublicUrl(path);
   return { audioPath: path, audioUrl: publicData.data.publicUrl };
 }
+
+async function uploadVideoToStorage(briefingId: string, jobId: string, video: Buffer) {
+  const path = `briefings/${briefingId}/video/${jobId}-${randomUUID()}.mp4`;
+  const upload = await supabaseAdmin.storage
+    .from(AUDIO_BUCKET)
+    .upload(path, video, { contentType: "video/mp4", upsert: true });
+  if (upload.error) throw new Error(`Video upload falhou: ${upload.error.message}`);
+  const publicData = supabaseAdmin.storage.from(AUDIO_BUCKET).getPublicUrl(path);
+  return { videoPath: path, videoUrl: publicData.data.publicUrl };
+}
+
+// ─── HeyGen (Fallback) ────────────────────────────────────────────────────────
 
 async function createHeygenVideo(avatarId: string, audioUrl: string, title: string): Promise<string> {
   const heygenApiKey = requiredEnv("HEYGEN_API_KEY");
@@ -359,6 +432,8 @@ async function pollHeygenVideo(videoId: string): Promise<string> {
   throw new Error("Timeout aguardando renderizacao do HeyGen.");
 }
 
+// ─── Webhook ──────────────────────────────────────────────────────────────────
+
 async function sendWebhook(url: string, payload: unknown) {
   if (!url) return;
   await fetch(url, {
@@ -368,11 +443,15 @@ async function sendWebhook(url: string, payload: unknown) {
   }).catch(() => undefined);
 }
 
+// ─── Voice Registry ───────────────────────────────────────────────────────────
+
 type JobRow = {
   id: string;
   briefing_id: string;
   model_id: number;
   model_name: string;
+  hook_variation_index: number | null;
+  hook_variation_text: string | null;
 };
 
 async function getRegisteredDefaultVoiceId(): Promise<string | null> {
@@ -392,30 +471,61 @@ async function getRegisteredDefaultVoiceId(): Promise<string | null> {
   return value || null;
 }
 
-async function processOneJob(job: JobRow, briefing: TikTokGenerateRequest, defaultVoiceId: string) {
-  await updateJob(job.id, "script_generating", { error_message: null });
+// ─── Processamento de 1 Job ───────────────────────────────────────────────────
+
+async function processOneJob(
+  job: JobRow,
+  briefing: TikTokGenerateRequest,
+  defaultVoiceId: string,
+) {
+  // Usa o hook sorteado no job, fallback para sortear agora se não tiver
+  const hookVariationIndex =
+    job.hook_variation_index !== null && job.hook_variation_index >= 0
+      ? job.hook_variation_index
+      : pickHookVariation(job.model_id).index;
+
+  const rawHook = job.hook_variation_text?.trim() || pickHookVariation(job.model_id, hookVariationIndex).text;
+  const hookSuggestion = resolveHookPlaceholders(rawHook, {
+    productName: briefing.product_name,
+    price: briefing.product_price,
+    discount: briefing.product_discount,
+    competitorPrice: briefing.competitor_price,
+  });
+
+  await updateJob(
+    job.id,
+    "script_generating",
+    { error_message: null, hook_variation_index: hookVariationIndex, hook_variation_text: rawHook },
+    { step: "script_start", detail: `hook_variation=${hookVariationIndex}`, ok: true },
+  );
 
   let scriptJson: ScriptPayload;
   let scriptTextFinal: string;
   try {
-    const generated = await generateScriptWithOpenAI(briefing, job.model_id);
+    const generated = await generateScriptWithOpenAI(briefing, job.model_id, hookSuggestion);
     scriptJson = generated.scriptJson;
     scriptTextFinal = generated.scriptTextFinal;
   } catch (error) {
-    await updateJob(job.id, "script_failed", {
-      error_message: error instanceof Error ? error.message : "Falha na etapa de script",
-    });
+    const msg = error instanceof Error ? error.message : "Falha na etapa de script";
+    await updateJob(
+      job.id,
+      "script_failed",
+      { error_message: msg },
+      { step: "script_failed", detail: msg, ok: false },
+    );
     throw error;
   }
 
-  await updateJob(job.id, "script_done", {
-    script_json: {
-      ...scriptJson,
+  await updateJob(
+    job.id,
+    "script_done",
+    {
+      script_json: { ...scriptJson, script_text_final: scriptTextFinal },
+      script_title: scriptJson.title,
       script_text_final: scriptTextFinal,
     },
-    script_title: scriptJson.title,
-    script_text_final: scriptTextFinal,
-  });
+    { step: "script_done", detail: scriptJson.title, ok: true },
+  );
 
   const voiceId = briefing.voice_id || defaultVoiceId;
   console.info("[tiktok-engine]", {
@@ -424,26 +534,26 @@ async function processOneJob(job: JobRow, briefing: TikTokGenerateRequest, defau
     modelId: job.model_id,
     step: "audio_start",
     voiceId,
+    hookVariation: hookVariationIndex,
   });
 
   let audio: Buffer;
   try {
-    await updateJob(job.id, "audio");
+    await updateJob(
+      job.id,
+      "audio",
+      {},
+      { step: "audio_start", detail: `voice=${voiceId}`, ok: true },
+    );
     audio = await generateAudioWithElevenLabs(scriptTextFinal, voiceId);
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Falha desconhecida na etapa de audio";
-    console.error("[tiktok-engine]", {
-      briefingId: job.briefing_id,
-      jobId: job.id,
-      modelId: job.model_id,
-      step: "audio_failed",
-      voiceId,
-      error: message,
-    });
-    await updateJob(job.id, "failed", {
-      error_message: `audio: ${message}`,
-    });
+    const message = error instanceof Error ? error.message : "Falha desconhecida na etapa de audio";
+    await updateJob(
+      job.id,
+      "failed",
+      { error_message: `audio: ${message}` },
+      { step: "audio_failed", detail: message, ok: false },
+    );
     throw error;
   }
 
@@ -455,61 +565,153 @@ async function processOneJob(job: JobRow, briefing: TikTokGenerateRequest, defau
     audioPath = uploaded.audioPath;
     audioUrl = uploaded.audioUrl;
 
-    await updateJob(job.id, "processing", {
-      audio_storage_path: audioPath,
-      audio_url: audioUrl,
-    });
+    await updateJob(
+      job.id,
+      "processing",
+      { audio_storage_path: audioPath, audio_url: audioUrl },
+      { step: "audio_uploaded", detail: audioPath, ok: true },
+    );
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Falha desconhecida no upload/processamento";
-    console.error("[tiktok-engine]", {
-      briefingId: job.briefing_id,
-      jobId: job.id,
-      modelId: job.model_id,
-      step: "audio_upload_failed",
-      voiceId,
-      error: message,
-    });
-    await updateJob(job.id, "failed", {
-      audio_storage_path: audioPath || null,
-      audio_url: audioUrl || null,
-      error_message: `upload: ${message}`,
-    });
+    const message = error instanceof Error ? error.message : "Falha desconhecida no upload/processamento";
+    await updateJob(
+      job.id,
+      "failed",
+      {
+        audio_storage_path: audioPath || null,
+        audio_url: audioUrl || null,
+        error_message: `upload: ${message}`,
+      },
+      { step: "audio_upload_failed", detail: message, ok: false },
+    );
     throw error;
   }
 
+  const videoProvider = briefing.video_provider ?? DEFAULT_VIDEO_PROVIDER;
+  const allowHeygenFallback =
+    videoProvider === "remotion" &&
+    Boolean(briefing.avatar_id?.trim()) &&
+    isTruthy(process.env.TIKTOK_ENGINE_HEYGEN_FALLBACK);
+
   try {
+    if (videoProvider === "remotion") {
+      try {
+        await updateJob(
+          job.id,
+          "rendering_video",
+          { video_provider: "remotion" },
+          { step: "render_start", detail: `model=${job.model_id} hook=${hookVariationIndex}`, ok: true },
+        );
+
+        const rendered = await renderTikTokVideoWithRemotion({
+          briefingId: job.briefing_id,
+          jobId: job.id,
+          modelId: job.model_id,
+          audioUrl,
+          script: scriptJson,
+          input: briefing,
+          hookVariationIndex,
+        });
+
+        await updateJob(
+          job.id,
+          "video_uploading",
+          {
+            render_metadata: {
+              provider: rendered.provider,
+              composition_id: rendered.compositionId,
+              template: rendered.template,
+              duration_in_frames: rendered.durationInFrames,
+              fps: rendered.fps,
+              hook_variation_index: hookVariationIndex,
+            },
+          },
+          { step: "render_done", detail: `template=${rendered.template}`, ok: true },
+        );
+
+        const uploadedVideo = await uploadVideoToStorage(job.briefing_id, job.id, rendered.buffer);
+        await updateJob(
+          job.id,
+          "completed",
+          {
+            video_provider: "remotion",
+            video_storage_path: uploadedVideo.videoPath,
+            video_url: uploadedVideo.videoUrl,
+            error_message: null,
+          },
+          { step: "completed", detail: uploadedVideo.videoUrl, ok: true },
+        );
+        return;
+      } catch (remotionError) {
+        if (!allowHeygenFallback) {
+          throw remotionError;
+        }
+
+        const fallbackMessage =
+          remotionError instanceof Error ? remotionError.message : "Falha no renderer Remotion";
+        console.warn("[tiktok-engine]", {
+          briefingId: job.briefing_id,
+          jobId: job.id,
+          step: "remotion_failed_fallback_heygen",
+          error: fallbackMessage,
+        });
+        await appendJobLog(job.id, "remotion_fallback", fallbackMessage, false);
+      }
+    }
+
+    if (!briefing.avatar_id?.trim()) {
+      throw new Error("avatar_id obrigatorio para fallback via HeyGen.");
+    }
+
+    await updateJob(
+      job.id,
+      "video_submitted",
+      { video_provider: "heygen" },
+      { step: "heygen_submit", detail: briefing.avatar_id, ok: true },
+    );
     const videoId = await createHeygenVideo(
       briefing.avatar_id,
       audioUrl,
       `RadarSmart_${job.model_id}_${briefing.product_name}`,
     );
+    await updateJob(
+      job.id,
+      "video_rendering",
+      { heygen_video_id: videoId, video_provider: "heygen" },
+      { step: "heygen_polling", detail: videoId, ok: true },
+    );
     const videoUrl = await pollHeygenVideo(videoId);
-    await updateJob(job.id, "completed", {
-      heygen_video_id: videoId,
-      video_url: videoUrl,
-      error_message: null,
-    });
+    await updateJob(
+      job.id,
+      "completed",
+      { heygen_video_id: videoId, video_url: videoUrl, error_message: null },
+      { step: "completed", detail: videoUrl, ok: true },
+    );
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Falha desconhecida na etapa de video";
+    const message = error instanceof Error ? error.message : "Falha desconhecida na etapa de video";
     console.error("[tiktok-engine]", {
       briefingId: job.briefing_id,
       jobId: job.id,
       modelId: job.model_id,
       step: "video_failed",
       voiceId,
-      audioUrl,
+      videoProvider,
       error: message,
     });
-    await updateJob(job.id, "failed", {
-      audio_storage_path: audioPath,
-      audio_url: audioUrl,
-      error_message: `video: ${message}`,
-    });
+    await updateJob(
+      job.id,
+      "failed",
+      {
+        audio_storage_path: audioPath,
+        audio_url: audioUrl,
+        error_message: `video: ${message}`,
+      },
+      { step: "video_failed", detail: message, ok: false },
+    );
     throw error;
   }
 }
+
+// ─── Runner Principal ─────────────────────────────────────────────────────────
 
 export async function runTikTokPipeline(briefingId: string) {
   console.info("[tiktok-run] pipeline start", { briefingId });
@@ -523,7 +725,6 @@ export async function runTikTokPipeline(briefingId: string) {
     throw new Error(briefingQuery.error?.message ?? "Briefing nao encontrado.");
   }
 
-  console.info("[tiktok-run] briefing loaded", { briefingId });
   const briefing = briefingQuery.data as unknown as TikTokGenerateRequest;
   await supabaseAdmin
     .from("tiktok_engine_briefings")
@@ -543,7 +744,7 @@ export async function runTikTokPipeline(briefingId: string) {
 
   const jobsQuery = await supabaseAdmin
     .from("tiktok_engine_jobs")
-    .select("id,briefing_id,model_id,model_name")
+    .select("id,briefing_id,model_id,model_name,hook_variation_index,hook_variation_text")
     .eq("briefing_id", briefingId)
     .order("created_at", { ascending: true });
   if (jobsQuery.error) throw new Error(jobsQuery.error.message);
@@ -553,13 +754,12 @@ export async function runTikTokPipeline(briefingId: string) {
     briefingId,
     jobsCount: jobs.length,
     fallbackVoiceId,
-  });
-  console.info("[tiktok-run] before first processOneJob", {
-    briefingId,
-    firstJobId: jobs[0]?.id ?? null,
+    videoProvider: briefing.video_provider ?? DEFAULT_VIDEO_PROVIDER,
   });
 
-  const settled = await Promise.allSettled(jobs.map((job) => processOneJob(job, briefing, fallbackVoiceId)));
+  const settled = await Promise.allSettled(
+    jobs.map((job) => processOneJob(job, briefing, fallbackVoiceId)),
+  );
   const failedCount = settled.filter((result) => result.status === "rejected").length;
   const completedCount = settled.length - failedCount;
   const firstFailure = settled.find((result) => result.status === "rejected");
@@ -587,7 +787,6 @@ export async function runTikTokPipeline(briefingId: string) {
     finalStatus,
     completedCount,
     failedCount,
-    failureReason,
   });
 
   await sendWebhook(briefing.webhook_url ?? "", {
@@ -596,6 +795,8 @@ export async function runTikTokPipeline(briefingId: string) {
     summary: { total: settled.length, completed: completedCount, failed: failedCount },
   });
 }
+
+// ─── Validação de Payload ─────────────────────────────────────────────────────
 
 export function validateGeneratePayload(payload: unknown): {
   valid: boolean;
@@ -616,11 +817,18 @@ export function validateGeneratePayload(payload: unknown): {
   const productBenefits = String(raw.product_benefits ?? "").trim();
   const productPain = String(raw.product_pain ?? "").trim();
   const avatarId = String(raw.avatar_id ?? "").trim();
+  const videoProvider =
+    String(raw.video_provider ?? "").trim().toLowerCase() === "heygen" ? "heygen" : "remotion";
 
-  if (!productName || !productPrice || !productBenefits || !productPain || !avatarId) {
+  const rawHookCount = Number(raw.hook_count ?? 1);
+  const hookCount = Number.isInteger(rawHookCount) && rawHookCount >= 1
+    ? Math.min(rawHookCount, MAX_HOOK_COUNT)
+    : 1;
+
+  if (!productName || !productPrice || !productBenefits || !productPain) {
     return {
       valid: false,
-      error: "Preencha product_name, product_price, product_benefits, product_pain e avatar_id.",
+      error: "Preencha product_name, product_price, product_benefits e product_pain.",
     };
   }
 
@@ -643,11 +851,23 @@ export function validateGeneratePayload(payload: unknown): {
     competitor_name: String(raw.competitor_name ?? "").trim() || undefined,
     competitor_price: String(raw.competitor_price ?? "").trim() || undefined,
     shop_url: String(raw.shop_url ?? "").trim() || undefined,
+    product_image_urls: Array.isArray(raw.product_image_urls)
+      ? raw.product_image_urls
+          .map((item) => String(item ?? "").trim())
+          .filter(Boolean)
+          .slice(0, 8)
+      : [],
     model_ids: cleanedModelIds,
+    hook_count: hookCount,
     voice_id: String(raw.voice_id ?? "").trim() || undefined,
-    avatar_id: avatarId,
+    avatar_id: avatarId || undefined,
+    video_provider: videoProvider,
     webhook_url: String(raw.webhook_url ?? "").trim() || undefined,
   };
+
+  if (data.video_provider === "heygen" && !data.avatar_id) {
+    return { valid: false, error: "avatar_id e obrigatorio quando video_provider=heygen." };
+  }
 
   return { valid: true, data };
 }

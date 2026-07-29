@@ -24,7 +24,7 @@ export default function AdminProtectedLayout({
   children: React.ReactNode;
 }) {
   const router = useRouter();
-  const [isReady, setIsReady] = useState(false);
+  const [isReady, setIsReady] = useState(shouldBypassAdminAuth);
 
   useEffect(() => {
     let active = true;

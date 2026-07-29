@@ -44,11 +44,15 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const result = await extractProduct(sourceUrl);
+  const result = await extractProduct(sourceUrl, {
+    requestId: crypto.randomUUID(),
+    sourceContext: "admin_extract",
+  });
   if (!result.success || !result.product) {
     return NextResponse.json(
       {
         success: false,
+        request_id: result.request_id,
         status: "error",
         error: "Todas as camadas de extracao falharam.",
         extraction_layer: "none",
@@ -71,6 +75,7 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({
     success: true,
+    request_id: result.request_id,
     status: isPartial ? "partial_failure" : "ok",
     engine: "waterfall",
     extraction_layer: product.extraction_method,
@@ -107,4 +112,3 @@ export async function POST(req: NextRequest) {
     attempts: result.attempts,
   });
 }
-

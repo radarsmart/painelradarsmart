@@ -1,5 +1,10 @@
 import { load } from "cheerio";
 import { fetch as undiciFetch, ProxyAgent } from "undici";
+import {
+  classifyExtractionError,
+  extractHttpStatusFromError,
+  recordScrapeAttemptEventBestEffort,
+} from "@/lib/scraper/attempt-events";
 
 export type Marketplace = "mercadolivre" | "amazon" | "shopee" | "generic";
 
@@ -33,7 +38,15 @@ export interface ExtractionResult {
   product: ExtractedProduct | null;
   attempts: ExtractionAttempt[];
   total_duration_ms: number;
+  request_id: string;
 }
+
+type ExtractProductOptions = {
+  requestId?: string;
+  sourceContext?: string;
+  entityId?: string | null;
+  offerId?: string | null;
+};
 
 type PartialProduct = Omit<
   ExtractedProduct,
@@ -430,8 +443,8 @@ function getLayersForMarketplace(marketplace: Marketplace): ExtractorLayer[] {
   switch (marketplace) {
     case "mercadolivre":
       return [
+        { name: "html_cheerio", fn: extractViaCheerio, timeoutMs: 5000 },
         { name: "ml_api_official", fn: extractViaMLApi, timeoutMs: 8000 },
-        { name: "html_cheerio", fn: extractViaCheerio, timeoutMs: 10000 },
         { name: "firecrawl", fn: extractViaFirecrawl, timeoutMs: 15000 },
       ];
     case "amazon":
@@ -491,50 +504,134 @@ function completeProduct(
   };
 }
 
-export async function extractProduct(url: string): Promise<ExtractionResult> {
+export async function extractProduct(
+  url: string,
+  options?: ExtractProductOptions,
+): Promise<ExtractionResult> {
   const startTime = Date.now();
   const sourceUrl = toText(url);
   const marketplace = detectMarketplace(sourceUrl);
   const attempts: ExtractionAttempt[] = [];
   const layers = getLayersForMarketplace(marketplace);
+  const requestId = toText(options?.requestId) || crypto.randomUUID();
+  const sourceContext = toText(options?.sourceContext) || "unknown";
+  const entityId = toText(options?.entityId) || null;
+  const offerId = toText(options?.offerId) || null;
 
   for (const layer of layers) {
     const layerStart = Date.now();
+    const attemptIndex = attempts.length + 1;
     try {
       const product = await withTimeout(layer.fn(sourceUrl), layer.timeoutMs);
       if (!hasEnoughData(product)) {
         throw new Error("Dados insuficientes: falta titulo ou (preco/imagem).");
       }
 
-      attempts.push({
+      const successAttempt: ExtractionAttempt = {
         method: layer.name,
         success: true,
         duration_ms: Date.now() - layerStart,
+      };
+      attempts.push(successAttempt);
+
+      await recordScrapeAttemptEventBestEffort({
+        requestId,
+        source: marketplace,
+        sourceContext,
+        marketplace,
+        productUrl: sourceUrl,
+        layer: "waterfall",
+        method: layer.name,
+        attempt: attemptIndex,
+        status: "ok",
+        durationMs: successAttempt.duration_ms,
+        finalOutcome: null,
+        entityId,
+        offerId,
+      });
+
+      const totalDuration = Date.now() - startTime;
+      await recordScrapeAttemptEventBestEffort({
+        requestId,
+        source: marketplace,
+        sourceContext,
+        marketplace,
+        productUrl: sourceUrl,
+        layer: "waterfall",
+        method: "final_outcome",
+        attempt: attempts.length,
+        status: "ok",
+        durationMs: totalDuration,
+        finalOutcome: "success",
+        entityId,
+        offerId,
       });
 
       return {
         success: true,
         product: completeProduct(product, sourceUrl, marketplace, layer.name),
         attempts,
-        total_duration_ms: Date.now() - startTime,
+        total_duration_ms: totalDuration,
+        request_id: requestId,
       };
     } catch (error) {
-      attempts.push({
+      const durationMs = Date.now() - layerStart;
+      const errorMessage =
+        error instanceof Error
+          ? error.message.slice(0, 200)
+          : "Erro desconhecido.";
+      const failureAttempt: ExtractionAttempt = {
         method: layer.name,
         success: false,
-        duration_ms: Date.now() - layerStart,
-        error:
-          error instanceof Error
-            ? error.message.slice(0, 200)
-            : "Erro desconhecido.",
+        duration_ms: durationMs,
+        error: errorMessage,
+      };
+      attempts.push(failureAttempt);
+
+      await recordScrapeAttemptEventBestEffort({
+        requestId,
+        source: marketplace,
+        sourceContext,
+        marketplace,
+        productUrl: sourceUrl,
+        layer: "waterfall",
+        method: layer.name,
+        attempt: attemptIndex,
+        status: "fail",
+        durationMs,
+        errorCategory: classifyExtractionError(error),
+        httpStatus: extractHttpStatusFromError(error),
+        errorMessage,
+        finalOutcome: null,
+        entityId,
+        offerId,
       });
     }
   }
+
+  const totalDuration = Date.now() - startTime;
+  await recordScrapeAttemptEventBestEffort({
+    requestId,
+    source: marketplace,
+    sourceContext,
+    marketplace,
+    productUrl: sourceUrl,
+    layer: "waterfall",
+    method: "final_outcome",
+    attempt: attempts.length,
+    status: "fail",
+    durationMs: totalDuration,
+    errorCategory: "all_layers_failed",
+    finalOutcome: "failed",
+    entityId,
+    offerId,
+  });
 
   return {
     success: false,
     product: null,
     attempts,
-    total_duration_ms: Date.now() - startTime,
+    total_duration_ms: totalDuration,
+    request_id: requestId,
   };
 }

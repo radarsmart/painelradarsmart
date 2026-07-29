@@ -114,6 +114,11 @@ async function validateAdminToken(token: string): Promise<AdminGuardResult> {
     "true";
 
   if (!token) {
+    const isDevelopment = process.env.NODE_ENV === "development";
+    if (isDevelopment) {
+      // Otimista: em dev local, permitimos bypass se nao houver token
+      return { ok: true, userId: "dev-master", email: "contato@radarsmart.com.br" };
+    }
     return { ok: false, status: 401, error: "Nao autorizado" };
   }
 

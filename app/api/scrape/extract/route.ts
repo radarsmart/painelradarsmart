@@ -21,10 +21,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "URL invalida" }, { status: 400 });
     }
 
-    const result = await extractProduct(sourceUrl);
+    const requestId = crypto.randomUUID();
+    const result = await extractProduct(sourceUrl, {
+      requestId,
+      sourceContext: "public_extract",
+    });
 
     console.log(
-      `[Extractor] ${sourceUrl} -> ${result.success ? "OK" : "FAIL"} | Metodo: ${
+      `[Extractor] request_id=${result.request_id} ${sourceUrl} -> ${result.success ? "OK" : "FAIL"} | Metodo: ${
         result.product?.extraction_method || "nenhum"
       } | ${result.total_duration_ms}ms | Tentativas: ${result.attempts
         .map((attempt) => `${attempt.method}:${attempt.success ? "OK" : "FAIL"}`)
@@ -36,6 +40,7 @@ export async function POST(request: NextRequest) {
         success: true,
         product: result.product,
         meta: {
+          request_id: result.request_id,
           extraction_method: result.product.extraction_method,
           attempts: result.attempts,
           total_duration_ms: result.total_duration_ms,
@@ -46,6 +51,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         success: false,
+        request_id: result.request_id,
         error: "Todas as camadas de extracao falharam",
         attempts: result.attempts,
         total_duration_ms: result.total_duration_ms,
@@ -63,4 +69,3 @@ export async function POST(request: NextRequest) {
     );
   }
 }
-

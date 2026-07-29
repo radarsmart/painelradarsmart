@@ -55,7 +55,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     const jobsQuery = await supabaseAdmin
       .from("tiktok_engine_jobs")
       .select(
-        "id,model_id,model_name,status,script_title,video_url,audio_url,error_message,created_at,updated_at",
+        "id,model_id,model_name,status,script_title,video_url,audio_url,error_message,log_steps,hook_variation_index,hook_variation_text,render_metadata,created_at,updated_at",
       )
       .eq("briefing_id", briefingId)
       .order("created_at", { ascending: true });
@@ -66,7 +66,19 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     const completed = jobs.filter((job) => job.status === "completed").length;
     const failed = jobs.filter((job) => job.status === "failed").length;
     const inProgress = jobs.filter((job) =>
-      ["script", "audio", "avatar", "processing"].includes(job.status),
+      [
+        "script_generating",
+        "script_done",
+        "script_failed",
+        "script",
+        "audio",
+        "avatar",
+        "processing",
+        "rendering_video",
+        "video_uploading",
+        "video_submitted",
+        "video_rendering",
+      ].includes(job.status),
     ).length;
 
     return NextResponse.json({
@@ -89,6 +101,10 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
         video_url: job.video_url,
         audio_url: job.audio_url,
         error: job.error_message,
+        log_steps: job.log_steps ?? [],
+        hook_variation_index: job.hook_variation_index ?? null,
+        hook_variation_text: job.hook_variation_text ?? null,
+        render_metadata: job.render_metadata ?? null,
       })),
       briefing_status: briefingQuery.data.status,
       last_error: briefingQuery.data.last_error,

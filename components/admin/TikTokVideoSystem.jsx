@@ -3,99 +3,282 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 
+// ─── Constantes ────────────────────────────────────────────────────────────────
+
 const MODELS = [
-  { id: 1, emoji: "⚡", name: "Problema -> Solucao", cvr: "8-12%" },
-  { id: 2, emoji: "📦", name: "ASMR Unboxing", cvr: "6-9%" },
-  { id: 3, emoji: "🎭", name: "POV Storytelling", cvr: "10-15%" },
-  { id: 4, emoji: "🔥", name: "Review Honesto", cvr: "7-11%" },
-  { id: 5, emoji: "⚔️", name: "Comparacao X vs Y", cvr: "9-14%" },
-  { id: 6, emoji: "📚", name: "Tutorial", cvr: "5-8%" },
-  { id: 7, emoji: "🔄", name: "Trend Hijack", cvr: "4-7%" },
-  { id: 8, emoji: "☀️", name: "Day-in-Life", cvr: "6-10%" },
-  { id: 9, emoji: "⭐", name: "Social Proof", cvr: "11-16%" },
-  { id: 10, emoji: "💰", name: "Duelo de Preco", cvr: "12-18%" },
+  { id: 1, emoji: "⚡", name: "Problema → Solução", cvr: "8-12%", template: "Hook Choque" },
+  { id: 2, emoji: "📦", name: "ASMR Unboxing", cvr: "6-9%", template: "Storytelling" },
+  { id: 3, emoji: "🎭", name: "POV Storytelling", cvr: "10-15%", template: "Storytelling" },
+  { id: 4, emoji: "🔥", name: "Review Honesto", cvr: "7-11%", template: "Storytelling" },
+  { id: 5, emoji: "⚔️", name: "Comparação X vs Y", cvr: "9-14%", template: "Comparação" },
+  { id: 6, emoji: "📚", name: "Tutorial", cvr: "5-8%", template: "Storytelling" },
+  { id: 7, emoji: "🔄", name: "Trend Hijack", cvr: "4-7%", template: "Hook Choque" },
+  { id: 8, emoji: "☀️", name: "Day-in-Life", cvr: "6-10%", template: "Storytelling" },
+  { id: 9, emoji: "⭐", name: "Social Proof", cvr: "11-16%", template: "Hook Choque" },
+  { id: 10, emoji: "💰", name: "Duelo de Preço", cvr: "12-18%", template: "Comparação" },
 ];
+
+const STATUS_LABELS = {
+  pending: { label: "Aguardando", color: "text-slate-400", dot: "bg-slate-400" },
+  script_generating: { label: "Gerando roteiro...", color: "text-blue-400", dot: "bg-blue-400" },
+  script_done: { label: "Roteiro pronto", color: "text-blue-300", dot: "bg-blue-300" },
+  script_failed: { label: "Falha no roteiro", color: "text-red-400", dot: "bg-red-400" },
+  audio: { label: "Gerando narração...", color: "text-purple-400", dot: "bg-purple-400" },
+  processing: { label: "Processando...", color: "text-yellow-400", dot: "bg-yellow-400" },
+  rendering_video: { label: "Renderizando vídeo...", color: "text-orange-400", dot: "bg-orange-400" },
+  video_uploading: { label: "Enviando MP4...", color: "text-orange-300", dot: "bg-orange-300" },
+  completed: { label: "Concluído ✓", color: "text-emerald-400", dot: "bg-emerald-400" },
+  failed: { label: "Falhou", color: "text-red-400", dot: "bg-red-400" },
+};
+
+function getStatusInfo(status) {
+  return STATUS_LABELS[status] ?? { label: status, color: "text-slate-400", dot: "bg-slate-400" };
+}
+
+// ─── API Helpers ───────────────────────────────────────────────────────────────
 
 async function getAccessToken() {
   const { data, error } = await supabase.auth.getSession();
   const token = data.session?.access_token;
   if (error || !token) {
-    throw new Error("Sessao expirada. Faca login novamente.");
+    if (typeof window !== "undefined" && (
+      window.location.hostname === "localhost" || 
+      window.location.hostname === "127.0.0.1"
+    )) {
+      return "local-dev-token";
+    }
+    throw new Error("Sessão expirada. Faça login novamente.");
   }
   return token;
 }
 
 async function apiFetch(url, init = {}) {
   const token = await getAccessToken();
-  console.log("[tiktok] fetch:start", {
-    url,
-    method: init.method || "GET",
-  });
   const response = await fetch(url, {
     ...init,
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-      ...(init.headers ?? {}),
-    },
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, ...(init.headers ?? {}) },
     cache: "no-store",
   });
-
-  console.log("[tiktok] fetch:response", {
-    url,
-    method: init.method || "GET",
-    status: response.status,
-    ok: response.ok,
-  });
   const json = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    console.error("[tiktok] fetch:error", {
-      url,
-      method: init.method || "GET",
-      status: response.status,
-      error: json?.error || `Falha na API (${response.status}).`,
-    });
-    throw new Error(json?.error || `Falha na API (${response.status}).`);
-  }
+  if (!response.ok) throw new Error(json?.error || `Falha na API (${response.status}).`);
   return json;
 }
 
-async function apiFetchInBackground(url, init = {}) {
+async function apiFetchBackground(url, init = {}) {
   const token = await getAccessToken();
-  console.log("[tiktok] background:start", {
-    url,
-    method: init.method || "GET",
-  });
   const response = await fetch(url, {
     ...init,
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-      ...(init.headers ?? {}),
-    },
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, ...(init.headers ?? {}) },
     cache: "no-store",
   });
-
-  console.log("[tiktok] background:response", {
-    url,
-    method: init.method || "GET",
-    status: response.status,
-    ok: response.ok,
-  });
   const json = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    console.error("[tiktok] background:error", {
-      url,
-      method: init.method || "GET",
-      status: response.status,
-      error: json?.error || `Falha na API (${response.status}).`,
-    });
-    throw new Error(json?.error || `Falha na API (${response.status}).`);
-  }
+  if (!response.ok) throw new Error(json?.error || `Falha na API (${response.status}).`);
   return json;
 }
+
+// ─── Sub-componentes ───────────────────────────────────────────────────────────
+
+function Field({ label, children }) {
+  return (
+    <label className="block">
+      <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-[#C9973A]/80">
+        {label}
+      </span>
+      {children}
+    </label>
+  );
+}
+
+function Input({ label, value, onChange, placeholder = "", type = "text" }) {
+  return (
+    <Field label={label}>
+      <input
+        type={type}
+        className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-white placeholder-white/30 outline-none transition focus:border-[#C9973A]/60 focus:bg-white/8"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+      />
+    </Field>
+  );
+}
+
+function Textarea({ label, value, onChange, placeholder = "", rows = 3 }) {
+  return (
+    <Field label={label}>
+      <textarea
+        rows={rows}
+        className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-white placeholder-white/30 outline-none transition focus:border-[#C9973A]/60"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+      />
+    </Field>
+  );
+}
+
+function Select({ label, value, onChange, options }) {
+  return (
+    <Field label={label}>
+      <select
+        className="w-full rounded-xl border border-white/10 bg-[#0A0F1E] px-4 py-2.5 text-sm text-white outline-none transition focus:border-[#C9973A]/60"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      >
+        <option value="">Selecione...</option>
+        {options.map((opt) => (
+          <option key={opt.value} value={opt.value}>{opt.label}</option>
+        ))}
+      </select>
+    </Field>
+  );
+}
+
+function StatusDot({ status, animated = false }) {
+  const info = getStatusInfo(status);
+  const isActive = !["completed", "failed", "pending"].includes(status);
+  return (
+    <span className="flex items-center gap-1.5">
+      <span
+        className={`inline-block h-2 w-2 rounded-full ${info.dot} ${isActive || animated ? "animate-pulse" : ""}`}
+      />
+      <span className={`text-xs font-medium ${info.color}`}>{info.label}</span>
+    </span>
+  );
+}
+
+function LogPanel({ logs }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    if (ref.current) ref.current.scrollTop = ref.current.scrollHeight;
+  }, [logs]);
+
+  return (
+    <div
+      ref={ref}
+      className="max-h-52 overflow-auto rounded-xl bg-black/40 p-3 font-mono text-xs"
+    >
+      {logs.length === 0 ? (
+        <p className="text-white/30">Aguardando logs...</p>
+      ) : (
+        logs.map((log, idx) => (
+          <div
+            key={`${log.time}-${idx}`}
+            className={
+              log.type === "error"
+                ? "text-red-400"
+                : log.type === "success"
+                  ? "text-emerald-400"
+                  : "text-white/60"
+            }
+          >
+            <span className="text-white/30">[{log.time}]</span> {log.message}
+          </div>
+        ))
+      )}
+    </div>
+  );
+}
+
+function JobCard({ job }) {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/5 p-4 transition hover:border-[#C9973A]/30">
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-semibold text-white">{job.model_name}</span>
+            {job.hook_variation_index !== undefined && (
+              <span className="rounded-full bg-[#C9973A]/20 px-2 py-0.5 text-xs font-medium text-[#C9973A]">
+                Hook #{job.hook_variation_index + 1}
+              </span>
+            )}
+          </div>
+          {job.script_title && (
+            <p className="mt-0.5 text-xs text-white/50 line-clamp-1">{job.script_title}</p>
+          )}
+          {job.hook_variation_text && (
+            <p className="mt-1 text-xs italic text-white/40">
+              &ldquo;{job.hook_variation_text}&rdquo;
+            </p>
+          )}
+        </div>
+        <StatusDot status={job.status} animated />
+      </div>
+
+      {job.status === "completed" && job.video_url && (
+        <div className="mt-3">
+          <video
+            src={job.video_url}
+            controls
+            playsInline
+            className="w-full rounded-lg"
+            style={{ maxHeight: 320, aspectRatio: "9/16", objectFit: "cover" }}
+          />
+          <div className="mt-2 flex gap-2">
+            <a
+              href={job.video_url}
+              target="_blank"
+              rel="noreferrer"
+              className="flex-1 rounded-lg bg-[#C9973A] py-2 text-center text-xs font-bold text-[#0A0F1E] transition hover:brightness-110"
+            >
+              ⬇ Baixar MP4
+            </a>
+            <button
+              type="button"
+              onClick={() => navigator.clipboard?.writeText(job.video_url)}
+              className="rounded-lg border border-[#C9973A]/40 px-3 py-2 text-xs font-semibold text-[#C9973A] transition hover:bg-[#C9973A]/10"
+            >
+              Copiar URL
+            </button>
+          </div>
+        </div>
+      )}
+
+      {job.error && (
+        <p className="mt-2 rounded-lg bg-red-900/30 px-3 py-2 text-xs text-red-300">
+          ⚠ {job.error}
+        </p>
+      )}
+
+      {/* Log steps accordion */}
+      {job.log_steps?.length > 0 && (
+        <div className="mt-3">
+          <button
+            type="button"
+            onClick={() => setExpanded((p) => !p)}
+            className="text-xs text-white/40 hover:text-white/70 transition"
+          >
+            {expanded ? "▲ Ocultar" : "▼ Ver"} {job.log_steps.length} etapa(s)
+          </button>
+          {expanded && (
+            <div className="mt-2 space-y-1">
+              {job.log_steps.map((step, idx) => (
+                <div
+                  key={`${step.step}-${idx}`}
+                  className={`flex items-start gap-2 text-xs ${step.ok ? "text-white/60" : "text-red-400"}`}
+                >
+                  <span>{step.ok ? "✓" : "✗"}</span>
+                  <span className="font-semibold">{step.step}</span>
+                  <span className="flex-1 text-white/40 truncate">{step.detail}</span>
+                  <span className="shrink-0 text-white/25">
+                    {new Date(step.ts).toLocaleTimeString("pt-BR")}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Componente Principal ──────────────────────────────────────────────────────
 
 export default function TikTokVideoSystem() {
+  // ── Form
   const [productName, setProductName] = useState("");
   const [productPrice, setProductPrice] = useState("");
   const [productDiscount, setProductDiscount] = useState("");
@@ -105,19 +288,18 @@ export default function TikTokVideoSystem() {
   const [competitorName, setCompetitorName] = useState("");
   const [competitorPrice, setCompetitorPrice] = useState("");
   const [shopUrl, setShopUrl] = useState("");
-  const [selectedModels, setSelectedModels] = useState([1, 5, 10]);
+  const [productImageUrls, setProductImageUrls] = useState("");
+  const [selectedModels, setSelectedModels] = useState([1, 5, 9]);
+  const [hookCount, setHookCount] = useState(1);
+  const [videoProvider, setVideoProvider] = useState("remotion");
+  // ── Voice / Avatar
   const [voices, setVoices] = useState([]);
-  const [voiceRegistry, setVoiceRegistry] = useState({
-    default_voice_id: "",
-    voices: [],
-  });
+  const [voiceRegistry, setVoiceRegistry] = useState({ default_voice_id: "", voices: [] });
   const [voiceId, setVoiceId] = useState("");
   const [savingVoiceDefault, setSavingVoiceDefault] = useState(false);
-  const [savingVoiceRegister, setSavingVoiceRegister] = useState(false);
-  const [newVoiceId, setNewVoiceId] = useState("");
-  const [newVoiceName, setNewVoiceName] = useState("");
-  const [avatarId, setAvatarId] = useState("");
-  const [avatars, setAvatars] = useState([]);
+  const [avatarId] = useState("");
+  // ── Pipeline
+  const [activeTab, setActiveTab] = useState("form");
   const [briefingId, setBriefingId] = useState("");
   const [jobs, setJobs] = useState([]);
   const [overallStatus, setOverallStatus] = useState("pending");
@@ -127,149 +309,79 @@ export default function TikTokVideoSystem() {
   const intervalRef = useRef(null);
 
   const addLog = useCallback((message, type = "info") => {
-    setLogs((prev) => [
-      ...prev,
-      { message, type, time: new Date().toLocaleTimeString("pt-BR") },
-    ]);
+    setLogs((prev) => [...prev, { message, type, time: new Date().toLocaleTimeString("pt-BR") }]);
   }, []);
 
   const canGenerate = useMemo(
-    () =>
-      Boolean(
-        productName &&
-          productPrice &&
-          productBenefits &&
-          productPain &&
-          avatarId &&
-          selectedModels.length,
-      ),
-    [productName, productPrice, productBenefits, productPain, avatarId, selectedModels],
+    () => Boolean(productName && productPrice && productBenefits && productPain && selectedModels.length),
+    [productName, productPrice, productBenefits, productPain, selectedModels],
   );
 
+  // ── Carregar vozes e avatares
   const loadVoices = useCallback(async () => {
     try {
       const data = await apiFetch("/api/tiktok-engine/voices");
       if (!data?.voices?.length) return;
       setVoices(data.voices);
       setVoiceRegistry(data.registry ?? { default_voice_id: "", voices: [] });
-      const defaultVoiceId =
-        data.default_voice_id ||
-        data.registry?.default_voice_id ||
-        data.voices[0].voice_id;
-      if (!voiceId) setVoiceId(defaultVoiceId);
-    } catch (error) {
-      addLog(error instanceof Error ? error.message : "Falha ao carregar vozes.", "error");
+      const def = data.default_voice_id || data.registry?.default_voice_id || data.voices[0].voice_id;
+      if (!voiceId) setVoiceId(def);
+    } catch (e) {
+      addLog(e instanceof Error ? e.message : "Falha ao carregar vozes.", "error");
     }
   }, [addLog, voiceId]);
 
-  const setVoiceAsDefault = useCallback(async () => {
-    if (!voiceId) return;
-    setSavingVoiceDefault(true);
-    try {
-      const selectedVoice = voices.find((voice) => voice.voice_id === voiceId);
-      const data = await apiFetch("/api/tiktok-engine/voices", {
-        method: "PATCH",
-        body: JSON.stringify({
-          default_voice_id: voiceId,
-          register_voices: selectedVoice
-            ? [
-                {
-                  voice_id: selectedVoice.voice_id,
-                  name: selectedVoice.name,
-                  active: true,
-                },
-              ]
-            : undefined,
-        }),
-      });
-      setVoiceRegistry(data.registry ?? voiceRegistry);
-      addLog("Voz padrao atualizada com sucesso.", "success");
-    } catch (error) {
-      addLog(error instanceof Error ? error.message : "Falha ao definir voz padrao.", "error");
-    } finally {
-      setSavingVoiceDefault(false);
-    }
-  }, [addLog, voiceId, voices, voiceRegistry]);
+  useEffect(() => { void loadVoices(); }, [loadVoices]);
 
-  const registerVoiceId = useCallback(async () => {
-    const value = newVoiceId.trim();
-    if (!value) {
-      addLog("Informe um voice_id para cadastrar.", "error");
-      return;
-    }
-    setSavingVoiceRegister(true);
-    try {
-      const data = await apiFetch("/api/tiktok-engine/voices", {
-        method: "PATCH",
-        body: JSON.stringify({
-          register_voices: [
-            { voice_id: value, name: newVoiceName.trim() || undefined, active: true },
-          ],
-        }),
-      });
-      setVoiceRegistry(data.registry ?? voiceRegistry);
-      setNewVoiceId("");
-      setNewVoiceName("");
-      addLog("voice_id cadastrado no registry.", "success");
-    } catch (error) {
-      addLog(error instanceof Error ? error.message : "Falha ao cadastrar voice_id.", "error");
-    } finally {
-      setSavingVoiceRegister(false);
-    }
-  }, [addLog, newVoiceId, newVoiceName, voiceRegistry]);
-
-  const loadAvatars = useCallback(async () => {
-    try {
-      const data = await apiFetch("/api/tiktok-engine/avatars");
-      const list = data?.avatars ?? [];
-      setAvatars(list);
-      if (!avatarId && list[0]?.avatar_id) setAvatarId(list[0].avatar_id);
-    } catch (error) {
-      addLog(error instanceof Error ? error.message : "Falha ao carregar avatares.", "error");
-    }
-  }, [addLog, avatarId]);
-
-  useEffect(() => {
-    void loadVoices();
-    void loadAvatars();
-  }, [loadVoices, loadAvatars]);
-
+  // ── Polling de status
   const stopPolling = useCallback(() => {
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current);
-      intervalRef.current = null;
-    }
+    if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null; }
   }, []);
 
   useEffect(() => () => stopPolling(), [stopPolling]);
 
-  const fetchStatus = useCallback(
-    async (id) => {
-      let data;
-      try {
-        data = await apiFetch(`/api/tiktok-engine/status/${id}`);
-      } catch (error) {
-        addLog(error instanceof Error ? error.message : "Erro ao consultar status.", "error");
-        setRunning(false);
-        stopPolling();
-        return;
-      }
+  const fetchStatus = useCallback(async (id) => {
+    let data;
+    try {
+      data = await apiFetch(`/api/tiktok-engine/status/${id}`);
+    } catch (e) {
+      addLog(e instanceof Error ? e.message : "Erro ao consultar status.", "error");
+      setRunning(false);
+      stopPolling();
+      return;
+    }
+    setJobs(data.jobs ?? []);
+    setOverallStatus(data.overall_status ?? "processing");
+    setProgress(data.progress ?? "0%");
+    if (["completed", "failed", "partial_failed"].includes(data.overall_status)) {
+      setRunning(false);
+      stopPolling();
+      addLog(`Pipeline finalizado: ${data.overall_status}`, data.overall_status === "completed" ? "success" : "error");
+      setActiveTab("jobs");
+    }
+  }, [addLog, stopPolling]);
 
-      setJobs(data.jobs ?? []);
-      setOverallStatus(data.overall_status ?? "processing");
-      setProgress(data.progress ?? "0%");
-      if (["completed", "failed", "partial_failed"].includes(data.overall_status)) {
-        setRunning(false);
-        stopPolling();
-        addLog(
-          `Pipeline finalizado com status: ${data.overall_status}`,
-          data.overall_status === "completed" ? "success" : "error",
-        );
-      }
-    },
-    [addLog, stopPolling],
-  );
+  // ── Salvar voz padrão
+  const setVoiceAsDefault = useCallback(async () => {
+    if (!voiceId) return;
+    setSavingVoiceDefault(true);
+    try {
+      const selectedVoice = voices.find((v) => v.voice_id === voiceId);
+      const data = await apiFetch("/api/tiktok-engine/voices", {
+        method: "PATCH",
+        body: JSON.stringify({
+          default_voice_id: voiceId,
+          register_voices: selectedVoice ? [{ voice_id: selectedVoice.voice_id, name: selectedVoice.name, active: true }] : undefined,
+        }),
+      });
+      setVoiceRegistry(data.registry ?? voiceRegistry);
+      addLog("Voz padrão atualizada.", "success");
+    } catch (e) {
+      addLog(e instanceof Error ? e.message : "Falha ao definir voz padrão.", "error");
+    } finally { setSavingVoiceDefault(false); }
+  }, [addLog, voiceId, voices, voiceRegistry]);
 
+  // ── Iniciar geração
   const startGeneration = useCallback(async () => {
     stopPolling();
     setRunning(true);
@@ -278,340 +390,334 @@ export default function TikTokVideoSystem() {
     setBriefingId("");
     setProgress("0%");
     setOverallStatus("pending");
-    addLog("Iniciando pipeline...");
+    addLog(`Iniciando pipeline: ${selectedModels.length} modelo(s) × ${hookCount} hook(s)...`);
 
     const payload = {
       product_name: productName,
       product_price: productPrice,
-      product_discount: productDiscount,
-      product_category: productCategory,
+      product_discount: productDiscount || undefined,
+      product_category: productCategory || undefined,
       product_benefits: productBenefits,
       product_pain: productPain,
-      competitor_name: competitorName,
-      competitor_price: competitorPrice,
-      shop_url: shopUrl,
+      competitor_name: competitorName || undefined,
+      competitor_price: competitorPrice || undefined,
+      shop_url: shopUrl || undefined,
+      product_image_urls: productImageUrls.split("\n").map((u) => u.trim()).filter(Boolean),
       model_ids: selectedModels,
+      hook_count: hookCount,
       voice_id: voiceId || undefined,
-      avatar_id: avatarId,
+      avatar_id: avatarId || undefined,
+      video_provider: videoProvider,
     };
 
     let data;
     try {
-      console.log("[tiktok] calling generate");
-      data = await apiFetch("/api/tiktok-engine/generate", {
-        method: "POST",
-        body: JSON.stringify(payload),
-      });
-      console.log("[tiktok] generate ok", data?.briefing_id, data);
-    } catch (error) {
-      console.error("[tiktok] generate failed", error);
+      data = await apiFetch("/api/tiktok-engine/generate", { method: "POST", body: JSON.stringify(payload) });
+    } catch (e) {
       setRunning(false);
-      addLog(error instanceof Error ? error.message : "Erro ao iniciar geracao.", "error");
+      addLog(e instanceof Error ? e.message : "Erro ao iniciar geração.", "error");
       return;
     }
 
     setBriefingId(data.briefing_id);
     addLog(data?.message ?? "Briefing criado.", "success");
+    setActiveTab("jobs");
 
     void (async () => {
       try {
         addLog("Executando pipeline em background...");
-        console.log("[tiktok] calling run", `/api/tiktok-engine/run/${data.briefing_id}`);
-        await apiFetchInBackground(`/api/tiktok-engine/run/${data.briefing_id}`, {
-          method: "POST",
-        });
-        console.log("[tiktok] run ok", data.briefing_id);
-      } catch (error) {
-        console.error("[tiktok] run failed", error);
-        addLog(
-          error instanceof Error ? error.message : "Falha ao executar pipeline.",
-          "error",
-        );
+        await apiFetchBackground(`/api/tiktok-engine/run/${data.briefing_id}`, { method: "POST" });
+      } catch (e) {
+        addLog(e instanceof Error ? e.message : "Falha ao executar pipeline.", "error");
       }
     })();
 
-    try {
-      await fetchStatus(data.briefing_id);
-    } catch {
-      // fetchStatus ja registra erro e interrompe o polling se necessario
-    }
-
-    intervalRef.current = setInterval(() => {
-      void fetchStatus(data.briefing_id);
-    }, 8000);
+    try { await fetchStatus(data.briefing_id); } catch { /* handled inside */ }
+    intervalRef.current = setInterval(() => { void fetchStatus(data.briefing_id); }, 7000);
   }, [
-    addLog,
-    avatarId,
-    competitorName,
-    competitorPrice,
-    fetchStatus,
-    productBenefits,
-    productCategory,
-    productDiscount,
-    productName,
-    productPain,
-    productPrice,
-    selectedModels,
-    shopUrl,
-    stopPolling,
-    voiceId,
+    addLog, avatarId, competitorName, competitorPrice, fetchStatus, hookCount,
+    productBenefits, productCategory, productDiscount, productImageUrls,
+    productName, productPain, productPrice, selectedModels, shopUrl,
+    stopPolling, videoProvider, voiceId,
   ]);
 
   const toggleModel = (id) => {
-    setSelectedModels((prev) =>
-      prev.includes(id) ? prev.filter((modelId) => modelId !== id) : [...prev, id],
-    );
+    setSelectedModels((prev) => prev.includes(id) ? prev.filter((m) => m !== id) : [...prev, id]);
   };
 
+  const estimatedVideos = selectedModels.length * hookCount;
+  const completedJobs = jobs.filter((j) => j.status === "completed").length;
+
+  // ── Tabs
+  const tabs = [
+    { id: "form", label: "Briefing" },
+    { id: "jobs", label: `Jobs ${jobs.length > 0 ? `(${completedJobs}/${jobs.length})` : ""}` },
+    { id: "logs", label: "Logs" },
+  ];
+
   return (
-    <div className="space-y-4">
-      <div className="rounded-2xl border border-slate-200 bg-white p-5">
-        <h2 className="text-lg font-semibold">TikTok Shop Video Engine</h2>
-        <p className="text-sm text-slate-500">
-          Backend seguro: OpenAI + ElevenLabs + HeyGen via /api/tiktok-engine/*
+    <div
+      className="min-h-screen p-6"
+      style={{ background: "linear-gradient(135deg, #0A0F1E 0%, #0f1829 60%, #0A0F1E 100%)" }}
+    >
+      {/* Header */}
+      <div className="mb-6">
+        <h1 className="text-2xl font-black text-white">
+          TikTok Shop{" "}
+          <span
+            className="bg-clip-text text-transparent"
+            style={{ backgroundImage: "linear-gradient(90deg, #C9973A, #e8b84b)" }}
+          >
+            Video Engine
+          </span>
+        </h1>
+        <p className="mt-1 text-sm text-white/50">
+          OpenAI + ElevenLabs + Remotion — formato nativo TikTok Shop 9:16
         </p>
       </div>
 
-      <div className="space-y-3 rounded-2xl border border-slate-200 bg-white p-5">
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-          <Input label="Produto *" value={productName} onChange={setProductName} />
-          <Input label="Preco *" value={productPrice} onChange={setProductPrice} />
-          <Input label="Desconto" value={productDiscount} onChange={setProductDiscount} />
-          <Input label="Categoria" value={productCategory} onChange={setProductCategory} />
-          <Input label="Concorrente" value={competitorName} onChange={setCompetitorName} />
-          <Input
-            label="Preco concorrente"
-            value={competitorPrice}
-            onChange={setCompetitorPrice}
-          />
-          <Input label="URL TikTok Shop" value={shopUrl} onChange={setShopUrl} />
-        </div>
-        <Textarea label="Beneficios *" value={productBenefits} onChange={setProductBenefits} />
-        <Textarea label="Dor principal *" value={productPain} onChange={setProductPain} />
+      {/* Tabs */}
+      <div className="mb-5 flex gap-1 rounded-xl border border-white/10 bg-white/5 p-1">
+        {tabs.map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            onClick={() => setActiveTab(tab.id)}
+            className={`flex-1 rounded-lg py-2 text-sm font-semibold transition ${
+              activeTab === tab.id
+                ? "bg-[#C9973A] text-[#0A0F1E]"
+                : "text-white/60 hover:text-white"
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
 
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-          <div className="space-y-2">
-            <Select
-              label="Voz ElevenLabs"
-              value={voiceId}
-              onChange={setVoiceId}
-              options={voices.map((voice) => ({
-                value: voice.voice_id,
-                label: voice.name ?? voice.voice_id,
-              }))}
-            />
-            <div className="flex flex-wrap items-center gap-2">
+      {/* ── ABA: BRIEFING ─────────────────────────────────────────────────────── */}
+      {activeTab === "form" && (
+        <div className="space-y-5">
+          {/* Produto */}
+          <section className="rounded-2xl border border-white/10 bg-white/5 p-5">
+            <h2 className="mb-4 text-sm font-bold uppercase tracking-wide text-[#C9973A]">
+              Dados do Produto
+            </h2>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <Input label="Nome do Produto *" value={productName} onChange={setProductName} placeholder="Ex: Câmera de Ação 4K" />
+              <Input label="Preço *" value={productPrice} onChange={setProductPrice} placeholder="Ex: 149,90" />
+              <Input label="Desconto" value={productDiscount} onChange={setProductDiscount} placeholder="Ex: 40% OFF" />
+              <Input label="Categoria" value={productCategory} onChange={setProductCategory} placeholder="Ex: Eletrônicos" />
+              <Input label="Concorrente" value={competitorName} onChange={setCompetitorName} placeholder="Nome do concorrente" />
+              <Input label="Preço do Concorrente" value={competitorPrice} onChange={setCompetitorPrice} placeholder="Ex: 299,00" />
+              <div className="md:col-span-2">
+                <Input label="URL TikTok Shop" value={shopUrl} onChange={setShopUrl} placeholder="https://..." />
+              </div>
+            </div>
+            <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+              <Textarea
+                label="Benefícios do Produto *"
+                value={productBenefits}
+                onChange={setProductBenefits}
+                placeholder="1. Durável&#10;2. Fácil de usar&#10;3. Ótimo custo-benefício"
+                rows={4}
+              />
+              <Textarea
+                label="Dor Principal do Cliente *"
+                value={productPain}
+                onChange={setProductPain}
+                placeholder="Câmera cara, bateria ruim, complicada de usar..."
+                rows={4}
+              />
+            </div>
+            <div className="mt-4">
+              <Textarea
+                label="URLs de Imagem do Produto (1 por linha)"
+                value={productImageUrls}
+                onChange={setProductImageUrls}
+                placeholder="https://imagem1.jpg&#10;https://imagem2.jpg"
+                rows={2}
+              />
+            </div>
+          </section>
+
+          {/* Modelos */}
+          <section className="rounded-2xl border border-white/10 bg-white/5 p-5">
+            <h2 className="mb-1 text-sm font-bold uppercase tracking-wide text-[#C9973A]">
+              Modelos de Vídeo
+            </h2>
+            <p className="mb-4 text-xs text-white/40">
+              {selectedModels.length} selecionado(s). Template visual gerado automaticamente por modelo.
+            </p>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              {MODELS.map((model) => {
+                const selected = selectedModels.includes(model.id);
+                return (
+                  <button
+                    key={model.id}
+                    type="button"
+                    onClick={() => toggleModel(model.id)}
+                    className={`rounded-xl border p-3 text-left transition ${
+                      selected
+                        ? "border-[#C9973A]/70 bg-[#C9973A]/10"
+                        : "border-white/10 bg-white/3 hover:border-white/20"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-semibold text-white">
+                        {model.emoji} {model.name}
+                      </span>
+                      {selected && (
+                        <span className="rounded-full bg-[#C9973A] px-1.5 text-xs font-bold text-[#0A0F1E]">✓</span>
+                      )}
+                    </div>
+                    <div className="mt-1 flex items-center gap-2">
+                      <span className="text-xs text-white/40">CVR {model.cvr}</span>
+                      <span className="rounded-full bg-white/10 px-2 py-0.5 text-xs text-white/50">
+                        {model.template}
+                      </span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+
+          {/* Config */}
+          <section className="rounded-2xl border border-white/10 bg-white/5 p-5">
+            <h2 className="mb-4 text-sm font-bold uppercase tracking-wide text-[#C9973A]">
+              Configuração de Geração
+            </h2>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+              <Select
+                label="Provider de Vídeo"
+                value={videoProvider}
+                onChange={setVideoProvider}
+                options={[
+                  { value: "remotion", label: "Remotion (padrão)" },
+                  { value: "heygen", label: "HeyGen (fallback)" },
+                ]}
+              />
+              <Select
+                label="Voz ElevenLabs"
+                value={voiceId}
+                onChange={setVoiceId}
+                options={voices.map((v) => ({ value: v.voice_id, label: v.name ?? v.voice_id }))}
+              />
+              <Field label="Variações de Hook por Modelo">
+                <div className="flex items-center gap-3">
+                  <input
+                    type="range"
+                    min={1}
+                    max={5}
+                    value={hookCount}
+                    onChange={(e) => setHookCount(Number(e.target.value))}
+                    className="flex-1 accent-[#C9973A]"
+                  />
+                  <span className="w-6 text-center text-sm font-bold text-[#C9973A]">{hookCount}</span>
+                </div>
+                <p className="mt-1 text-xs text-white/40">
+                  Gerará {estimatedVideos} vídeo(s) no total
+                </p>
+              </Field>
+            </div>
+
+            {/* Voz padrão */}
+            <div className="mt-3 flex flex-wrap items-center gap-2">
               <button
                 type="button"
                 onClick={() => void setVoiceAsDefault()}
                 disabled={!voiceId || savingVoiceDefault}
-                className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-700 disabled:cursor-not-allowed disabled:opacity-50"
+                className="rounded-lg border border-[#C9973A]/40 px-3 py-1.5 text-xs font-semibold text-[#C9973A] transition hover:bg-[#C9973A]/10 disabled:opacity-40"
               >
-                {savingVoiceDefault ? "Salvando..." : "Definir como padrao"}
+                {savingVoiceDefault ? "Salvando..." : "Definir como padrão"}
               </button>
-              <span className="text-xs text-slate-500">
-                Padrao atual: {voiceRegistry?.default_voice_id || "nao definido"}
+              <span className="text-xs text-white/30">
+                Atual: {voiceRegistry?.default_voice_id || "não definido"}
               </span>
             </div>
-          </div>
+          </section>
 
-          <Select
-            label="Avatar HeyGen *"
-            value={avatarId}
-            onChange={setAvatarId}
-            options={avatars.map((avatar) => ({
-              value: avatar.avatar_id,
-              label: avatar.avatar_name ?? avatar.avatar_id,
-            }))}
-          />
-        </div>
-
-        <div className="rounded-xl border border-slate-200 p-3">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">
-            Cadastro manual de voice_id
-          </p>
-          <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-[1fr_1fr_auto]">
-            <input
-              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500"
-              placeholder="voice_id"
-              value={newVoiceId}
-              onChange={(event) => setNewVoiceId(event.target.value)}
-            />
-            <input
-              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500"
-              placeholder="Nome opcional"
-              value={newVoiceName}
-              onChange={(event) => setNewVoiceName(event.target.value)}
-            />
+          {/* Botão Gerar */}
+          <div className="flex items-center justify-between gap-4">
+            <div className="text-sm text-white/50">
+              {estimatedVideos} vídeo(s) estimado(s) com {selectedModels.length} modelo(s) × {hookCount} hook(s)
+            </div>
             <button
               type="button"
-              onClick={() => void registerVoiceId()}
-              disabled={savingVoiceRegister}
-              className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+              onClick={() => void startGeneration()}
+              disabled={!canGenerate || running}
+              className="rounded-xl px-8 py-3 text-sm font-black text-[#0A0F1E] transition disabled:opacity-40 active:scale-95"
+              style={{
+                background: "linear-gradient(135deg, #C9973A, #e8b84b)",
+                boxShadow: "0 0 40px rgba(201,151,58,0.4)",
+              }}
             >
-              {savingVoiceRegister ? "Salvando..." : "Cadastrar"}
+              {running ? "⏳ Gerando..." : "🎬 Gerar Vídeos"}
             </button>
           </div>
-          {voiceRegistry?.voices?.length ? (
-            <div className="mt-3 space-y-1">
-              <p className="text-xs text-slate-500">Vozes cadastradas:</p>
-              <div className="max-h-28 space-y-1 overflow-auto rounded-lg border border-slate-100 bg-slate-50 p-2 text-xs text-slate-700">
-                {voiceRegistry.voices.map((voice) => (
-                  <div key={voice.voice_id}>
-                    {voice.voice_id}
-                    {voice.name ? ` - ${voice.name}` : ""}
-                    {voice.voice_id === voiceRegistry.default_voice_id ? " (padrao)" : ""}
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : null}
         </div>
-      </div>
+      )}
 
-      <div className="rounded-2xl border border-slate-200 bg-white p-5">
-        <p className="mb-3 text-sm font-medium">
-          Modelos ({selectedModels.length} selecionados)
-        </p>
-        <div className="grid grid-cols-1 gap-2 md:grid-cols-2 lg:grid-cols-3">
-          {MODELS.map((model) => {
-            const selected = selectedModels.includes(model.id);
-            return (
-              <button
-                key={model.id}
-                className={`rounded-xl border p-3 text-left transition ${
-                  selected
-                    ? "border-blue-500 bg-blue-50"
-                    : "border-slate-200 bg-white hover:bg-slate-50"
-                }`}
-                onClick={() => toggleModel(model.id)}
-                type="button"
-              >
-                <div className="font-medium">
-                  {model.emoji} {model.name}
+      {/* ── ABA: JOBS ──────────────────────────────────────────────────────────── */}
+      {activeTab === "jobs" && (
+        <div className="space-y-4">
+          {briefingId && (
+            <div className="rounded-xl border border-[#C9973A]/30 bg-[#C9973A]/10 p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs text-[#C9973A]/70">Briefing ativo</p>
+                  <p className="font-mono text-xs text-white/60">{briefingId}</p>
                 </div>
-                <div className="text-xs text-slate-500">CVR {model.cvr}</div>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      <div className="rounded-2xl border border-slate-200 bg-white p-5">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="text-sm text-slate-600">
-            Status: <span className="font-semibold">{overallStatus}</span> - Progresso:{" "}
-            <span className="font-semibold">{progress}</span>
-            {briefingId ? (
-              <span className="ml-2 text-xs text-slate-500">({briefingId})</span>
-            ) : null}
-          </div>
-          <button
-            type="button"
-            onClick={() => void startGeneration()}
-            disabled={!canGenerate || running}
-            className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {running ? "Gerando..." : "Gerar videos"}
-          </button>
-        </div>
-      </div>
-
-      {jobs.length > 0 ? (
-        <div className="rounded-2xl border border-slate-200 bg-white p-5">
-          <p className="mb-3 text-sm font-medium">Jobs</p>
-          <div className="space-y-2">
-            {jobs.map((job) => (
-              <div key={job.job_id} className="rounded-xl border border-slate-200 p-3">
-                <div className="text-sm font-medium">{job.model_name}</div>
-                <div className="text-xs text-slate-500">status: {job.status}</div>
-                {job.script_title ? (
-                  <div className="mt-1 text-xs text-slate-600">
-                    script: {job.script_title}
-                  </div>
-                ) : null}
-                {job.video_url ? (
-                  <a
-                    href={job.video_url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="mt-2 inline-block text-xs font-semibold text-blue-600"
-                  >
-                    Baixar MP4
-                  </a>
-                ) : null}
-                {job.error ? <div className="mt-1 text-xs text-red-600">{job.error}</div> : null}
+                <div className="text-right">
+                  <StatusDot status={overallStatus} animated={running} />
+                  <p className="mt-1 text-2xl font-black text-white">{progress}</p>
+                </div>
               </div>
-            ))}
+              {/* Barra de progresso */}
+              <div className="mt-3 h-1.5 rounded-full bg-white/10">
+                <div
+                  className="h-full rounded-full bg-[#C9973A] transition-all duration-1000"
+                  style={{ width: progress }}
+                />
+              </div>
+            </div>
+          )}
+
+          {jobs.length === 0 ? (
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-12 text-center">
+              <p className="text-4xl">🎬</p>
+              <p className="mt-2 text-sm text-white/40">
+                {running ? "Iniciando jobs..." : "Nenhum job ainda. Crie um briefing na aba Briefing."}
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              {jobs.map((job) => (
+                <JobCard key={job.job_id} job={job} />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── ABA: LOGS ──────────────────────────────────────────────────────────── */}
+      {activeTab === "logs" && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-bold text-white/60">Pipeline Logs</h2>
+            <button
+              type="button"
+              onClick={() => setLogs([])}
+              className="text-xs text-white/30 hover:text-white/60 transition"
+            >
+              Limpar
+            </button>
+          </div>
+          <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+            <LogPanel logs={logs} />
           </div>
         </div>
-      ) : null}
-
-      <div className="rounded-2xl border border-slate-200 bg-white p-5">
-        <p className="mb-2 text-sm font-medium">Logs</p>
-        <div className="max-h-56 overflow-auto rounded-lg bg-slate-900 p-3 text-xs text-slate-200">
-          {logs.map((log, idx) => (
-            <div
-              key={`${log.time}-${idx}`}
-              className={
-                log.type === "error"
-                  ? "text-red-300"
-                  : log.type === "success"
-                    ? "text-green-300"
-                    : "text-slate-200"
-              }
-            >
-              [{log.time}] {log.message}
-            </div>
-          ))}
-        </div>
-      </div>
+      )}
     </div>
-  );
-}
-
-function Input({ label, value, onChange }) {
-  return (
-    <label className="block text-sm">
-      <span className="mb-1 block text-xs font-medium text-slate-600">{label}</span>
-      <input
-        className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500"
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-      />
-    </label>
-  );
-}
-
-function Textarea({ label, value, onChange }) {
-  return (
-    <label className="block text-sm">
-      <span className="mb-1 block text-xs font-medium text-slate-600">{label}</span>
-      <textarea
-        className="min-h-[90px] w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500"
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-      />
-    </label>
-  );
-}
-
-function Select({ label, value, onChange, options }) {
-  return (
-    <label className="block text-sm">
-      <span className="mb-1 block text-xs font-medium text-slate-600">{label}</span>
-      <select
-        className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500"
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-      >
-        <option value="">Selecione...</option>
-        {options.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
-    </label>
   );
 }

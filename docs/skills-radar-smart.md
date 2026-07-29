@@ -579,3 +579,4 @@ Logs: Procure por `[ML Preview]` no console para identificar qual camada foi aci
 - skill de `distribuicao-canais`
 - skill de `blog-seo`
 - skill de `diagnostico-supabase`
+- skill de `engineering-lead` (padrao de atuacao Tech Lead para qualidade, arquitetura e seguranca)

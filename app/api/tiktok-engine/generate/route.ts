@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { requireAdmin } from "@/lib/admin-auth";
 import { getModelById } from "@/lib/tiktok-engine/models";
+import { pickHookVariation } from "@/lib/tiktok-engine/hooks";
 import { validateGeneratePayload } from "@/lib/tiktok-engine/pipeline";
 import { supabaseAdmin } from "@/lib/supabase";
 
@@ -13,6 +14,8 @@ type JobResponse = {
   job_id: string;
   model_id: number;
   model_name: string;
+  hook_variation_index: number;
+  hook_variation_text: string;
   status: string;
 };
 
@@ -50,6 +53,7 @@ export async function POST(req: NextRequest) {
     }
 
     const payload = validation.data;
+    const hookCount = Math.max(1, Math.min(payload.hook_count ?? 1, 5));
 
     const briefingInsert = await supabaseAdmin
       .from("tiktok_engine_briefings")
@@ -71,17 +75,28 @@ export async function POST(req: NextRequest) {
       .map((modelId) => getModelById(modelId))
       .filter((model): model is NonNullable<typeof model> => Boolean(model));
 
-    const jobsPayload = selectedModels.map((model) => ({
-      briefing_id: briefingId,
-      model_id: model.id,
-      model_name: model.name,
-      status: "pending",
-    }));
+    /**
+     * Para cada modelo × hook_count, cria 1 job com o hook sorteado.
+     * Exemplo: 3 modelos × 2 hooks = 6 jobs.
+     */
+    const jobsPayload = selectedModels.flatMap((model) =>
+      Array.from({ length: hookCount }, (_, hookIdx) => {
+        const { text: hookText, index: hookIndex } = pickHookVariation(model.id, hookIdx);
+        return {
+          briefing_id: briefingId,
+          model_id: model.id,
+          model_name: model.name,
+          hook_variation_index: hookIndex,
+          hook_variation_text: hookText,
+          status: "pending",
+        };
+      }),
+    );
 
     const jobsInsert = await supabaseAdmin
       .from("tiktok_engine_jobs")
       .insert(jobsPayload)
-      .select("id,model_id,model_name,status");
+      .select("id,model_id,model_name,hook_variation_index,hook_variation_text,status");
 
     if (jobsInsert.error) {
       throw new Error(jobsInsert.error.message);
@@ -91,6 +106,8 @@ export async function POST(req: NextRequest) {
       job_id: String(job.id),
       model_id: Number(job.model_id),
       model_name: String(job.model_name),
+      hook_variation_index: Number(job.hook_variation_index ?? 0),
+      hook_variation_text: String(job.hook_variation_text ?? ""),
       status: String(job.status),
     }));
 
@@ -100,7 +117,7 @@ export async function POST(req: NextRequest) {
       jobs: jobsResponse,
       status_url: `/api/tiktok-engine/status/${briefingId}`,
       run_url: `/api/tiktok-engine/run/${briefingId}`,
-      message: `Briefing criado: ${jobsPayload.length} video(s) prontos para execucao.`,
+      message: `Briefing criado: ${jobsPayload.length} video(s) prontos (${selectedModels.length} modelo(s) × ${hookCount} hook(s)).`,
     });
   } catch (error) {
     return NextResponse.json(

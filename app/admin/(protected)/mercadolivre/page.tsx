@@ -197,12 +197,14 @@ export default function MercadoLivreHub() {
             ? `${payload.products.length} ofertas do Mercado Livre carregadas da base local. ${payload.warning ? `Staging indisponível: ${payload.warning}.` : ""}`.trim()
             : payload.source === "apify_task"
               ? `${payload.sync_count ?? payload.products.length} ofertas sincronizadas via Apify. Exibindo ${payload.products.length} ofertas salvas no hub.`
-              : payload.source === "hub_offers"
-                ? `${payload.products.length} ofertas carregadas do catálogo salvo do hub.`
-                : `${payload.products.length} ofertas do Mercado Livre carregadas.`
+              : payload.source === "ml_session_task"
+                ? `${payload.sync_count ?? payload.products.length} ofertas sincronizadas via sessão logada (grátis). Exibindo ${payload.products.length} ofertas salvas no hub.`
+                : payload.source === "hub_offers"
+                  ? `${payload.products.length} ofertas carregadas do catálogo salvo do hub.`
+                  : `${payload.products.length} ofertas do Mercado Livre carregadas.`
           : payload.source === "offers_fallback"
             ? "Nenhuma oferta do Mercado Livre encontrada na base local com os filtros atuais."
-            : payload.source === "apify_task"
+            : payload.source === "apify_task" || payload.source === "ml_session_task"
               ? "Sincronização concluída, mas nenhuma oferta ficou salva com os filtros atuais."
               : payload.source === "hub_offers"
                 ? "Nenhuma oferta salva no hub com os filtros atuais. Use sincronizar para minerar novas ofertas."

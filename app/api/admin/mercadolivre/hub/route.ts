@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { requireAdmin } from "@/lib/admin-auth";
 import { normalizeMercadoLivreAffiliateUrl } from "@/lib/mercadolivre";
+import { searchViaMlSession, type MlSessionSearchItem } from "@/lib/scraping/ml-session-client";
 import { supabaseAdmin } from "@/lib/supabase";
 
 export const runtime = "nodejs";
@@ -205,6 +206,77 @@ async function syncApifyToHubOffers(search: string, categoryId: string, limit: n
   return { count: rows.length, syncedAt };
 }
 
+function normalizeMlSessionItem(item: MlSessionSearchItem) {
+  const price = toNumber(item.price);
+  const oldPrice = toNumber(item.old_price);
+  const externalOfferId = toText(item.link.split("/").pop());
+
+  return {
+    external_offer_id: externalOfferId,
+    title: toText(item.title),
+    price,
+    old_price: oldPrice > price ? oldPrice : 0,
+    discount_pct: inferDiscount(price, oldPrice),
+    image_url: toText(item.image_url),
+    product_url: normalizeMercadoLivreAffiliateUrl(item.link),
+    reviews_count: 0,
+    seller_name: "",
+    shop_name: "",
+    classification: classifyOffer(inferDiscount(price, oldPrice), 0, 0),
+    condition: "Novo",
+    source_payload: item,
+  };
+}
+
+async function syncMlSessionToHubOffers(search: string, categoryId: string, limit: number) {
+  const category = getCategory(categoryId);
+  const query = search || getCategoryQuery(categoryId);
+  const items = await searchViaMlSession(query, limit);
+
+  const normalized = items
+    .map((item) => normalizeMlSessionItem(item))
+    .filter((product) => product.external_offer_id && product.title && product.price > 0);
+
+  if (!normalized.length) {
+    return { count: 0, syncedAt: new Date().toISOString() };
+  }
+
+  const syncedAt = new Date().toISOString();
+  const rows = normalized.map((item) => ({
+    marketplace: "mercadolivre",
+    external_offer_id: item.external_offer_id,
+    title: item.title,
+    price: item.price,
+    old_price: item.old_price || null,
+    discount_pct: item.discount_pct || null,
+    image_url: item.image_url || null,
+    product_url: item.product_url,
+    source_payload: item.source_payload,
+    synced_at: syncedAt,
+    classification: item.classification,
+    status: "active",
+    selected_for_distribution: false,
+    source_engine: "ml_session",
+    category_id: categoryId,
+    category_label: category?.label ?? null,
+    search_query: query,
+    condition: item.condition,
+    seller_name: null,
+    shop_name: null,
+    reviews_count: 0,
+  }));
+
+  const { error } = await supabaseAdmin
+    .from("hub_offers")
+    .upsert(rows, { onConflict: "marketplace,external_offer_id" });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return { count: rows.length, syncedAt };
+}
+
 async function fetchHubMlOffers(params: {
   search: string;
   categoryId: string;
@@ -311,12 +383,16 @@ export async function GET(req: NextRequest) {
   );
   const limit = Math.min(Number(req.nextUrl.searchParams.get("limit") || "100"), 100);
   const shouldSync = req.nextUrl.searchParams.get("sync") === "1";
+  const engine = toText(req.nextUrl.searchParams.get("engine")) || "session";
 
   try {
     let syncInfo: { count: number; syncedAt: string } | null = null;
 
     if (shouldSync) {
-      syncInfo = await syncApifyToHubOffers(search, categoryId, limit);
+      syncInfo =
+        engine === "apify"
+          ? await syncApifyToHubOffers(search, categoryId, limit)
+          : await syncMlSessionToHubOffers(search, categoryId, limit);
     }
 
     const { products, syncedAt } = await fetchHubMlOffers({
@@ -330,7 +406,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({
       ok: true,
-      source: shouldSync ? "apify_task" : "hub_offers",
+      source: shouldSync ? (engine === "apify" ? "apify_task" : "ml_session_task") : "hub_offers",
       categories: ML_CATEGORIES.map(({ id, label }) => ({ id, label })),
       filters: { classifications: [...ML_CLASSIFICATIONS] },
       products,

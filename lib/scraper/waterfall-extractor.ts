@@ -7,6 +7,7 @@ import {
   recordScrapeAttemptEventBestEffort,
 } from "@/lib/scraper/attempt-events";
 import { extractShopeeOffer } from "@/lib/scraping/shopee-extractor";
+import { extractViaMlSession } from "@/lib/scraping/ml-session-client";
 
 export type Marketplace = "mercadolivre" | "amazon" | "shopee" | "generic";
 
@@ -492,6 +493,25 @@ async function extractViaShopeeApi(url: string): Promise<Partial<PartialProduct>
   };
 }
 
+async function extractViaMlSessionLayer(url: string): Promise<Partial<PartialProduct>> {
+  const product = await extractViaMlSession(url);
+  if (!product.title) throw new Error("Titulo nao encontrado via sessao ML.");
+
+  return {
+    title: product.title,
+    price: product.price,
+    original_price: product.old_price,
+    currency: "BRL",
+    image_url: product.image_url,
+    images: product.image_url ? [product.image_url] : [],
+    description: null,
+    rating: null,
+    rating_count: null,
+    seller: null,
+    category: null,
+  };
+}
+
 function getLayersForMarketplace(marketplace: Marketplace): ExtractorLayer[] {
   const paidFallbacksEnabled =
     toText(process.env.ENABLE_PAID_SCRAPER_FALLBACKS).toLowerCase() === "true";
@@ -499,6 +519,7 @@ function getLayersForMarketplace(marketplace: Marketplace): ExtractorLayer[] {
   switch (marketplace) {
     case "mercadolivre":
       return [
+        { name: "ml_session", fn: extractViaMlSessionLayer, timeoutMs: 25000 },
         { name: "ml_api_official", fn: extractViaMLApi, timeoutMs: 8000 },
         { name: "html_cheerio", fn: extractViaCheerio, timeoutMs: 5000 },
         ...(paidFallbacksEnabled

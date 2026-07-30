@@ -6,6 +6,7 @@ import {
   extractHttpStatusFromError,
   recordScrapeAttemptEventBestEffort,
 } from "@/lib/scraper/attempt-events";
+import { extractShopeeOffer } from "@/lib/scraping/shopee-extractor";
 
 export type Marketplace = "mercadolivre" | "amazon" | "shopee" | "generic";
 
@@ -473,8 +474,22 @@ async function extractViaBrightData(url: string): Promise<Partial<PartialProduct
 }
 
 async function extractViaShopeeApi(url: string): Promise<Partial<PartialProduct>> {
-  void url;
-  throw new Error("Shopee API: implementar conforme rota existente.");
+  const preview = await extractShopeeOffer({ url });
+  if (!preview.title) throw new Error("Titulo nao encontrado via Shopee.");
+
+  return {
+    title: preview.title,
+    price: preview.price,
+    original_price: preview.oldPrice,
+    currency: preview.currency,
+    image_url: preview.imageUrl,
+    images: preview.imageUrl ? [preview.imageUrl] : [],
+    description: null,
+    rating: null,
+    rating_count: null,
+    seller: null,
+    category: null,
+  };
 }
 
 function getLayersForMarketplace(marketplace: Marketplace): ExtractorLayer[] {

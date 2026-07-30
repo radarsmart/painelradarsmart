@@ -34,6 +34,10 @@
       "schedule": "0 14 * * *"
     },
     {
+      "path": "/api/lomadee/automation/run",
+      "schedule": "0 15 * * *"
+    },
+    {
       "path": "/api/cron/comparator-refresh?mode=top50",
       "schedule": "0 12 * * *"
     },

@@ -1,14 +1,16 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { 
-  CheckCircle2, 
-  Filter, 
-  Loader2, 
-  MessageSquare, 
-  Search, 
-  Send, 
-  Sparkles, 
+import {
+  CheckCircle2,
+  Filter,
+  Loader2,
+  MessageSquare,
+  Search,
+  Send,
+  Settings2,
+  Sparkles,
   X
 } from "lucide-react";
 
@@ -257,6 +259,13 @@ export default function LomadeeHubPage() {
             Curadoria profunda via API Lomadee. Filtre preços, ordene e use IA para suas copies.
           </p>
         </div>
+        <Link
+          href="/admin/lomadee/automation"
+          className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-navy px-5 text-sm font-bold text-white transition hover:bg-black"
+        >
+          <Settings2 className="h-4 w-4" />
+          Automação
+        </Link>
       </div>
 
       <section className="rounded-3xl border border-rs-border bg-white p-6 shadow-sm space-y-4">

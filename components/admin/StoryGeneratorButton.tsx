@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Download, ImageDown, Sparkles, X } from "lucide-react";
 import { formatBRL } from "@/lib/formatters";
+import { supabase } from "@/lib/supabase";
 
 type StoryGeneratorButtonProps = {
   title: string;
@@ -22,6 +23,33 @@ function loadImage(src: string): Promise<HTMLImageElement> {
     image.onerror = () => reject(new Error(`Falha ao carregar imagem: ${src}`));
     image.src = src;
   });
+}
+
+async function loadAuthenticatedApiImage(path: string): Promise<HTMLImageElement> {
+  const { data, error: sessionError } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  if (sessionError || !token) {
+    throw new Error("Sessao expirada. Faca login novamente.");
+  }
+
+  const response = await fetch(path, {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}) as { error?: string });
+    throw new Error(payload.error || `Falha ao carregar imagem (${response.status}).`);
+  }
+
+  const blob = await response.blob();
+  const objectUrl = URL.createObjectURL(blob);
+
+  try {
+    return await loadImage(objectUrl);
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
 }
 
 function drawRoundedRect(
@@ -129,11 +157,11 @@ export default function StoryGeneratorButton({
       }
 
       try {
-        const productImage = await loadImage(
-          imageUrl
-            ? `/api/admin/story/image?src=${encodeURIComponent(imageUrl)}`
-            : "/logo.png",
-        );
+        const productImage = imageUrl
+          ? await loadAuthenticatedApiImage(
+              `/api/admin/story/image?src=${encodeURIComponent(imageUrl)}`,
+            )
+          : await loadImage("/logo.png");
 
         if (cancelled) return;
 

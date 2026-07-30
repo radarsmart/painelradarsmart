@@ -5,6 +5,7 @@ import { supabase } from "@/lib/supabase";
 import {
   CheckCircle2,
   Loader2,
+  LogIn,
   MessageSquare,
   RefreshCw,
   Search,
@@ -86,6 +87,7 @@ export default function MercadoLivreHub() {
   const [products, setProducts] = useState<MLHubProduct[]>([]);
   const [affiliateLinks, setAffiliateLinks] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
+  const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState("");
   const [feedback, setFeedback] = useState("");
   const [dispatching, setDispatching] = useState<string | null>(null);
@@ -107,6 +109,30 @@ export default function MercadoLivreHub() {
       throw new Error("Sessão expirada. Faça login novamente.");
     }
     return token;
+  }
+
+  async function handleConnectMercadoLivre() {
+    setConnecting(true);
+    setError("");
+
+    try {
+      const accessToken = await getAccessToken();
+      const response = await fetch("/api/admin/ml/auth/start", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+      const payload = (await response.json()) as { url?: string; error?: string };
+      if (!response.ok || !payload.url) {
+        throw new Error(payload.error || "Falha ao iniciar conexao com o Mercado Livre.");
+      }
+
+      window.location.href = payload.url;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Falha ao conectar com o Mercado Livre.");
+      setConnecting(false);
+    }
   }
 
   async function loadProducts(options?: {
@@ -321,6 +347,16 @@ export default function MercadoLivreHub() {
             Última atualização: {formatSyncTime(syncedAt)}
           </div>
         </div>
+
+        <button
+          type="button"
+          onClick={() => void handleConnectMercadoLivre()}
+          disabled={connecting}
+          className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-70"
+        >
+          {connecting ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogIn className="h-4 w-4" />}
+          {connecting ? "Conectando..." : "Conectar Mercado Livre"}
+        </button>
 
         <button
           type="button"

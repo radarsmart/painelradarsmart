@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/admin-auth";
+import { verifyMlAuthStartToken } from "@/lib/ml-auth-ott";
 import { resolveSiteUrl } from "@/lib/site";
 
 export const runtime = "nodejs";
@@ -34,9 +35,15 @@ function getMlAuthConfig() {
 
 export async function GET(req: NextRequest) {
   const origin = req.nextUrl.origin;
-  const adminGuard = await requireAdmin(req);
-  if (!adminGuard.ok) {
-    return NextResponse.redirect(`${origin}/admin/login`, { status: 302 });
+
+  const ott = req.nextUrl.searchParams.get("ott");
+  const ottResult = ott ? verifyMlAuthStartToken(ott) : { ok: false as const };
+
+  if (!ottResult.ok) {
+    const adminGuard = await requireAdmin(req);
+    if (!adminGuard.ok) {
+      return NextResponse.redirect(`${origin}/admin/login`, { status: 302 });
+    }
   }
 
   const { clientId, redirectUri } = getMlAuthConfig();

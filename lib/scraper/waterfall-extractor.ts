@@ -150,9 +150,9 @@ function extractMlItemId(url: string): string | null {
   }
 
   const match =
-    decoded.match(/\/p\/(ML[AB]\d{8,14})/i) ||
-    decoded.match(/\b(ML[AB]\d{8,14})\b/i) ||
-    decoded.match(/\/(ML[AB]\d{8,14})-/i);
+    decoded.match(/\/p\/(ML[AB]-?\d{8,14})/i) ||
+    decoded.match(/\b(ML[AB]-?\d{8,14})\b/i) ||
+    decoded.match(/\/(ML[AB]-?\d{8,14})-/i);
 
   return match?.[1]?.toUpperCase().replace("-", "") ?? null;
 }

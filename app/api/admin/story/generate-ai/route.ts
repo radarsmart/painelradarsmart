@@ -11,6 +11,23 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
+const CTA_OPTIONS = ["LINK NA BIO!", "COMENTE \"QUERO\" NOS COMENTARIOS!"];
+
+type PriceInfo = {
+  title: string;
+  price: number;
+  oldPrice: number | null;
+  discountPct: number | null;
+};
+
+type StoryTemplate = {
+  id: string;
+  file: string;
+  ctaFixed: string | null;
+  includeLogo: boolean;
+  buildPrompt: (input: PriceInfo, cta: string) => string;
+};
+
 function toText(value: unknown): string {
   return String(value ?? "").trim();
 }
@@ -18,6 +35,93 @@ function toText(value: unknown): string {
 function formatBRL(value: number): string {
   return value.toFixed(2).replace(".", ",");
 }
+
+function priceLines(input: PriceInfo): string {
+  const priceText = `R$ ${formatBRL(input.price)}`;
+  const oldPriceText = input.oldPrice ? `R$ ${formatBRL(input.oldPrice)}` : null;
+  const discountText = input.discountPct ? `${input.discountPct}%` : null;
+
+  return [
+    `o titulo curto do produto "${input.title}"`,
+    `o preco atual em destaque ${priceText}`,
+    oldPriceText ? `o preco antigo riscado ${oldPriceText}` : "",
+    discountText ? `um selo de desconto chamativo com ${discountText} OFF` : "",
+  ]
+    .filter(Boolean)
+    .join(", ");
+}
+
+const LOGO_INSTRUCTION =
+  "Inclua o logo da marca (imagem do logo enviada) em um local estrategico e discreto da arte, como um selo/marca d'agua no canto superior esquerdo ou superior direito, em tamanho pequeno (nao mais que 12% da largura da imagem), sem cobrir o rosto da modelo ou o produto. Ao lado ou abaixo do logo, escreva o nome \"Radar Smart\" em fonte bold branca ou dourada, pequena e legivel, no mesmo estilo visual do restante da arte.";
+
+const TEMPLATES: StoryTemplate[] = [
+  {
+    id: "circle",
+    file: "story-template.jpeg",
+    ctaFixed: "LINK NA BIO!",
+    includeLogo: true,
+    buildPrompt: (input) =>
+      [
+        "A primeira imagem enviada e um TEMPLATE fixo de anuncio para Stories do Instagram/WhatsApp: uma modelo de blazer verde apontando para um circulo em branco no centro, fundo verde/azul com icones 3D de compras (carrinho, sacola, desconto, presente), e um botao grande escrito 'LINK NA BIO!' no rodape.",
+        "A segunda imagem enviada e a FOTO REAL do produto que deve ser divulgado.",
+        "A terceira imagem enviada e o LOGO oficial da marca Radar Smart (circulo verde-escuro com borda dourada e icone de carrinho/radar dourado).",
+        "Gere uma nova imagem final no MESMO estilo visual: mesma modelo, mesma pose, mesmas cores, mesmos icones e o mesmo botao 'LINK NA BIO!' do template (mantenha tudo igual e sem alteracoes), substituindo apenas o circulo central em branco pela foto do produto (imagem 2), recortada e centralizada de forma realista dentro do circulo.",
+        LOGO_INSTRUCTION,
+        `Escreva tambem sobre a arte, respeitando o estilo visual verde/branco do template com fontes bold e legiveis: ${priceLines(input)}.`,
+        "Nao altere o rosto, roupa ou pose da modelo do template. Nao remova o botao 'LINK NA BIO!'. Mantenha o formato vertical.",
+      ].join(" "),
+  },
+  {
+    id: "unboxing",
+    file: "story-template-unboxing.jpeg",
+    ctaFixed: null,
+    includeLogo: true,
+    buildPrompt: (input, cta) =>
+      [
+        "A primeira imagem enviada e um TEMPLATE fixo com a mesma modelo/pessoa da marca Radar Smart: ela esta sentada no sofa, sorrindo, desembalando uma caixa de papelao e segurando um produto (fone de ouvido) com as duas maos, fundo de sala de estar com plantas e luz natural.",
+        "A segunda imagem enviada e a FOTO REAL do produto que deve ser divulgado (produto diferente do fone de ouvido do template).",
+        "A terceira imagem enviada e o LOGO oficial da marca Radar Smart.",
+        "Gere uma nova imagem final na MESMA pose, mesmo rosto, mesma roupa e mesmo fundo do template, substituindo APENAS o objeto que ela segura nas maos pelo produto da segunda imagem (redimensionado e posicionado de forma realista como se ela estivesse desembalando ele agora, saindo da caixa de papelao).",
+        LOGO_INSTRUCTION,
+        `Adicione tambem sobre a arte, em fontes bold e legiveis no estilo verde/branco da marca: ${priceLines(input)}.`,
+        `No rodape, adicione um botao grande e chamativo (fundo verde solido, texto branco bold) escrito "${cta}".`,
+        "Nao altere o rosto, pose ou fundo da modelo do template. Mantenha o formato vertical.",
+      ].join(" "),
+  },
+  {
+    id: "cards",
+    file: "story-template-cards.jpeg",
+    ctaFixed: null,
+    includeLogo: true,
+    buildPrompt: (input, cta) =>
+      [
+        "A primeira imagem enviada e um TEMPLATE fixo com a mesma modelo/pessoa da marca Radar Smart: ela esta sentada no sofa olhando e sorrindo para o celular, com um cabecalho 'Grupo de Ofertas' e alguns cartoes flutuantes de produtos de exemplo.",
+        "A segunda imagem enviada e a FOTO REAL do produto que deve ser divulgado.",
+        "A terceira imagem enviada e o LOGO oficial da marca Radar Smart.",
+        "Gere uma nova imagem final na MESMA pose, mesmo rosto e mesmo fundo do template, mantendo o cabecalho 'Grupo de Ofertas'. REMOVA os cartoes de exemplo do template e coloque no lugar deles APENAS UM cartao branco grande, arredondado, com sombra leve, contendo: a foto real do produto (imagem 2), um selo verde de check com texto 'Oferta verificada', o titulo curto do produto, o preco, e o botao de CTA (ver instrucao abaixo) dentro do proprio cartao, na parte de baixo dele.",
+        "Use apenas UM cartao no total, com UM UNICO botao de CTA (dentro do cartao). Nao duplique o produto, o preco ou o botao em mais de um lugar da arte.",
+        LOGO_INSTRUCTION,
+        `Escreva no cartao, em fontes bold e legiveis: ${priceLines(input)}.`,
+        `Dentro do cartao, na parte de baixo, adicione UM UNICO botao grande e chamativo (fundo verde solido, texto branco bold) escrito "${cta}". Nao crie nenhum outro botao fora do cartao.`,
+        "Nao altere o rosto, pose ou fundo da modelo do template. Mantenha o formato vertical.",
+      ].join(" "),
+  },
+  {
+    id: "pointing",
+    file: "story-template-pointing.jpeg",
+    ctaFixed: null,
+    includeLogo: false,
+    buildPrompt: (input, cta) =>
+      [
+        "A primeira imagem enviada e um TEMPLATE fixo com a mesma modelo/pessoa da marca Radar Smart: ela sorrindo, apontando com as duas maos para baixo, fundo branco/azul/verde com icones 3D de compras flutuando, logo e texto 'RADAR SMART / COMPRA INTELIGENTE' ja presentes no centro da arte, e uma seta verde grande apontando para baixo no rodape (area vazia abaixo da seta).",
+        "A segunda imagem enviada e a FOTO REAL do produto que deve ser divulgado.",
+        "Gere uma nova imagem final na MESMA pose, mesmo rosto, mesmas cores e MESMO logo/wordmark 'RADAR SMART' do template (mantenha o logo e a seta exatamente como estao, sem duplicar ou adicionar outro logo), adicionando na area vazia abaixo da seta APENAS UM cartao branco arredondado com sombra leve, contendo a foto real do produto (uma unica vez, sem duplicar) recortada e centralizada dentro do cartao.",
+        `Escreva no cartao, em fontes bold e legiveis, UMA UNICA VEZ (sem repetir em outro lugar da arte): ${priceLines(input)}.`,
+        `Abaixo do cartao do produto, adicione um botao grande e chamativo (fundo verde solido, texto branco bold) escrito "${cta}".`,
+        "Nao altere o rosto, pose ou fundo da modelo do template, nem o logo/wordmark existente. Nao duplique o produto nem o preco em mais de um lugar da arte. Mantenha o formato vertical.",
+      ].join(" "),
+  },
+];
 
 async function fetchProductImageBuffer(
   src: string,
@@ -48,29 +152,6 @@ async function fetchProductImageBuffer(
     buffer: Buffer.from(arrayBuffer),
     contentType: contentType.startsWith("image/") ? contentType : "image/jpeg",
   };
-}
-
-function buildPrompt(input: {
-  title: string;
-  price: number;
-  oldPrice: number | null;
-  discountPct: number | null;
-}): string {
-  const priceText = `R$ ${formatBRL(input.price)}`;
-  const oldPriceText = input.oldPrice ? `R$ ${formatBRL(input.oldPrice)}` : null;
-  const discountText = input.discountPct ? `${input.discountPct}%` : null;
-
-  return [
-    "A primeira imagem enviada e um TEMPLATE fixo de anuncio para Stories do Instagram/WhatsApp: uma modelo de blazer verde apontando para um circulo em branco no centro, fundo verde/azul com icones 3D de compras (carrinho, sacola, desconto, presente), e um botao grande escrito 'LINK NA BIO!' no rodape.",
-    "A segunda imagem enviada e a FOTO REAL do produto que deve ser divulgado.",
-    "Gere uma nova imagem final no MESMO estilo visual: mesma modelo, mesma pose, mesmas cores, mesmos icones e o mesmo botao 'LINK NA BIO!' do template (mantenha tudo igual e sem alteracoes), substituindo apenas o circulo central em branco pela foto do produto (imagem 2), recortada e centralizada de forma realista dentro do circulo.",
-    `Escreva tambem sobre a arte, respeitando o estilo visual verde/branco do template com fontes bold e legiveis: o titulo curto do produto "${input.title}", o preco atual em destaque ${priceText}`,
-    oldPriceText ? `, o preco antigo riscado ${oldPriceText}` : "",
-    discountText ? `, e um selo de desconto chamativo com ${discountText} OFF` : "",
-    ". Nao altere o rosto, roupa ou pose da modelo do template. Nao remova o botao 'LINK NA BIO!'. Mantenha o formato vertical.",
-  ]
-    .filter(Boolean)
-    .join("");
 }
 
 export async function POST(req: NextRequest) {
@@ -113,12 +194,15 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const templatePath = path.join(process.cwd(), "public", "criativos", "story-template.jpeg");
+    const template = TEMPLATES[Math.floor(Math.random() * TEMPLATES.length)];
+    const cta = template.ctaFixed ?? CTA_OPTIONS[Math.floor(Math.random() * CTA_OPTIONS.length)];
+
+    const templatePath = path.join(process.cwd(), "public", "criativos", template.file);
     const templateBuffer = fs.readFileSync(templatePath);
     const { buffer: productBuffer, contentType: productContentType } =
       await fetchProductImageBuffer(imageUrl);
 
-    const prompt = buildPrompt({ title, price, oldPrice, discountPct });
+    const prompt = template.buildPrompt({ title, price, oldPrice, discountPct }, cta);
 
     const form = new FormData();
     form.append("model", "gpt-image-1");
@@ -134,6 +218,16 @@ export async function POST(req: NextRequest) {
       new Blob([new Uint8Array(productBuffer)], { type: productContentType }),
       "product.jpg",
     );
+
+    if (template.includeLogo) {
+      const logoPath = path.join(process.cwd(), "public", "radar-smart-logo.png");
+      const logoBuffer = fs.readFileSync(logoPath);
+      form.append(
+        "image[]",
+        new Blob([new Uint8Array(logoBuffer)], { type: "image/png" }),
+        "logo.png",
+      );
+    }
 
     const openaiResponse = await fetch("https://api.openai.com/v1/images/edits", {
       method: "POST",
@@ -170,7 +264,11 @@ export async function POST(req: NextRequest) {
 
     const { data: publicUrlData } = supabaseAdmin.storage.from(bucket).getPublicUrl(storagePath);
 
-    return NextResponse.json({ success: true, image_url: publicUrlData.publicUrl });
+    return NextResponse.json({
+      success: true,
+      image_url: publicUrlData.publicUrl,
+      template_id: template.id,
+    });
   } catch (error) {
     return NextResponse.json(
       {

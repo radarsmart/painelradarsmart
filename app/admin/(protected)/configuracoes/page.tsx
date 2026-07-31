@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabase";
+import ServiceRestartPanel from "@/components/admin/ServiceRestartPanel";
 
 export const dynamic = "force-dynamic";
 
@@ -20,8 +21,14 @@ export default async function AdminConfiguracoesPage() {
   return (
     <div className="space-y-4">
       <h1 className="font-display text-3xl font-bold text-navy">
-        Configuracoes de Afiliado
+        Configuracoes
       </h1>
+
+      <ServiceRestartPanel />
+
+      <h2 className="font-display text-xl font-bold text-navy">
+        Configuracoes de Afiliado
+      </h2>
       <div className="overflow-hidden rounded-xl border border-rs-border bg-white">
         <table className="w-full text-left text-sm">
           <thead className="bg-slate-100">

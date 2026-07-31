@@ -4,6 +4,7 @@ import {
   calculateQualityScore,
   type OfferQualityData,
 } from "@/lib/offers/quality-score";
+import { getHistoricalPriceAvg } from "@/lib/offers/price-history";
 
 checkEnvVars();
 
@@ -332,8 +333,16 @@ export const salvarOferta = async (oferta: Record<string, unknown>) => {
   const now = new Date().toISOString();
   const id = typeof oferta.id === "string" ? oferta.id : null;
 
+  const historicalPriceAvg = id
+    ? await getHistoricalPriceAvg(supabaseAdmin, id)
+    : null;
+  const ofertaWithHistory =
+    historicalPriceAvg !== null
+      ? { ...oferta, historical_price_avg: historicalPriceAvg }
+      : oferta;
+
   const { quality_score, is_priority } = calculateQualityScore(
-    toOfferQualityData(oferta),
+    toOfferQualityData(ofertaWithHistory),
   );
 
   const basePayload: Record<string, unknown> = {

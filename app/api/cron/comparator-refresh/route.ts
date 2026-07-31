@@ -144,6 +144,13 @@ export async function GET(req: NextRequest) {
         })
         .eq("id", offer.id);
 
+      await supabaseAdmin.from("offer_price_history").insert({
+        offer_id: offer.id,
+        price: newPrice,
+        original_price: null,
+        source: "comparator-refresh",
+      });
+
       results.updated++;
     } catch {
       results.errors++;

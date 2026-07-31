@@ -459,6 +459,13 @@ async function refreshOffer(offer: OfferRow): Promise<RefreshOfferResult> {
       throw new Error(error.message);
     }
 
+    await supabaseAdmin.from("offer_price_history").insert({
+      offer_id: offer.id,
+      price: nextPrice,
+      original_price: nextOldPrice,
+      source: "public-price-refresh",
+    });
+
     return {
       offerId: offer.id,
       title: toText(offer.title) || "Oferta sem titulo",

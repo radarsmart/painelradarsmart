@@ -55,13 +55,6 @@ function normalizeInput(body: Record<string, unknown>): OfferCopyInput {
   };
 }
 
-function formatCurrency(value: number): string {
-  return new Intl.NumberFormat("pt-BR", {
-    style: "currency",
-    currency: "BRL",
-  }).format(value);
-}
-
 function buildFallbackCopy(offer: OfferCopyInput) {
   const hook = `🔥 Oferta em destaque para ${offer.title}!`;
   const base = [
@@ -69,11 +62,9 @@ function buildFallbackCopy(offer: OfferCopyInput) {
     "",
     `*${offer.title}*`,
     "",
-    `✅ Por: ${formatCurrency(offer.price)}`,
-    "",
     "⚡ Oferta ativa agora. Aproveite enquanto está disponível.",
     "",
-    `👉 ${offer.affiliate_url}`,
+    "👉 Confira e garanta o seu!",
   ].join("\n");
 
   return {

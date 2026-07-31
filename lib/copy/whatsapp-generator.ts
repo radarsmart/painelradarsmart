@@ -38,6 +38,16 @@ function normalizeWhitespace(value: string): string {
   return value.replace(/\s+/g, " ").trim();
 }
 
+function normalizeMultiline(value: string): string {
+  return value
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .map((line) => line.replace(/[ \t]+/g, " ").trim())
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 function toNumber(value: unknown): number | null {
   if (value === null || value === undefined || value === "") return null;
   const parsed = Number(String(value).replace(/[^\d,.-]/g, "").replace(",", "."));
@@ -183,45 +193,36 @@ function computeDiscountPct(offer: OfferCopyInput, originalPrice: number | null)
   return null;
 }
 
-function computeSavings(offer: OfferCopyInput, originalPrice: number | null): number | null {
-  if (typeof offer.coupon_discount === "number" && offer.coupon_discount > 0) {
-    return offer.coupon_discount;
-  }
-
-  if (originalPrice && originalPrice > offer.price) {
-    return originalPrice - offer.price;
-  }
-
-  return null;
-}
-
 function buildSystemPrompt(): string {
   return [
-    "Voce e um especialista em copy para WhatsApp e Telegram da Radar Smart.",
-    "Sua tarefa e criar mensagens personalizadas, humanas e persuasivas, prontas para copiar e colar.",
+    "Voce e um copywriter senior de anuncios de afiliado de alta conversao da Radar Smart (mesmo estilo dos melhores anuncios de grupos de ofertas do WhatsApp/Telegram: gancho emocional, detalhe do produto, desejo/beneficio, CTA forte).",
+    "",
+    "ESTRUTURA DE CADA VERSAO (linhas separadas por quebra de linha real \\n, com linha em branco entre os blocos):",
+    "1) GANCHO: 1 linha curta e emocional/curiosa que prenda a atencao, com 1 emoji relevante. NAO escreva em caixa alta.",
+    "2) DETALHE (opcional, 1 linha): uma caracteristica, variacao ou funcionalidade concreta do produto, com emoji.",
+    "3) DESEJO: 1-2 linhas curtas mostrando o beneficio real / a transformacao que o produto entrega no dia a dia.",
+    "4) ACAO: 1 linha final de CTA com emoji (ex: 👉 ou 🛍️), urgencia genuina, convite direto a agir.",
     "",
     "Regras obrigatorias:",
-    "- Escreva em portugues do Brasil.",
+    "- Escreva em portugues do Brasil, tom humano e conversacional, como indicacao de amigo — nunca robotico.",
     "- Retorne APENAS JSON valido, sem markdown e sem blocos de codigo.",
-    "- Nunca use abertura generica ou template repetido.",
+    "- NUNCA escreva preco, valor em R$, percentual de desconto, cupom ou \"economia\" no texto — o sistema insere esse bloco automaticamente logo apos o gancho/detalhe. Use os dados de preco apenas para calibrar o tom (produto caro vs. barato), nunca como texto literal.",
+    "- NAO inclua a URL/link no texto — o sistema adiciona o link e o botao de compra no final.",
+    "- Nunca use abertura generica ou template repetido entre as versoes.",
     "- Personalize a chamada com base no produto, na categoria e no contexto de uso.",
-    "- A mensagem deve soar como uma indicacao de amigo, nao como anuncio robotico.",
-    "- Nao invente dados: frete, estoque, avaliacoes, cupons ou descontos so se estiverem no input.",
-    "- Se houver original_price, mostre economia em R$ e percentual.",
-    "- Se houver coupon_code, inclua o cupom e o beneficio do desconto apenas se estiver informado.",
-    "- Se houver rating e reviews_count, inclua uma linha curta de prova social apenas se fizer sentido.",
-    "- Use emojis com moderação.",
+    "- Nao invente dados: frete, estoque, avaliacoes ou garantias so se estiverem no input.",
+    "- Se houver rating e reviews_count, pode citar como prova social qualitativa (ex: \"aprovado por quem ja comprou\") sem inventar numeros que nao foram informados.",
+    "- Use de 3 a 8 emojis com sentido, nunca genericos demais.",
     "- Gere urgencia sem mentir.",
-    "- O CTA final deve apontar para Radar Smart e o link afiliado.",
     "- Nao incluir assinatura final, rodape de marca ou texto como _Curadoria Radar Smart_.",
-    "- O texto precisa funcionar para WhatsApp e Telegram.",
+    "- O texto precisa funcionar tanto para WhatsApp quanto Telegram.",
     "",
-    "Formato de saida obrigatorio:",
+    "Formato de saida obrigatorio (cada valor deve conter quebras de linha reais \\n entre os blocos da estrutura acima):",
     "{",
-    '  "hook": "string curta e forte",',
-    '  "short": "versao curta para status/stories",',
-    '  "medium": "versao media para grupos",',
-    '  "long": "versao longa para canal/telegram"',
+    '  "hook": "string curta e forte (so o gancho, 1 linha)",',
+    '  "short": "versao curta para status/stories (gancho + desejo + acao)",',
+    '  "medium": "versao media para grupos (gancho + detalhe + desejo + acao)",',
+    '  "long": "versao longa para canal/telegram (gancho + detalhe + desejo em 2 linhas + acao)"',
     "}",
   ].join("\n");
 }
@@ -229,48 +230,17 @@ function buildSystemPrompt(): string {
 function buildUserPrompt(offer: OfferCopyInput): string {
   const originalPrice = computeOriginalPrice(offer);
   const discountPct = computeDiscountPct(offer, originalPrice);
-  const savings = computeSavings(offer, originalPrice);
   const context = inferProductContext(offer);
 
-  const outputStructure = [
-    "🎯 [CHAMADA PERSONALIZADA DO PRODUTO]",
-    "",
-    "*[NOME DO PRODUTO]*",
-    "",
-    "[DESCRICAO CURTA E HUMANA - 1-2 linhas]",
-    "",
-    `💰 De: ${originalPrice ? `~${formatMoney(originalPrice)}` : "não informado"}`,
-    `✅ Por: ${formatMoney(offer.price)}`,
-    savings
-      ? `📉 Economia de ${formatMoney(savings)}${discountPct ? ` (${formatPercent(discountPct)} OFF)` : ""}`
-      : "",
-    offer.coupon_code ? `🏷️ Cupom: ${offer.coupon_code}` : "",
-    offer.coupon_code && typeof offer.coupon_discount === "number" && offer.coupon_discount > 0
-      ? `💡 Aplique no checkout e garanta mais ${formatMoney(offer.coupon_discount)} de desconto!`
-      : "",
-    typeof offer.rating === "number" && typeof offer.reviews_count === "number"
-      ? `⭐ ${offer.rating.toFixed(1)} estrelas • ${formatNumber(offer.reviews_count)} avaliações`
-      : "",
-    "",
-    "⚡ Estoque limitado — garanta o seu agora!",
-    "",
-    `👉 ${offer.affiliate_url}`,
-  ]
-    .filter(Boolean)
-    .join("\n");
-
   return [
-    "Crie 3 versões de copy para a oferta abaixo.",
+    "Crie as versões de copy para a oferta abaixo, seguindo a estrutura GANCHO / DETALHE / DESEJO / ACAO do system prompt.",
+    "Lembre-se: NAO escreva preco, R$, % de desconto, cupom ou a URL no texto — isso e inserido automaticamente pelo sistema depois do gancho/detalhe.",
     "",
-    "DADOS DA OFERTA:",
+    "DADOS DA OFERTA (apenas para calibrar o tom — nao escrever os valores no texto):",
     `- Título: ${offer.title}`,
-    `- Preço atual: ${formatMoney(offer.price)}`,
-    `- Preço original: ${originalPrice ? formatMoney(originalPrice) : "não informado"}`,
-    `- Desconto percentual: ${discountPct ? formatPercent(discountPct) : "não informado"}`,
-    `- Cupom: ${offer.coupon_code || "não informado"}`,
-    `- Valor do cupom: ${offer.coupon_discount ? formatMoney(offer.coupon_discount) : "não informado"}`,
-    `- Link afiliado: ${offer.affiliate_url}`,
-    `- Imagem: ${offer.image_url || "não informada"}`,
+    `- Faixa de preço: ${formatMoney(offer.price)}`,
+    `- Havia desconto: ${discountPct ? `sim, aproximadamente ${formatPercent(discountPct)}` : "não"}`,
+    `- Cupom disponível: ${offer.coupon_code ? "sim" : "não"}`,
     `- Categoria: ${offer.category || "não informada"}`,
     `- Marketplace: ${offer.marketplace}`,
     `- Avaliação: ${typeof offer.rating === "number" ? offer.rating.toFixed(1) : "não informada"}`,
@@ -284,23 +254,16 @@ function buildUserPrompt(offer: OfferCopyInput): string {
     `- Sugestões de abertura: ${context.openingHints.join(" | ")}`,
     "",
     "REGRAS DE COPY:",
-    '- A primeira linha precisa parecer natural e específica para o produto.',
-    "- Use o nome do produto em negrito com asteriscos: *nome do produto*.",
-    "- Destaque benefício, valor economizado e contexto de uso real.",
-    "- Se houver avaliação boa, inclua algo como: ⭐ 4,8 estrelas • 120 avaliações.",
-    "- Se houver cupom, inclua o bloco do cupom na mensagem.",
-    "- Se houver economia, mostre o valor economizado em R$ e não só o percentual.",
-    "- O CTA final deve ser curto, direto e convidar para Radar Smart.",
+    "- A primeira linha (gancho) precisa parecer natural e específica para o produto, não genérica.",
+    "- Use o nome do produto em negrito com asteriscos quando citar: *nome do produto*.",
+    "- Destaque benefício e contexto de uso real, não números.",
     "- Não repita a mesma abertura entre short, medium e long.",
     "",
-    "FORMATAÇÃO DAS VERSÕES:",
-    "- hook: 1 linha curta e forte.",
-    "- short: 4 a 6 linhas, ideal para Stories/Status.",
-    "- medium: 6 a 9 linhas, ideal para grupos de WhatsApp.",
-    "- long: 10 a 14 linhas, ideal para canal de Telegram.",
-    "",
-    "A estrutura abaixo serve como referência, mas a copy final deve ser personalizada e diferente do modelo pronto:",
-    outputStructure,
+    "FORMATAÇÃO DAS VERSÕES (cada bloco em sua própria linha, separado por \\n, com linha em branco entre blocos):",
+    "- hook: 1 linha curta e forte (só o gancho).",
+    "- short: gancho + desejo (1 linha) + ação — ideal para Stories/Status.",
+    "- medium: gancho + detalhe + desejo (1-2 linhas) + ação — ideal para grupos de WhatsApp.",
+    "- long: gancho + detalhe + desejo (2 linhas) + ação — ideal para canal de Telegram.",
   ].join("\n");
 }
 
@@ -370,7 +333,7 @@ async function requestOpenAIJson(params: {
 }
 
 function normalizeVariant(value: unknown): string {
-  return stripBrandSignature(normalizeWhitespace(toText(value)));
+  return stripBrandSignature(normalizeMultiline(toText(value)));
 }
 
 function stripBrandSignature(value: string): string {

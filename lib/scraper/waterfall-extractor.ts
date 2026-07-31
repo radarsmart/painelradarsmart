@@ -8,6 +8,7 @@ import {
 } from "@/lib/scraper/attempt-events";
 import { extractShopeeOffer } from "@/lib/scraping/shopee-extractor";
 import { extractViaMlSession } from "@/lib/scraping/ml-session-client";
+import { extractBrandModel } from "@/lib/scraper/brand-model-extractor";
 
 export type Marketplace = "mercadolivre" | "amazon" | "shopee" | "generic";
 
@@ -23,6 +24,8 @@ export interface ExtractedProduct {
   rating_count: number | null;
   seller: string | null;
   category: string | null;
+  brand: string | null;
+  model: string | null;
   url: string;
   marketplace: Marketplace;
   extraction_method: string;
@@ -584,6 +587,8 @@ function completeProduct(
     rating_count: partial.rating_count ?? null,
     seller: toText(partial.seller) || null,
     category: toText(partial.category) || null,
+    brand: null,
+    model: null,
     url,
     marketplace,
     extraction_method: extractionMethod,
@@ -654,9 +659,18 @@ export async function extractProduct(
         offerId,
       });
 
+      const completedProduct = completeProduct(product, sourceUrl, marketplace, layer.name);
+      const brandModel = await extractBrandModel({
+        title: completedProduct.title,
+        category: completedProduct.category,
+        marketplace,
+      });
+      completedProduct.brand = brandModel.brand;
+      completedProduct.model = brandModel.model;
+
       return {
         success: true,
-        product: completeProduct(product, sourceUrl, marketplace, layer.name),
+        product: completedProduct,
         attempts,
         total_duration_ms: totalDuration,
         request_id: requestId,

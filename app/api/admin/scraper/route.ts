@@ -15,6 +15,7 @@ import { extractMercadoLivreWithBrightData } from "@/lib/scraping/mercadolivre-b
 import { extractMercadoLivreWithZenscrape } from "@/lib/scraping/mercadolivre-zenscrape";
 import { extractAmazonWithRainforest } from "@/lib/scraping/amazon-rainforest";
 import { extractShopeeOffer } from "@/lib/scraping/shopee-extractor";
+import { extractBrandModel } from "@/lib/scraper/brand-model-extractor";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -102,6 +103,8 @@ type SuccessResponse = {
   coupon_code?: string | null;
   coupon_discount_pct?: number | null;
   momentum_score?: number;
+  brand?: string | null;
+  model?: string | null;
   preview: ExtractPreviewPayload;
   extracted: Record<string, unknown>;
   offer_id?: string | null;
@@ -540,6 +543,21 @@ function buildExtractionStatus(input: {
   };
 }
 
+function extractBrandFromMlAttributes(rawData: Record<string, unknown>): string | null {
+  const attributes = rawData.attributes;
+  if (!Array.isArray(attributes)) return null;
+
+  const brandAttr = attributes.find(
+    (attr) =>
+      attr &&
+      typeof attr === "object" &&
+      (attr as Record<string, unknown>).id === "BRAND",
+  ) as Record<string, unknown> | undefined;
+
+  const value = brandAttr?.value_name;
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
 function buildFromMercadoLivreOfficial(input: {
   elapsedMs: number;
   title: string;
@@ -587,6 +605,7 @@ function buildFromMercadoLivreOfficial(input: {
     image_url: input.imageUrl,
     product_url: input.productUrl,
     affiliate_url: input.affiliateUrl,
+    brand: extractBrandFromMlAttributes(input.rawData),
     preview,
     extracted: input.rawData,
   };
@@ -1213,9 +1232,9 @@ function mergeAmazonPayloads(
   };
 }
 
-function buildFromContainerFallback(
+async function buildFromContainerFallback(
   extractedEngine: Awaited<ReturnType<typeof extractWithContainerEngine>>,
-): SuccessResponse {
+): Promise<SuccessResponse> {
   if (extractedEngine.marketplace === "mercadolivre") {
     const extracted = extractedEngine.data;
     const preview = mapToAdminProdutoML(extracted);
@@ -1233,6 +1252,11 @@ function buildFromContainerFallback(
       price: preview.price,
       imageUrl: preview.image_url,
     });
+    const brandModel = await extractBrandModel({
+      title: preview.title,
+      marketplace: "mercadolivre",
+      knownBrand: extracted.brand,
+    });
 
     return {
       success: true,
@@ -1249,6 +1273,8 @@ function buildFromContainerFallback(
       image_url: preview.image_url,
       product_url: preview.product_url,
       affiliate_url: preview.affiliate_url,
+      brand: brandModel.brand,
+      model: brandModel.model,
       preview: previewPayload,
       extracted: extracted as unknown as Record<string, unknown>,
     };
@@ -1271,6 +1297,11 @@ function buildFromContainerFallback(
     price: preview.price,
     imageUrl: preview.image_url,
   });
+  const brandModel = await extractBrandModel({
+    title: preview.title,
+    marketplace: "amazon",
+    knownBrand: extracted.brand,
+  });
 
   return {
     success: true,
@@ -1287,6 +1318,8 @@ function buildFromContainerFallback(
     image_url: preview.image_url,
     product_url: preview.product_url,
     affiliate_url: preview.affiliate_url,
+    brand: brandModel.brand,
+    model: brandModel.model,
     preview: previewPayload,
     extracted: extracted as unknown as Record<string, unknown>,
   };
@@ -1355,6 +1388,23 @@ async function maybePersistExtraction(
     return payload;
   }
 
+  // Enriquecimento compartilhado: preenche marca/modelo se algum caminho de
+  // extracao (official/zenscrape/rainforest/shopee) nao trouxe esses dados
+  // nativamente. buildFromContainerFallback ja preenche os dois, entao isso
+  // vira um no-op pra esse caminho.
+  if (!toText(payload.model) && toText(payload.title)) {
+    const brandModel = await extractBrandModel({
+      title: payload.title,
+      marketplace: input.marketplace,
+      knownBrand: payload.brand ?? null,
+    });
+    payload = {
+      ...payload,
+      brand: payload.brand ?? brandModel.brand,
+      model: brandModel.model,
+    };
+  }
+
   const productUrl = payload.product_url || input.sourceUrl;
   const affiliateUrl = payload.affiliate_url || input.affiliateUrl;
   const externalOfferId = `${input.marketplace}:${productUrl}`;
@@ -1388,6 +1438,8 @@ async function maybePersistExtraction(
     old_price: oldPrice || null,
     original_price: oldPrice || null,
     discount_pct: discountPct,
+    brand: payload.brand ?? null,
+    model: payload.model ?? null,
     status: offerStatus,
     curations_status: needsReview ? "needs_review" : "approved",
     source: "central_oferta",
@@ -1564,7 +1616,7 @@ export async function POST(req: NextRequest) {
                 ML_PREVIEW_BRIGHTDATA_TIMEOUT_MS,
                 "Container Engine Mercado Livre",
               );
-              absorbPreviewPayload(buildFromContainerFallback(extractedEngine));
+              absorbPreviewPayload(await buildFromContainerFallback(extractedEngine));
               console.log("[ML Preview] Sucesso no Container Engine");
             } catch (error) {
               containerError = extractErrorMessage(error);
@@ -2229,7 +2281,7 @@ export async function POST(req: NextRequest) {
         });
 
         let fallbackPayload = enrichResponseWithCoupon(
-          buildFromContainerFallback(extractedEngine),
+          await buildFromContainerFallback(extractedEngine),
           couponCode,
           couponDiscountPct,
         );

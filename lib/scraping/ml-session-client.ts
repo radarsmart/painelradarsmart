@@ -52,6 +52,16 @@ export type MlSessionSearchItem = {
   image_url: string | null;
   price: number | null;
   old_price: number | null;
+  rating: number | null;
+  sold_count: number | null;
+  is_full: boolean;
+};
+
+export type MlSellerReputation = {
+  sellerName: string | null;
+  level: string | null;
+  isMercadoLider: boolean;
+  totalSales: number | null;
 };
 
 export async function extractViaMlSession(url: string): Promise<MlSessionProduct> {
@@ -71,6 +81,18 @@ export async function searchViaMlSession(
     25000,
   );
   return payload.items ?? [];
+}
+
+/**
+ * So existe na pagina do produto, entao deve ser chamada sob demanda (para o
+ * candidato ja selecionado), nunca para todos os resultados de uma busca.
+ */
+export async function fetchMlSellerReputation(productUrl: string): Promise<MlSellerReputation> {
+  const payload = await callMlSession<{ reputation: MlSellerReputation }>(
+    `/seller-reputation?url=${encodeURIComponent(productUrl)}`,
+    25000,
+  );
+  return payload.reputation;
 }
 
 function getAffiliateConfig() {

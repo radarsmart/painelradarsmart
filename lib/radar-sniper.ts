@@ -170,7 +170,20 @@ export function passesRadarSniperPreFilter(input: SniperInput): boolean {
 
   const signals = getRelevanceSignals(input);
   const popularity = computePopularityScore(input);
-  return signals.hasBestSeller || signals.hasPrimeOrFull || popularity >= 55;
+  if (signals.hasBestSeller || signals.hasPrimeOrFull || popularity >= 55) return true;
+
+  // Algumas fontes (ex.: busca do Mercado Livre) nao expoe rating/reviewCount,
+  // entao popularidade fica sempre 0 e o filtro nunca passaria. Nesses casos,
+  // usa o desconto como sinal substituto de potencial de conversao.
+  const hasPopularitySignal = input.rating !== null && input.rating !== undefined
+    ? true
+    : input.reviewCount !== null && input.reviewCount !== undefined;
+  if (!hasPopularitySignal) {
+    const discountPct = toNumber(input.discountPct) ?? 0;
+    return discountPct >= 30;
+  }
+
+  return false;
 }
 
 type SniperDiscoveryItem = SniperInput & {

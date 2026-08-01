@@ -31,9 +31,12 @@ export async function discoverMercadoLivre(agent: SalesAgent): Promise<Discovery
       affiliateUrl: item.link,
       productUrl: item.link,
       category: agent.category || null,
-      rating: null,
-      reviewCount: null,
-      badges: [],
+      rating: item.rating,
+      // reviewCount aqui e usado como proxy de volume/"vendas recorrentes":
+      // o card de busca do ML mostra quantidade vendida, nao contagem de
+      // avaliacoes, mas alimenta o mesmo calculo de popularidade do AAV.
+      reviewCount: item.sold_count,
+      badges: item.is_full ? ["FULL"] : [],
       raw: item,
       affiliateLinkVerified: false,
     });

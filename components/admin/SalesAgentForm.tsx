@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, Bot, CheckCircle2, Loader2, Play, Save } from "lucide-react";
+import { ArrowLeft, ArrowRight, Bot, Loader2, Play, Save } from "lucide-react";
 
 import { supabase } from "@/lib/supabase";
 
@@ -159,6 +159,18 @@ function formatDateTime(value?: string | null) {
 
 const HOURS = Array.from({ length: 24 }, (_, hour) => hour);
 
+const STEPS = [
+  { key: "name", label: "Nome do Agente" },
+  { key: "source", label: "Loja e Busca" },
+  { key: "filters", label: "Filtros da Busca" },
+  { key: "schedule", label: "Horario de Operacao" },
+  { key: "volume", label: "Quantidade e Intervalo" },
+  { key: "targets", label: "Grupos de Destino" },
+  { key: "ai-text", label: "Orientacoes para a IA" },
+  { key: "ai-image", label: "Imagem da Divulgacao" },
+  { key: "activation", label: "Filtro AAV e Ativacao" },
+] as const;
+
 export default function SalesAgentForm({ agentId }: { agentId?: string }) {
   const router = useRouter();
   const [form, setForm] = useState<FormState>(DEFAULT_FORM);
@@ -168,6 +180,7 @@ export default function SalesAgentForm({ agentId }: { agentId?: string }) {
   const [loading, setLoading] = useState("initial");
   const [error, setError] = useState("");
   const [feedback, setFeedback] = useState("");
+  const [step, setStep] = useState(0);
 
   const groupedTargets = useMemo(() => {
     const groups = new Map<string, TargetOption[]>();
@@ -244,6 +257,31 @@ export default function SalesAgentForm({ agentId }: { agentId?: string }) {
     }));
   }
 
+  function stepBlockingError(stepIndex: number): string | null {
+    if (STEPS[stepIndex].key === "name" && !form.name.trim()) {
+      return "Informe um nome para o agente antes de continuar.";
+    }
+    if (STEPS[stepIndex].key === "targets" && !form.targetIds.length) {
+      return "Escolha pelo menos 1 grupo/canal de destino antes de continuar.";
+    }
+    return null;
+  }
+
+  function goToStep(nextStep: number) {
+    if (nextStep > step) {
+      for (let index = step; index < nextStep; index += 1) {
+        const blockingError = stepBlockingError(index);
+        if (blockingError) {
+          setError(blockingError);
+          setStep(index);
+          return;
+        }
+      }
+    }
+    setError("");
+    setStep(Math.min(Math.max(nextStep, 0), STEPS.length - 1));
+  }
+
   async function handleSave() {
     if (!form.name.trim()) {
       setError("Informe um nome para o agente.");
@@ -297,15 +335,18 @@ export default function SalesAgentForm({ agentId }: { agentId?: string }) {
     }
   }
 
+  const currentStep = STEPS[step];
+  const isLastStep = step === STEPS.length - 1;
+
   return (
-    <div className="min-h-screen flex-1 space-y-8 bg-[#F5F1ED] p-8 pt-6">
+    <div className="min-h-screen flex-1 space-y-6 bg-[#F5F1ED] p-8 pt-6">
       <div>
         <h1 className="flex items-center gap-3 text-3xl font-bold tracking-tight text-[#1A1A1A]">
           <Bot className="text-orange" />
-          {agentId ? "Editar Agente de Vendas" : "Novo Agente de Vendas"}
+          {agentId ? "Editar Agente de Vendas com IA" : "Criar Agente de Vendas com IA"}
         </h1>
         <p className="mt-1 text-sm font-medium text-muted-foreground">
-          Busca ofertas, gera texto (e imagem) com IA, e envia sozinho para os grupos escolhidos.
+          Configure em etapas e deixe o agente trabalhar por voce.
         </p>
       </div>
 
@@ -320,314 +361,417 @@ export default function SalesAgentForm({ agentId }: { agentId?: string }) {
         </div>
       ) : null}
 
+      <div className="flex gap-1.5">
+        {STEPS.map((item, index) => (
+          <button
+            key={item.key}
+            type="button"
+            onClick={() => goToStep(index)}
+            title={item.label}
+            className={`h-1.5 flex-1 rounded-full transition-colors ${
+              index <= step ? "bg-navy" : "bg-slate-200"
+            }`}
+          />
+        ))}
+      </div>
+
       <section className="rounded-3xl border border-rs-border bg-white p-6 shadow-sm">
-        <div className="mb-5 flex items-center justify-between gap-3">
-          <h2 className="text-xl font-bold text-navy">Configuracao</h2>
-          {form.active ? (
-            <span className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700">
-              <CheckCircle2 className="h-4 w-4" />
-              Ativo
-            </span>
-          ) : (
-            <span className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-2 text-xs font-bold text-slate-600">
-              <AlertTriangle className="h-4 w-4" />
-              Inativo
-            </span>
-          )}
+        <div className="mb-5 flex items-center gap-3">
+          <span className="flex h-8 w-8 items-center justify-center rounded-full bg-navy text-sm font-bold text-white">
+            {step + 1}
+          </span>
+          <h2 className="text-xl font-bold text-navy">{currentStep.label}</h2>
         </div>
 
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          <label className="space-y-2 xl:col-span-2">
-            <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Nome do agente</span>
+        {currentStep.key === "name" ? (
+          <div className="space-y-2">
+            <p className="text-sm text-slate-500">De um nome para identificar este agente.</p>
             <input
               value={form.name}
               onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
               placeholder="Ex: Agente Moda Feminina"
               className="h-11 w-full rounded-xl border border-slate-300 px-3 text-sm outline-none focus:border-orange"
             />
-          </label>
-
-          <label className="space-y-2">
-            <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Loja</span>
-            <select
-              value={form.source}
-              onChange={(event) =>
-                setForm((current) => ({ ...current, source: event.target.value as SalesAgentSource }))
-              }
-              className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm outline-none focus:border-orange"
-            >
-              {SOURCE_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="space-y-2">
-            <span className="text-xs font-bold uppercase tracking-wide text-slate-500">
-              Advertiser/Organization ID (AWIN/Lomadee)
-            </span>
-            <input
-              value={form.advertiserId}
-              onChange={(event) => setForm((current) => ({ ...current, advertiserId: event.target.value }))}
-              placeholder="Opcional"
-              className="h-11 w-full rounded-xl border border-slate-300 px-3 text-sm outline-none focus:border-orange"
-            />
-          </label>
-
-          <label className="space-y-2">
-            <span className="text-xs font-bold uppercase tracking-wide text-slate-500">
-              Busca/palavra-chave (ML, Shopee)
-            </span>
-            <input
-              value={form.searchQuery}
-              onChange={(event) => setForm((current) => ({ ...current, searchQuery: event.target.value }))}
-              placeholder="Ex: tenis feminino"
-              className="h-11 w-full rounded-xl border border-slate-300 px-3 text-sm outline-none focus:border-orange"
-            />
-          </label>
-
-          <label className="space-y-2">
-            <span className="text-xs font-bold uppercase tracking-wide text-slate-500">
-              Categoria (AWIN/Lomadee/Amazon)
-            </span>
-            <input
-              value={form.category}
-              onChange={(event) => setForm((current) => ({ ...current, category: event.target.value }))}
-              placeholder="Opcional"
-              className="h-11 w-full rounded-xl border border-slate-300 px-3 text-sm outline-none focus:border-orange"
-            />
-          </label>
-
-          <label className="space-y-2">
-            <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Preco minimo BRL</span>
-            <input
-              type="number"
-              min={0}
-              step="0.01"
-              value={form.priceMin}
-              onChange={(event) => setForm((current) => ({ ...current, priceMin: event.target.value }))}
-              placeholder="Sem minimo"
-              className="h-11 w-full rounded-xl border border-slate-300 px-3 text-sm outline-none focus:border-orange"
-            />
-          </label>
-
-          <label className="space-y-2">
-            <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Preco maximo BRL</span>
-            <input
-              type="number"
-              min={0}
-              step="0.01"
-              value={form.priceMax}
-              onChange={(event) => setForm((current) => ({ ...current, priceMax: event.target.value }))}
-              placeholder="Sem limite"
-              className="h-11 w-full rounded-xl border border-slate-300 px-3 text-sm outline-none focus:border-orange"
-            />
-          </label>
-
-          <label className="space-y-2">
-            <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Desconto minimo (%)</span>
-            <input
-              type="number"
-              min={0}
-              max={99}
-              value={form.minDiscountPct}
-              onChange={(event) => setForm((current) => ({ ...current, minDiscountPct: event.target.value }))}
-              className="h-11 w-full rounded-xl border border-slate-300 px-3 text-sm outline-none focus:border-orange"
-            />
-          </label>
-
-          <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-            <div>
-              <p className="text-sm font-bold text-navy">Filtro AAV</p>
-              <p className="text-xs text-slate-500">So considera produtos com alto potencial de conversao.</p>
-            </div>
-            <input
-              type="checkbox"
-              checked={form.aavFilterEnabled}
-              onChange={(event) =>
-                setForm((current) => ({ ...current, aavFilterEnabled: event.target.checked }))
-              }
-              className="h-6 w-6 accent-orange"
-            />
           </div>
+        ) : null}
 
-          <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-            <div>
-              <p className="text-sm font-bold text-navy">Gerar imagem com IA</p>
-              <p className="text-xs text-slate-500">Transforma a foto do produto em foto realista antes de postar.</p>
+        {currentStep.key === "source" ? (
+          <div className="space-y-4">
+            <p className="text-sm text-slate-500">De onde o agente deve buscar os produtos para divulgar?</p>
+            <div className="grid gap-4 md:grid-cols-2">
+              <label className="space-y-2">
+                <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Loja</span>
+                <select
+                  value={form.source}
+                  onChange={(event) =>
+                    setForm((current) => ({ ...current, source: event.target.value as SalesAgentSource }))
+                  }
+                  className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm outline-none focus:border-orange"
+                >
+                  {SOURCE_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="space-y-2">
+                <span className="text-xs font-bold uppercase tracking-wide text-slate-500">
+                  Advertiser/Organization ID (AWIN/Lomadee)
+                </span>
+                <input
+                  value={form.advertiserId}
+                  onChange={(event) => setForm((current) => ({ ...current, advertiserId: event.target.value }))}
+                  placeholder="Opcional"
+                  className="h-11 w-full rounded-xl border border-slate-300 px-3 text-sm outline-none focus:border-orange"
+                />
+              </label>
+
+              <label className="space-y-2">
+                <span className="text-xs font-bold uppercase tracking-wide text-slate-500">
+                  Busca/palavra-chave (Mercado Livre, Shopee)
+                </span>
+                <input
+                  value={form.searchQuery}
+                  onChange={(event) => setForm((current) => ({ ...current, searchQuery: event.target.value }))}
+                  placeholder="Ex: tenis feminino"
+                  className="h-11 w-full rounded-xl border border-slate-300 px-3 text-sm outline-none focus:border-orange"
+                />
+              </label>
+
+              <label className="space-y-2">
+                <span className="text-xs font-bold uppercase tracking-wide text-slate-500">
+                  Categoria (AWIN/Lomadee/Amazon)
+                </span>
+                <input
+                  value={form.category}
+                  onChange={(event) => setForm((current) => ({ ...current, category: event.target.value }))}
+                  placeholder="Opcional"
+                  className="h-11 w-full rounded-xl border border-slate-300 px-3 text-sm outline-none focus:border-orange"
+                />
+              </label>
             </div>
-            <input
-              type="checkbox"
-              checked={form.aiImageEnabled}
-              onChange={(event) => setForm((current) => ({ ...current, aiImageEnabled: event.target.checked }))}
-              className="h-6 w-6 accent-orange"
-            />
           </div>
+        ) : null}
 
-          <label className="space-y-2 md:col-span-2 xl:col-span-3">
-            <span className="text-xs font-bold uppercase tracking-wide text-slate-500">
-              Orientacao extra para a IA (opcional)
+        {currentStep.key === "filters" ? (
+          <div className="space-y-4">
+            <p className="text-sm text-slate-500">Refine quais produtos o agente pode divulgar.</p>
+            <div className="grid gap-4 md:grid-cols-3">
+              <label className="space-y-2">
+                <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Desconto minimo (%)</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={99}
+                  value={form.minDiscountPct}
+                  onChange={(event) => setForm((current) => ({ ...current, minDiscountPct: event.target.value }))}
+                  className="h-11 w-full rounded-xl border border-slate-300 px-3 text-sm outline-none focus:border-orange"
+                />
+              </label>
+
+              <label className="space-y-2">
+                <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Preco minimo BRL</span>
+                <input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={form.priceMin}
+                  onChange={(event) => setForm((current) => ({ ...current, priceMin: event.target.value }))}
+                  placeholder="Sem minimo"
+                  className="h-11 w-full rounded-xl border border-slate-300 px-3 text-sm outline-none focus:border-orange"
+                />
+              </label>
+
+              <label className="space-y-2">
+                <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Preco maximo BRL</span>
+                <input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={form.priceMax}
+                  onChange={(event) => setForm((current) => ({ ...current, priceMax: event.target.value }))}
+                  placeholder="Sem limite"
+                  className="h-11 w-full rounded-xl border border-slate-300 px-3 text-sm outline-none focus:border-orange"
+                />
+              </label>
+            </div>
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-semibold text-amber-700">
+              Filtros muito restritos podem reduzir ou impedir os envios.
+            </div>
+          </div>
+        ) : null}
+
+        {currentStep.key === "schedule" ? (
+          <div className="space-y-4">
+            <p className="text-sm text-slate-500">Em qual janela de horario o agente pode enviar divulgacoes?</p>
+            <div className="grid gap-4 md:grid-cols-2">
+              <label className="space-y-2">
+                <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Inicio</span>
+                <select
+                  value={form.sendWindowStartHour}
+                  onChange={(event) =>
+                    setForm((current) => ({ ...current, sendWindowStartHour: event.target.value }))
+                  }
+                  className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm outline-none focus:border-orange"
+                >
+                  {HOURS.map((hour) => (
+                    <option key={hour} value={hour}>
+                      {String(hour).padStart(2, "0")}:00
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="space-y-2">
+                <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Fim</span>
+                <select
+                  value={form.sendWindowEndHour}
+                  onChange={(event) =>
+                    setForm((current) => ({ ...current, sendWindowEndHour: event.target.value }))
+                  }
+                  className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm outline-none focus:border-orange"
+                >
+                  {HOURS.map((hour) => (
+                    <option key={hour} value={hour}>
+                      {String(hour).padStart(2, "0")}:00
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <p className="text-xs text-slate-500">Fuso horario: {form.timezone}</p>
+          </div>
+        ) : null}
+
+        {currentStep.key === "volume" ? (
+          <div className="space-y-6">
+            <div>
+              <p className="text-sm text-slate-500">Quantas divulgacoes o agente deve fazer por dia no maximo?</p>
+              <div className="mt-3 flex items-center gap-4">
+                <input
+                  type="range"
+                  min={1}
+                  max={50}
+                  value={form.maxSendsPerDay}
+                  onChange={(event) => setForm((current) => ({ ...current, maxSendsPerDay: event.target.value }))}
+                  className="h-2 flex-1 accent-orange"
+                />
+                <span className="w-10 text-right text-lg font-bold text-navy">{form.maxSendsPerDay}</span>
+              </div>
+              <p className="mt-2 text-xs text-slate-500">O agente distribuira os envios dentro do horario configurado.</p>
+            </div>
+
+            <label className="block space-y-2">
+              <span className="text-xs font-bold uppercase tracking-wide text-slate-500">
+                Intervalo minimo entre envios (minutos)
+              </span>
+              <input
+                type="number"
+                min={1}
+                max={1440}
+                value={form.minIntervalMinutes}
+                onChange={(event) =>
+                  setForm((current) => ({ ...current, minIntervalMinutes: event.target.value }))
+                }
+                className="h-11 w-full max-w-xs rounded-xl border border-slate-300 px-3 text-sm outline-none focus:border-orange"
+              />
+            </label>
+          </div>
+        ) : null}
+
+        {currentStep.key === "targets" ? (
+          <div>
+            <p className="text-sm text-slate-500">
+              Para quais grupos/chats o agente deve enviar as divulgacoes? (organizados por nicho, quando
+              configurado em Canais)
+            </p>
+
+            {targets.length === 0 ? (
+              <p className="mt-4 text-sm text-slate-500">Nenhum destino cadastrado ainda em post_targets.</p>
+            ) : (
+              <div className="mt-5 space-y-5">
+                {groupedTargets.map(([niche, list]) => (
+                  <div key={niche}>
+                    <p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">{niche}</p>
+                    <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                      {list.map((target) => (
+                        <label
+                          key={target.id}
+                          className={`flex items-center gap-3 rounded-xl border p-3 text-sm ${
+                            form.targetIds.includes(target.id)
+                              ? "border-orange bg-orange/5"
+                              : "border-slate-200 bg-white"
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={form.targetIds.includes(target.id)}
+                            onChange={() => toggleTarget(target.id)}
+                            className="h-5 w-5 accent-orange"
+                          />
+                          <span>
+                            <span className="block font-semibold text-navy">
+                              {target.name || target.external_id}
+                            </span>
+                            <span className="block text-xs uppercase text-slate-500">{target.channel}</span>
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ) : null}
+
+        {currentStep.key === "ai-text" ? (
+          <label className="block space-y-2">
+            <span className="text-sm text-slate-500">
+              Descreva o que o agente deve priorizar: nicho, tipo de produto, tom de voz etc. (opcional)
             </span>
             <textarea
               value={form.aiInstructions}
               onChange={(event) => setForm((current) => ({ ...current, aiInstructions: event.target.value }))}
-              rows={3}
-              placeholder="Ex: use um tom mais divertido, foque no publico jovem, evite gírias regionais..."
+              rows={5}
+              maxLength={500}
+              placeholder="Ex: Produtos de moda feminina, tom animado, foque no publico jovem, evite girias regionais."
               className="w-full rounded-xl border border-slate-300 p-3 text-sm outline-none focus:border-orange"
             />
+            <span className="block text-xs text-slate-400">{form.aiInstructions.length}/500 caracteres.</span>
           </label>
-        </div>
-      </section>
+        ) : null}
 
-      <section className="rounded-3xl border border-rs-border bg-white p-6 shadow-sm">
-        <h2 className="text-xl font-bold text-navy">Horario e quantidade</h2>
-        <p className="mt-1 text-sm text-slate-500">Janela de envio, limite diario e intervalo minimo entre posts.</p>
-
-        <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <label className="space-y-2">
-            <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Inicio</span>
-            <select
-              value={form.sendWindowStartHour}
-              onChange={(event) =>
-                setForm((current) => ({ ...current, sendWindowStartHour: event.target.value }))
-              }
-              className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm outline-none focus:border-orange"
+        {currentStep.key === "ai-image" ? (
+          <div className="space-y-3">
+            <p className="text-sm text-slate-500">Qual imagem o agente deve usar nas divulgacoes?</p>
+            <label
+              className={`block cursor-pointer rounded-xl border p-4 ${
+                !form.aiImageEnabled ? "border-orange bg-orange/5" : "border-slate-200 bg-white"
+              }`}
             >
-              {HOURS.map((hour) => (
-                <option key={hour} value={hour}>
-                  {String(hour).padStart(2, "0")}:00
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="space-y-2">
-            <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Fim</span>
-            <select
-              value={form.sendWindowEndHour}
-              onChange={(event) => setForm((current) => ({ ...current, sendWindowEndHour: event.target.value }))}
-              className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm outline-none focus:border-orange"
+              <span className="flex items-center gap-3">
+                <input
+                  type="radio"
+                  checked={!form.aiImageEnabled}
+                  onChange={() => setForm((current) => ({ ...current, aiImageEnabled: false }))}
+                  className="h-5 w-5 accent-orange"
+                />
+                <span>
+                  <span className="block text-sm font-bold text-navy">Imagem do Marketplace</span>
+                  <span className="block text-xs text-slate-500">Usa a foto original do produto da loja.</span>
+                </span>
+              </span>
+            </label>
+            <label
+              className={`block cursor-pointer rounded-xl border p-4 ${
+                form.aiImageEnabled ? "border-orange bg-orange/5" : "border-slate-200 bg-white"
+              }`}
             >
-              {HOURS.map((hour) => (
-                <option key={hour} value={hour}>
-                  {String(hour).padStart(2, "0")}:00
-                </option>
-              ))}
-            </select>
-          </label>
+              <span className="flex items-center gap-3">
+                <input
+                  type="radio"
+                  checked={form.aiImageEnabled}
+                  onChange={() => setForm((current) => ({ ...current, aiImageEnabled: true }))}
+                  className="h-5 w-5 accent-orange"
+                />
+                <span>
+                  <span className="block text-sm font-bold text-navy">Gerada por IA</span>
+                  <span className="block text-xs text-slate-500">
+                    Transforma a foto do produto numa foto realista de catalogo antes de postar.
+                  </span>
+                </span>
+              </span>
+            </label>
+          </div>
+        ) : null}
 
-          <label className="space-y-2">
-            <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Maximo por dia</span>
-            <input
-              type="number"
-              min={1}
-              max={200}
-              value={form.maxSendsPerDay}
-              onChange={(event) => setForm((current) => ({ ...current, maxSendsPerDay: event.target.value }))}
-              className="h-11 w-full rounded-xl border border-slate-300 px-3 text-sm outline-none focus:border-orange"
-            />
-          </label>
-
-          <label className="space-y-2">
-            <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Intervalo minimo (min)</span>
-            <input
-              type="number"
-              min={1}
-              max={1440}
-              value={form.minIntervalMinutes}
-              onChange={(event) =>
-                setForm((current) => ({ ...current, minIntervalMinutes: event.target.value }))
-              }
-              className="h-11 w-full rounded-xl border border-slate-300 px-3 text-sm outline-none focus:border-orange"
-            />
-          </label>
-        </div>
-      </section>
-
-      <section className="rounded-3xl border border-rs-border bg-white p-6 shadow-sm">
-        <h2 className="text-xl font-bold text-navy">Grupos e canais de destino</h2>
-        <p className="mt-1 text-sm text-slate-500">
-          Escolha exatamente quais grupos/chats esse agente vai usar para postar (organizados por nicho, quando
-          configurado em Canais).
-        </p>
-
-        {targets.length === 0 ? (
-          <p className="mt-4 text-sm text-slate-500">
-            Nenhum destino cadastrado ainda em post_targets.
-          </p>
-        ) : (
-          <div className="mt-5 space-y-5">
-            {groupedTargets.map(([niche, list]) => (
-              <div key={niche}>
-                <p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">{niche}</p>
-                <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-                  {list.map((target) => (
-                    <label
-                      key={target.id}
-                      className={`flex items-center gap-3 rounded-xl border p-3 text-sm ${
-                        form.targetIds.includes(target.id)
-                          ? "border-orange bg-orange/5"
-                          : "border-slate-200 bg-white"
-                      }`}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={form.targetIds.includes(target.id)}
-                        onChange={() => toggleTarget(target.id)}
-                        className="h-5 w-5 accent-orange"
-                      />
-                      <span>
-                        <span className="block font-semibold text-navy">{target.name || target.external_id}</span>
-                        <span className="block text-xs uppercase text-slate-500">{target.channel}</span>
-                      </span>
-                    </label>
-                  ))}
-                </div>
+        {currentStep.key === "activation" ? (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <div>
+                <p className="text-sm font-bold text-navy">Filtro AAV</p>
+                <p className="text-xs text-slate-500">
+                  Usa o Algoritmo de Aumento de Vendas (radar-sniper) para so considerar produtos com alto
+                  potencial de conversao.
+                </p>
               </div>
-            ))}
+              <input
+                type="checkbox"
+                checked={form.aavFilterEnabled}
+                onChange={(event) =>
+                  setForm((current) => ({ ...current, aavFilterEnabled: event.target.checked }))
+                }
+                className="h-6 w-6 accent-orange"
+              />
+            </div>
+
+            <label className="flex items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <div>
+                <p className="text-sm font-bold text-navy">Agente ativo</p>
+                <p className="text-xs text-slate-500">
+                  Com o cron ligado, o agente roda sozinho respeitando horario e quantidade configurados.
+                </p>
+              </div>
+              <input
+                type="checkbox"
+                checked={form.active}
+                onChange={(event) => setForm((current) => ({ ...current, active: event.target.checked }))}
+                className="h-6 w-6 accent-orange"
+              />
+            </label>
+
+            <div className="flex flex-wrap gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => void handleSave()}
+                disabled={Boolean(loading)}
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-emerald-600 px-6 text-sm font-bold text-white disabled:opacity-60"
+              >
+                {loading === "save" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                {agentId ? "Salvar agente" : "Ativar Agente"}
+              </button>
+
+              {agentId ? (
+                <button
+                  type="button"
+                  onClick={() => void handleRunNow()}
+                  disabled={Boolean(loading)}
+                  className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-slate-900 px-5 text-sm font-bold text-white disabled:opacity-60"
+                >
+                  {loading === "run" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+                  Rodar agora
+                </button>
+              ) : null}
+            </div>
           </div>
-        )}
+        ) : null}
       </section>
 
-      <div className="flex flex-wrap items-center gap-3 rounded-3xl border border-rs-border bg-white p-6 shadow-sm">
-        <label className="flex flex-1 items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-          <div>
-            <p className="text-sm font-bold text-navy">Agente ativo</p>
-            <p className="text-xs text-slate-500">
-              Com o cron ligado, o agente roda sozinho respeitando horario e quantidade configurados.
-            </p>
-          </div>
-          <input
-            type="checkbox"
-            checked={form.active}
-            onChange={(event) => setForm((current) => ({ ...current, active: event.target.checked }))}
-            className="h-6 w-6 accent-orange"
-          />
-        </label>
-
+      <div className="flex items-center justify-between">
         <button
           type="button"
-          onClick={() => void handleSave()}
-          disabled={Boolean(loading)}
-          className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-navy px-5 text-sm font-bold text-white disabled:opacity-60"
+          onClick={() => goToStep(step - 1)}
+          disabled={step === 0}
+          className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-5 text-sm font-bold text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {loading === "save" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-          Salvar agente
+          <ArrowLeft className="h-4 w-4" />
+          Anterior
         </button>
-
-        {agentId ? (
-          <button
-            type="button"
-            onClick={() => void handleRunNow()}
-            disabled={Boolean(loading)}
-            className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-slate-900 px-5 text-sm font-bold text-white disabled:opacity-60"
-          >
-            {loading === "run" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-            Rodar agora
-          </button>
-        ) : null}
+        <p className="text-xs font-semibold text-slate-400">
+          Passo {step + 1} de {STEPS.length}
+        </p>
+        <button
+          type="button"
+          onClick={() => goToStep(step + 1)}
+          disabled={isLastStep}
+          className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-navy px-5 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Proximo
+          <ArrowRight className="h-4 w-4" />
+        </button>
       </div>
 
       {agentId ? (

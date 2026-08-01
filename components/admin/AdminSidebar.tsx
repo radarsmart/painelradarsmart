@@ -55,6 +55,12 @@ const MENU_ITEMS: SidebarGroup[] = [
         activePatterns: ["/admin/agentes"],
       },
       {
+        label: "Performance dos Agentes",
+        icon: BarChart3,
+        href: "/admin/agentes/analytics",
+        activePatterns: ["/admin/agentes/analytics"],
+      },
+      {
         label: "Curadoria Geral",
         icon: ShoppingBag,
         href: "/admin/curadoria",

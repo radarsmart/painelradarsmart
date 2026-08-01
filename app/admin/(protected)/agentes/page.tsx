@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Bot, Loader2, Play, Plus, Trash2 } from "lucide-react";
+import { BarChart3, Bot, Loader2, Play, Plus, Trash2 } from "lucide-react";
 
 import { supabase } from "@/lib/supabase";
 
@@ -148,13 +148,22 @@ export default function AdminAgentesPage() {
             Cada agente busca ofertas, gera copy com IA e publica sozinho nos grupos escolhidos.
           </p>
         </div>
-        <Link
-          href="/admin/agentes/novo"
-          className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-orange px-5 text-sm font-bold text-white"
-        >
-          <Plus className="h-4 w-4" />
-          Criar Agente
-        </Link>
+        <div className="flex gap-3">
+          <Link
+            href="/admin/agentes/analytics"
+            className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-5 text-sm font-bold text-slate-700"
+          >
+            <BarChart3 className="h-4 w-4" />
+            Ver Performance
+          </Link>
+          <Link
+            href="/admin/agentes/novo"
+            className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-orange px-5 text-sm font-bold text-white"
+          >
+            <Plus className="h-4 w-4" />
+            Criar Agente
+          </Link>
+        </div>
       </div>
 
       {error ? (

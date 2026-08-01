@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import type { LucideIcon } from "lucide-react";
 import {
   BarChart3,
+  Bot,
   Clapperboard,
   FileText,
   FilePlus2,
@@ -46,6 +47,12 @@ const MENU_ITEMS: SidebarGroup[] = [
         icon: LayoutDashboard,
         href: "/admin",
         activePatterns: ["/admin"],
+      },
+      {
+        label: "Agentes de Vendas",
+        icon: Bot,
+        href: "/admin/agentes",
+        activePatterns: ["/admin/agentes"],
       },
       {
         label: "Curadoria Geral",

@@ -11,6 +11,7 @@ export interface OfferCopyInput {
   marketplace: string;
   rating?: number;
   reviews_count?: number;
+  extra_instructions?: string;
 }
 
 export type WhatsAppCopyVariants = {
@@ -322,6 +323,9 @@ function buildUserPrompt(offer: OfferCopyInput): string {
     "- benefit_bullets deve trazer 1 ou 2 detalhes extras e concretos (não repita o que já foi dito em highlight).",
     "- cta_line deve gerar desejo genuíno pelo benefício do produto, preparando para o link que vem logo depois (a linha fixa seguinte já diz \"Não perca essa oportunidade! Clique aqui:\", então evite repetir essa mesma ideia em cta_line).",
     "- closing_line deve ser curta e emocional, reforçando o benefício final.",
+    ...(offer.extra_instructions
+      ? ["", "ORIENTAÇÃO EXTRA DO ANUNCIANTE (siga junto com as regras acima):", offer.extra_instructions]
+      : []),
   ].join("\n");
 }
 

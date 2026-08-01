@@ -645,6 +645,166 @@ async function queueDirectlyOnPostQueue(input: {
   };
 }
 
+export type DispatchToTargetsInput = {
+  offerId: string;
+  targetIds: string[];
+  copyByChannel: Partial<Record<DistributionChannel, string>>;
+  agentId: string;
+  affiliateUrl?: string | null;
+};
+
+export type DispatchToTargetsResult = {
+  ok: boolean;
+  queued: number;
+  skipped: number;
+  details: Array<Record<string, unknown>>;
+};
+
+export async function dispatchToSpecificTargets(
+  input: DispatchToTargetsInput,
+): Promise<DispatchToTargetsResult> {
+  const flags = await getDistributionFlags();
+  if (!flags.distribution_enabled) {
+    throw new Error(
+      "Distribuicao desativada via feature flag. Ative em /api/admin/distribution/flags.",
+    );
+  }
+
+  const targetIds = Array.from(new Set(input.targetIds.filter(Boolean)));
+  if (!targetIds.length) {
+    throw new Error("Nenhum destino informado para o despacho do agente.");
+  }
+
+  const { data: offer, error: offerError } = await supabaseAdmin
+    .from("offers")
+    .select(DIRECT_QUEUE_OFFER_SELECT)
+    .eq("id", input.offerId)
+    .single();
+
+  if (offerError || !offer) {
+    throw new Error(
+      `Falha ao carregar oferta para despacho do agente: ${offerError?.message ?? "nao encontrada"}`,
+    );
+  }
+
+  const { data: targets, error: targetsError } = await supabaseAdmin
+    .from("post_targets")
+    .select("id,channel,name,external_id,is_active")
+    .in("id", targetIds)
+    .eq("is_active", true);
+
+  if (targetsError) {
+    throw new Error(`Falha ao carregar destinos do agente: ${targetsError.message}`);
+  }
+
+  const activeTargets = (targets ?? []).filter((target) => target?.id && target?.channel);
+  if (!activeTargets.length) {
+    throw new Error("Nenhum destino ativo encontrado para os grupos selecionados no agente.");
+  }
+
+  const link =
+    toText(input.affiliateUrl) ?? toText(offer.affiliate_url) ?? toText(offer.product_url);
+  const dedupeBucket = todayUtcDate();
+  const nowIso = new Date().toISOString();
+
+  const details: Array<Record<string, unknown>> = [];
+  let queued = 0;
+  let skipped = 0;
+
+  for (const target of activeTargets) {
+    const channel = target.channel as DistributionChannel;
+    const adText = toText(input.copyByChannel[channel]);
+
+    if (!adText) {
+      skipped += 1;
+      details.push({
+        channel,
+        target_id: target.id,
+        action: "skipped",
+        reason: "missing_copy_for_channel",
+      });
+      continue;
+    }
+
+    const { data: exists, error: existsError } = await supabaseAdmin
+      .from("post_queue")
+      .select("id")
+      .eq("offer_id", input.offerId)
+      .eq("channel", channel)
+      .eq("target_id", target.id)
+      .eq("dedupe_bucket", dedupeBucket)
+      .limit(1);
+
+    if (existsError) {
+      throw new Error(`Falha ao verificar duplicidade na fila: ${existsError.message}`);
+    }
+
+    if ((exists ?? []).length > 0) {
+      skipped += 1;
+      details.push({
+        channel,
+        target_id: target.id,
+        action: "skipped",
+        reason: "already_queued_today",
+      });
+      continue;
+    }
+
+    const payload = {
+      ad_text: adText,
+      offer: {
+        id: offer.id,
+        title: offer.title ?? null,
+        brand: offer.brand ?? null,
+        category: offer.category ?? null,
+        marketplace: offer.marketplace ?? null,
+        seller_name: offer.seller_name ?? null,
+        price: offer.price ?? null,
+        original_price: offer.original_price ?? null,
+        discount_pct: offer.discount_pct ?? null,
+        currency: offer.currency ?? "BRL",
+        image_url: offer.best_image_url ?? offer.image_url ?? null,
+        video_url: null,
+        link,
+        raw: offer.raw ?? null,
+      },
+      analysis: null,
+      buttons: link ? [{ text: "Comprar agora", url: link }] : [],
+      target: {
+        id: target.id,
+        name: target.name ?? null,
+        external_id: target.external_id ?? null,
+        channel,
+      },
+      created_at: nowIso,
+    };
+
+    const { error: insertError } = await supabaseAdmin.from("post_queue").insert({
+      offer_id: input.offerId,
+      channel,
+      target_id: target.id,
+      agent_id: input.agentId,
+      status: "queued",
+      attempt_count: 0,
+      last_error: null,
+      locked_until: null,
+      sent_at: null,
+      scheduled_at: nowIso,
+      dedupe_bucket: dedupeBucket,
+      payload,
+    });
+
+    if (insertError) {
+      throw new Error(`Falha ao inserir na post_queue (${channel}): ${insertError.message}`);
+    }
+
+    queued += 1;
+    details.push({ channel, target_id: target.id, action: "inserted" });
+  }
+
+  return { ok: true, queued, skipped, details };
+}
+
 export async function dispatchLegacyOffer(
   input: LegacyDispatchInput,
 ): Promise<LegacyDispatchResult> {

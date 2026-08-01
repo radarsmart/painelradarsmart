@@ -28,5 +28,6 @@ export async function discoverAwin(agent: SalesAgent): Promise<DiscoveryCandidat
     reviewCount: null,
     badges: product.isFreeShipping ? ["frete gratis"] : [],
     raw: product,
+    affiliateLinkVerified: true,
   }));
 }

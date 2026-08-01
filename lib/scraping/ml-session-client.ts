@@ -72,3 +72,48 @@ export async function searchViaMlSession(
   );
   return payload.items ?? [];
 }
+
+function getAffiliateConfig() {
+  const baseUrl = cleanEnv(process.env.ML_AFFILIATE_SESSION_API_URL).replace(/\/$/, "");
+  const secret = cleanEnv(process.env.ML_AFFILIATE_SESSION_SECRET);
+  if (!baseUrl) {
+    throw new Error("ML_AFFILIATE_SESSION_API_URL nao configurada.");
+  }
+  return { baseUrl, secret };
+}
+
+/**
+ * Gera um link de afiliado oficial do Mercado Livre (meli.la/...) via a sessao
+ * de afiliados logada (conta separada da sessao de busca/extracao, ja que o ML
+ * bloqueia contas de colaborador de entrar no Programa de Afiliados).
+ */
+export async function generateMlAffiliateLink(productUrl: string): Promise<string> {
+  const { baseUrl, secret } = getAffiliateConfig();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 40000);
+
+  try {
+    const response = await fetch(
+      `${baseUrl}/affiliate-link?url=${encodeURIComponent(productUrl)}`,
+      {
+        headers: secret ? { "x-ml-affiliate-session-secret": secret } : {},
+        signal: controller.signal,
+        cache: "no-store",
+      },
+    );
+
+    const payload = (await response.json().catch(() => ({}))) as {
+      ok?: boolean;
+      error?: string;
+      affiliate_url?: string;
+    };
+
+    if (!response.ok || payload.ok === false || !payload.affiliate_url) {
+      throw new Error(payload.error || `ML affiliate session server retornou HTTP ${response.status}`);
+    }
+
+    return payload.affiliate_url;
+  } finally {
+    clearTimeout(timeout);
+  }
+}

@@ -62,5 +62,6 @@ export async function discoverAmazon(agent: SalesAgent): Promise<DiscoveryCandid
       reviewCount: null,
       badges: row.classification ? [row.classification] : [],
       raw: row,
+      affiliateLinkVerified: true,
     }));
 }

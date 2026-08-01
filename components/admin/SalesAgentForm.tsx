@@ -525,11 +525,11 @@ export default function SalesAgentForm({ agentId }: { agentId?: string }) {
             </div>
 
             {form.source === "mercadolivre" ? (
-              <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
-                <strong>Atenção:</strong> o rastreamento de afiliado do Mercado Livre ainda não está configurado
-                com um ID oficial. Ofertas encontradas por este agente vão entrar como{" "}
-                <strong>rascunho aguardando revisão</strong> na Curadoria — sem link de afiliado nem publicação
-                automática — até você colar o link oficial gerado no programa Mercado Livre Afiliados.
+              <div className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-xs text-sky-800">
+                <strong>Como funciona:</strong> o agente gera o link oficial de afiliado automaticamente (via a
+                sessão logada dos Afiliados do Mercado Livre) para cada produto antes de publicar. Se a geração
+                falhar por qualquer motivo (sessão desconectada, etc.), a oferta entra como{" "}
+                <strong>rascunho aguardando revisão</strong> na Curadoria em vez de publicar sem rastreamento.
               </div>
             ) : null}
           </div>

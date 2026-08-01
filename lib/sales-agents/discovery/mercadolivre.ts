@@ -1,5 +1,4 @@
 import { searchViaMlSession } from "@/lib/scraping/ml-session-client";
-import { normalizeMercadoLivreAffiliateUrl } from "@/lib/mercadolivre";
 import type { SalesAgent, DiscoveryCandidate } from "../types";
 
 export async function discoverMercadoLivre(agent: SalesAgent): Promise<DiscoveryCandidate[]> {
@@ -19,6 +18,9 @@ export async function discoverMercadoLivre(agent: SalesAgent): Promise<Discovery
     const oldPrice = item.old_price && item.old_price > item.price ? item.old_price : null;
     const discountPct = oldPrice ? Math.round(((oldPrice - item.price) / oldPrice) * 100) : null;
 
+    // O link de afiliado real (meli.la/...) e gerado sob demanda em run-agent.ts,
+    // so para os candidatos que sobreviverem a selecao — gerar aqui pra todos os
+    // resultados da busca seria caro (automacao de navegador por produto).
     candidates.push({
       externalId: `mercadolivre:${item.link}`,
       title: item.title,
@@ -26,13 +28,14 @@ export async function discoverMercadoLivre(agent: SalesAgent): Promise<Discovery
       oldPrice,
       discountPct,
       imageUrl: item.image_url,
-      affiliateUrl: normalizeMercadoLivreAffiliateUrl(item.link),
+      affiliateUrl: item.link,
       productUrl: item.link,
       category: agent.category || null,
       rating: null,
       reviewCount: null,
       badges: [],
       raw: item,
+      affiliateLinkVerified: false,
     });
   }
 

@@ -19,14 +19,16 @@ export async function discoverLomadee(agent: SalesAgent): Promise<DiscoveryCandi
     if (!product.available || !product.link) continue;
 
     let affiliateUrl = product.link;
+    let affiliateLinkVerified = false;
     try {
       affiliateUrl = await shortenLomadeeUrl({
         url: product.link,
         organizationId: product.organizationId,
         mdasc: product.id ? `radar-smart-${product.id}` : "radar-smart",
       });
+      affiliateLinkVerified = true;
     } catch {
-      // Se o encurtador falhar, cai no link original do produto.
+      // Se o encurtador falhar, cai no link original do produto (sem rastreamento).
     }
 
     candidates.push({
@@ -43,6 +45,7 @@ export async function discoverLomadee(agent: SalesAgent): Promise<DiscoveryCandi
       reviewCount: null,
       badges: [],
       raw: product,
+      affiliateLinkVerified,
     });
   }
 

@@ -1,12 +1,12 @@
 import { salvarOferta, supabaseAdmin } from "@/lib/supabase";
 import { generateWhatsAppCopy } from "@/lib/copy/whatsapp-generator";
 import { generateAiProductImage } from "@/lib/ai/product-image";
+import { generateMlAffiliateLink } from "@/lib/scraping/ml-session-client";
 import { dispatchToSpecificTargets } from "@/lib/distribution/legacy-dispatch";
 import { passesRadarSniperPreFilter, rankSniperCandidates } from "@/lib/radar-sniper";
 import { renderCustomTemplate } from "./custom-template";
 import { discoverForAgent } from "./discovery";
 import { getSalesAgent, saveSalesAgentRunResult } from "./agent-store";
-import { SOURCES_REQUIRING_MANUAL_AFFILIATE } from "./types";
 import type { AgentRunResult, DiscoveryCandidate, SalesAgent } from "./types";
 
 function toText(value: unknown): string {
@@ -45,18 +45,13 @@ async function saveOfferCandidate(payload: Record<string, unknown>): Promise<{ i
   return saveResult.data as { id: string };
 }
 
-async function findExistingOffer(
-  candidate: DiscoveryCandidate,
-  useProductUrl: boolean,
-): Promise<{ id: string } | null> {
-  const column = useProductUrl ? "product_url" : "affiliate_url";
-  const value = useProductUrl ? candidate.productUrl : candidate.affiliateUrl;
-  if (!value) return null;
+async function findExistingOffer(candidate: DiscoveryCandidate): Promise<{ id: string } | null> {
+  if (!candidate.productUrl) return null;
 
   const { data, error } = await supabaseAdmin
     .from("offers")
     .select("id")
-    .eq(column, value)
+    .eq("product_url", candidate.productUrl)
     .limit(1)
     .maybeSingle();
 
@@ -123,7 +118,6 @@ export async function runSalesAgent(agentId: string): Promise<AgentRunResult> {
   let staged = 0;
   let skipped = 0;
   let errors = 0;
-  const needsManualAffiliate = SOURCES_REQUIRING_MANUAL_AFFILIATE.includes(agent.source);
 
   try {
     const remainingQuota = agent.maxSendsPerDay - (await countSentToday(agent.id));
@@ -151,12 +145,30 @@ export async function runSalesAgent(agentId: string): Promise<AgentRunResult> {
 
     for (const candidate of selected) {
       try {
-        const existing = await findExistingOffer(candidate, needsManualAffiliate);
+        const existing = await findExistingOffer(candidate);
         if (existing) {
           skipped += 1;
           details.push({ title: candidate.title, action: "skipped", reason: "duplicate" });
           continue;
         }
+
+        if (agent.source === "mercadolivre" && !candidate.affiliateLinkVerified) {
+          try {
+            candidate.affiliateUrl = await generateMlAffiliateLink(candidate.productUrl);
+            candidate.affiliateLinkVerified = true;
+          } catch (affiliateError) {
+            details.push({
+              title: candidate.title,
+              action: "ml_affiliate_link_failed",
+              error:
+                affiliateError instanceof Error
+                  ? affiliateError.message
+                  : "Falha desconhecida ao gerar link de afiliado ML.",
+            });
+          }
+        }
+
+        const needsManualAffiliate = !candidate.affiliateLinkVerified;
 
         const savedOffer = await saveOfferCandidate({
           title: candidate.title,

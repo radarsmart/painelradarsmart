@@ -53,6 +53,13 @@ export type DiscoveryCandidate = {
   reviewCount: number | null;
   badges: string[];
   raw: unknown;
+  /**
+   * true quando affiliateUrl e um link de afiliado real/rastreado (API ou
+   * automacao oficial da loja). false quando nao foi possivel confirmar
+   * rastreamento (ex: falha na geracao automatica) — nesse caso a oferta
+   * entra em revisao manual em vez de ser publicada direto.
+   */
+  affiliateLinkVerified: boolean;
 };
 
 export type AgentRunResult = {
@@ -68,10 +75,3 @@ export type AgentRunResult = {
   details: Array<{ title: string; action: string; reason?: string; error?: string }>;
   executedAt: string;
 };
-
-/**
- * Lojas onde o link de afiliado nao pode ser gerado automaticamente com
- * confianca (sem API/servico oficial configurado). Ofertas dessas lojas
- * entram em revisao manual (curadoria) em vez de serem publicadas direto.
- */
-export const SOURCES_REQUIRING_MANUAL_AFFILIATE: SalesAgentSource[] = ["mercadolivre"];

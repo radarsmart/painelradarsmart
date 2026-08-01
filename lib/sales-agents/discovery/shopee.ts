@@ -22,11 +22,14 @@ export async function discoverShopee(agent: SalesAgent): Promise<DiscoveryCandid
     if (!rawLink) continue;
 
     let affiliateUrl = product.offerLink || "";
+    let affiliateLinkVerified = Boolean(affiliateUrl);
     if (!affiliateUrl) {
       try {
         affiliateUrl = await generateShopeeAffiliateShortLink(rawLink);
+        affiliateLinkVerified = true;
       } catch {
         affiliateUrl = rawLink;
+        affiliateLinkVerified = false;
       }
     }
 
@@ -44,6 +47,7 @@ export async function discoverShopee(agent: SalesAgent): Promise<DiscoveryCandid
       reviewCount: null,
       badges: [],
       raw: product,
+      affiliateLinkVerified,
     });
   }
 

@@ -192,10 +192,6 @@ function resolveChannelCopy(
   );
 }
 
-function todayUtcDate(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
 type TimeZoneParts = {
   year: number;
   month: number;
@@ -228,6 +224,14 @@ function getTimeZoneParts(date: Date, timeZone = DEFAULT_SEND_TIMEZONE): TimeZon
     minute: pick("minute"),
     second: pick("second"),
   };
+}
+
+// Dia local (Brasilia por padrao) usado como "dedupe_bucket" — antes usava o
+// dia em UTC, que vira de data as 21:00 (horario local) e nao a meia-noite,
+// destoando da janela de envio e da cota diaria pensadas em horario local.
+export function todayLocalDate(timeZone = DEFAULT_SEND_TIMEZONE, date = new Date()): string {
+  const { year, month, day } = getTimeZoneParts(date, timeZone);
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
 
 function getTimeZoneOffsetMinutes(date: Date, timeZone = DEFAULT_SEND_TIMEZONE): number {
@@ -476,11 +480,11 @@ async function queueDirectlyOnPostQueue(input: {
   for (const target of activeTargets) {
     const channel = target.channel as DistributionChannel;
     const scheduledAt = channelSchedule[channel] ?? null;
-    let dedupeBucket = todayUtcDate();
+    let dedupeBucket = todayLocalDate();
     if (scheduledAt) {
       const scheduledDate = new Date(scheduledAt);
       if (!Number.isNaN(scheduledDate.getTime())) {
-        dedupeBucket = scheduledDate.toISOString().slice(0, 10);
+        dedupeBucket = todayLocalDate(DEFAULT_SEND_TIMEZONE, scheduledDate);
       }
     }
 
@@ -704,7 +708,7 @@ export async function dispatchToSpecificTargets(
 
   const link =
     toText(input.affiliateUrl) ?? toText(offer.affiliate_url) ?? toText(offer.product_url);
-  const dedupeBucket = todayUtcDate();
+  const dedupeBucket = todayLocalDate();
   const nowIso = new Date().toISOString();
 
   const details: Array<Record<string, unknown>> = [];

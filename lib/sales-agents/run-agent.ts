@@ -2,7 +2,7 @@ import { salvarOferta, supabaseAdmin } from "@/lib/supabase";
 import { generateWhatsAppCopy } from "@/lib/copy/whatsapp-generator";
 import { generateAiProductImage } from "@/lib/ai/product-image";
 import { generateMlAffiliateLink, fetchMlSellerReputation } from "@/lib/scraping/ml-session-client";
-import { dispatchToSpecificTargets } from "@/lib/distribution/legacy-dispatch";
+import { dispatchToSpecificTargets, todayLocalDate } from "@/lib/distribution/legacy-dispatch";
 import { passesRadarSniperPreFilter, rankSniperCandidates } from "@/lib/radar-sniper";
 import { renderCustomTemplate } from "./custom-template";
 import { discoverForAgent } from "./discovery";
@@ -11,10 +11,6 @@ import type { AgentRunResult, DiscoveryCandidate, SalesAgent } from "./types";
 
 function toText(value: unknown): string {
   return String(value ?? "").trim();
-}
-
-function todayUtcDate(): string {
-  return new Date().toISOString().slice(0, 10);
 }
 
 function getMissingColumnFromError(message: string): string | null {
@@ -45,21 +41,57 @@ async function saveOfferCandidate(payload: Record<string, unknown>): Promise<{ i
   return saveResult.data as { id: string };
 }
 
-async function findExistingOffer(candidate: DiscoveryCandidate): Promise<{ id: string } | null> {
+// Nao repete o mesmo produto antes disso, mesmo que tenha tido cliques — evita
+// spam. Depois disso, so repete se teve interesse real (ver isEligibleForRepost).
+const MIN_REPOST_HOURS = 24;
+
+type ExistingOfferInfo = {
+  id: string;
+  createdAt: string;
+  clickCount: number;
+};
+
+async function findExistingOffer(candidate: DiscoveryCandidate): Promise<ExistingOfferInfo | null> {
   if (!candidate.productUrl) return null;
 
   const { data, error } = await supabaseAdmin
     .from("offers")
-    .select("id")
+    .select("id, created_at, click_count")
     .eq("product_url", candidate.productUrl)
+    .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
 
   if (error) {
     throw new Error(`Falha ao verificar duplicidade da oferta: ${error.message}`);
   }
+  if (!data) return null;
 
-  return data as { id: string } | null;
+  return {
+    id: String(data.id),
+    createdAt: String(data.created_at),
+    clickCount: Number(data.click_count ?? 0),
+  };
+}
+
+// O cliente pode ter visto e nao comprado na hora, mas se depois voltar a ver
+// pode comprar — entao repetir oferta e permitido, mas so quando ha sinal real
+// de interesse (cliques no grupo/site), nao so por ter passado tempo.
+function isEligibleForRepost(existing: ExistingOfferInfo): boolean {
+  const hoursSinceLastPost = (Date.now() - new Date(existing.createdAt).getTime()) / 3600000;
+  return hoursSinceLastPost >= MIN_REPOST_HOURS && existing.clickCount > 0;
+}
+
+function resolveSiteBaseUrl(): string {
+  const configured = process.env.NEXT_PUBLIC_SITE_URL?.trim();
+  return (configured || "https://radarsmart.com.br").replace(/\/$/, "");
+}
+
+// Link rastreado (em vez do link de afiliado cru) para que cliques vindos dos
+// grupos de WhatsApp/Telegram tambem contem como sinal de interesse, do mesmo
+// jeito que os cliques do site — necessario pro criterio de repost acima.
+function buildTrackedLink(offerId: string): string {
+  return `${resolveSiteBaseUrl()}/go/${offerId}?source=sales_agent`;
 }
 
 async function countSentToday(agentId: string): Promise<number> {
@@ -70,7 +102,7 @@ async function countSentToday(agentId: string): Promise<number> {
     .from("post_queue")
     .select("offer_id")
     .eq("agent_id", agentId)
-    .eq("dedupe_bucket", todayUtcDate())
+    .eq("dedupe_bucket", todayLocalDate())
     .in("status", ["queued", "processing", "sent"]);
 
   if (error) {
@@ -172,10 +204,14 @@ export async function runSalesAgent(agentId: string): Promise<AgentRunResult> {
 
       try {
         const existing = await findExistingOffer(candidate);
+        let repostOfferId: string | null = null;
         if (existing) {
-          skipped += 1;
-          details.push({ title: candidate.title, action: "skipped", reason: "duplicate" });
-          continue;
+          if (!isEligibleForRepost(existing)) {
+            skipped += 1;
+            details.push({ title: candidate.title, action: "skipped", reason: "duplicate" });
+            continue;
+          }
+          repostOfferId = existing.id;
         }
 
         if (agent.source === "mercadolivre") {
@@ -238,23 +274,16 @@ export async function runSalesAgent(agentId: string): Promise<AgentRunResult> {
 
         const needsManualAffiliate = !candidate.affiliateLinkVerified;
 
-        const savedOffer = await saveOfferCandidate({
-          external_offer_id: candidate.externalId,
+        const offerFields = {
           title: candidate.title,
           price: candidate.price,
           original_price: candidate.oldPrice,
           old_price: candidate.oldPrice,
           discount_pct: candidate.discountPct ?? 0,
           image_url: candidate.imageUrl,
-          product_url: candidate.productUrl,
           affiliate_url: needsManualAffiliate ? null : candidate.affiliateUrl,
-          marketplace: agent.source,
-          category: candidate.category,
           status: needsManualAffiliate ? "inactive" : "active",
           curations_status: needsManualAffiliate ? "review" : "approved",
-          slot_type: "flash",
-          source: `sales_agent:${agent.id}`,
-          currency: "BRL",
           raw_data: {
             source: "sales_agent",
             agent_id: agent.id,
@@ -264,9 +293,37 @@ export async function runSalesAgent(agentId: string): Promise<AgentRunResult> {
               ? { needs_manual_approval: true, needs_manual_affiliate_url: true }
               : {}),
           },
-        });
+        };
 
-        const offerId = toText(savedOffer.id);
+        let offerId: string;
+        if (repostOfferId) {
+          // Reaproveita a mesma oferta (mesmo id) em vez de criar duplicata —
+          // zera o contador de cliques e a data de criacao pra medir interesse
+          // fresco deste novo ciclo, e reabrir a janela de 24h pro proximo repost.
+          const { data: updated, error: updateError } = await supabaseAdmin
+            .from("offers")
+            .update({ ...offerFields, click_count: 0, created_at: new Date().toISOString() })
+            .eq("id", repostOfferId)
+            .select("id")
+            .single();
+          if (updateError || !updated) {
+            throw new Error(updateError?.message ?? "Falha ao atualizar oferta para reenvio.");
+          }
+          offerId = toText(updated.id);
+        } else {
+          const savedOffer = await saveOfferCandidate({
+            ...offerFields,
+            external_offer_id: candidate.externalId,
+            product_url: candidate.productUrl,
+            marketplace: agent.source,
+            category: candidate.category,
+            slot_type: "flash",
+            source: `sales_agent:${agent.id}`,
+            currency: "BRL",
+          });
+          offerId = toText(savedOffer.id);
+        }
+
         if (!offerId) {
           throw new Error("Oferta criada sem id valido.");
         }
@@ -304,6 +361,11 @@ export async function runSalesAgent(agentId: string): Promise<AgentRunResult> {
           }
         }
 
+        // Link rastreado (nao o link de afiliado cru) embutido no texto — assim
+        // cliques vindos do grupo tambem contam como sinal de interesse pro
+        // criterio de repost (ver isEligibleForRepost).
+        const trackedLink = buildTrackedLink(offerId);
+
         let telegramText: string;
         let whatsappText: string;
 
@@ -314,7 +376,7 @@ export async function runSalesAgent(agentId: string): Promise<AgentRunResult> {
             originalPrice: candidate.oldPrice,
             discountPct: candidate.discountPct,
             store: agent.source,
-            link: candidate.affiliateUrl,
+            link: trackedLink,
           });
           telegramText = rendered;
           whatsappText = rendered;
@@ -324,7 +386,7 @@ export async function runSalesAgent(agentId: string): Promise<AgentRunResult> {
             price: candidate.price,
             original_price: candidate.oldPrice ?? undefined,
             discount_pct: candidate.discountPct ?? undefined,
-            affiliate_url: candidate.affiliateUrl,
+            affiliate_url: trackedLink,
             image_url: imageUrlForCopy,
             category: candidate.category ?? undefined,
             marketplace: agent.source,
@@ -338,7 +400,10 @@ export async function runSalesAgent(agentId: string): Promise<AgentRunResult> {
           offerId,
           targetIds: agent.targetIds,
           agentId: agent.id,
-          affiliateUrl: candidate.affiliateUrl,
+          // Usa o link rastreado tambem no botao inline (Telegram) — e o que o
+          // cliente realmente clica, entao precisa ser o /go/ pra contar como
+          // sinal de interesse, nao o link de afiliado cru.
+          affiliateUrl: trackedLink,
           copyByChannel: { telegram: telegramText, whatsapp: whatsappText },
         });
 

@@ -43,7 +43,9 @@ type SalesAgent = {
   customTextTemplate: string | null;
   aiImagePrompt: string | null;
   sendWindowStartHour: number;
+  sendWindowStartMinute: number;
   sendWindowEndHour: number;
+  sendWindowEndMinute: number;
   timezone: string;
   maxSendsPerDay: number;
   minIntervalMinutes: number;
@@ -92,7 +94,9 @@ type FormState = {
   customTextTemplate: string;
   aiImagePrompt: string;
   sendWindowStartHour: string;
+  sendWindowStartMinute: string;
   sendWindowEndHour: string;
+  sendWindowEndMinute: string;
   timezone: string;
   maxSendsPerDay: string;
   minIntervalMinutes: string;
@@ -116,7 +120,9 @@ const DEFAULT_FORM: FormState = {
   customTextTemplate: "",
   aiImagePrompt: "",
   sendWindowStartHour: "8",
+  sendWindowStartMinute: "0",
   sendWindowEndHour: "22",
+  sendWindowEndMinute: "0",
   timezone: "America/Sao_Paulo",
   maxSendsPerDay: "10",
   minIntervalMinutes: "20",
@@ -141,7 +147,9 @@ function agentToForm(agent: SalesAgent): FormState {
     customTextTemplate: agent.customTextTemplate ?? "",
     aiImagePrompt: agent.aiImagePrompt ?? "",
     sendWindowStartHour: String(agent.sendWindowStartHour),
+    sendWindowStartMinute: String(agent.sendWindowStartMinute),
     sendWindowEndHour: String(agent.sendWindowEndHour),
+    sendWindowEndMinute: String(agent.sendWindowEndMinute),
     timezone: agent.timezone,
     maxSendsPerDay: String(agent.maxSendsPerDay),
     minIntervalMinutes: String(agent.minIntervalMinutes),
@@ -167,7 +175,9 @@ function formToPayload(form: FormState) {
     customTextTemplate: form.customTextTemplate.trim() || null,
     aiImagePrompt: form.aiImagePrompt.trim() || null,
     sendWindowStartHour: Number(form.sendWindowStartHour),
+    sendWindowStartMinute: Number(form.sendWindowStartMinute) || 0,
     sendWindowEndHour: Number(form.sendWindowEndHour),
+    sendWindowEndMinute: Number(form.sendWindowEndMinute) || 0,
     timezone: form.timezone.trim() || "America/Sao_Paulo",
     maxSendsPerDay: Number(form.maxSendsPerDay) || 10,
     minIntervalMinutes: Number(form.minIntervalMinutes) || 20,
@@ -184,6 +194,7 @@ function formatDateTime(value?: string | null) {
 }
 
 const HOURS = Array.from({ length: 24 }, (_, hour) => hour);
+const MINUTES = [0, 15, 30, 45];
 
 const STEPS = [
   { key: "name", label: "Nome do Agente" },
@@ -587,39 +598,69 @@ export default function SalesAgentForm({ agentId }: { agentId?: string }) {
           <div className="space-y-4">
             <p className="text-sm text-slate-500">Em qual janela de horario o agente pode enviar divulgacoes?</p>
             <div className="grid gap-4 md:grid-cols-2">
-              <label className="space-y-2">
+              <div className="space-y-2">
                 <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Inicio</span>
-                <select
-                  value={form.sendWindowStartHour}
-                  onChange={(event) =>
-                    setForm((current) => ({ ...current, sendWindowStartHour: event.target.value }))
-                  }
-                  className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm outline-none focus:border-orange"
-                >
-                  {HOURS.map((hour) => (
-                    <option key={hour} value={hour}>
-                      {String(hour).padStart(2, "0")}:00
-                    </option>
-                  ))}
-                </select>
-              </label>
+                <div className="flex gap-2">
+                  <select
+                    value={form.sendWindowStartHour}
+                    onChange={(event) =>
+                      setForm((current) => ({ ...current, sendWindowStartHour: event.target.value }))
+                    }
+                    className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm outline-none focus:border-orange"
+                  >
+                    {HOURS.map((hour) => (
+                      <option key={hour} value={hour}>
+                        {String(hour).padStart(2, "0")}h
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    value={form.sendWindowStartMinute}
+                    onChange={(event) =>
+                      setForm((current) => ({ ...current, sendWindowStartMinute: event.target.value }))
+                    }
+                    className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm outline-none focus:border-orange"
+                  >
+                    {MINUTES.map((minute) => (
+                      <option key={minute} value={minute}>
+                        {String(minute).padStart(2, "0")}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
 
-              <label className="space-y-2">
+              <div className="space-y-2">
                 <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Fim</span>
-                <select
-                  value={form.sendWindowEndHour}
-                  onChange={(event) =>
-                    setForm((current) => ({ ...current, sendWindowEndHour: event.target.value }))
-                  }
-                  className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm outline-none focus:border-orange"
-                >
-                  {HOURS.map((hour) => (
-                    <option key={hour} value={hour}>
-                      {String(hour).padStart(2, "0")}:00
-                    </option>
-                  ))}
-                </select>
-              </label>
+                <div className="flex gap-2">
+                  <select
+                    value={form.sendWindowEndHour}
+                    onChange={(event) =>
+                      setForm((current) => ({ ...current, sendWindowEndHour: event.target.value }))
+                    }
+                    className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm outline-none focus:border-orange"
+                  >
+                    {HOURS.map((hour) => (
+                      <option key={hour} value={hour}>
+                        {String(hour).padStart(2, "0")}h
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    value={form.sendWindowEndMinute}
+                    onChange={(event) =>
+                      setForm((current) => ({ ...current, sendWindowEndMinute: event.target.value }))
+                    }
+                    className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm outline-none focus:border-orange"
+                  >
+                    {MINUTES.map((minute) => (
+                      <option key={minute} value={minute}>
+                        {String(minute).padStart(2, "0")}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
             </div>
             <p className="text-xs text-slate-500">Fuso horario: {form.timezone}</p>
           </div>

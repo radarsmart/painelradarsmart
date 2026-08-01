@@ -23,7 +23,9 @@ type SalesAgentRow = {
   custom_text_template: string | null;
   ai_image_prompt: string | null;
   send_window_start_hour: number | null;
+  send_window_start_minute: number | null;
   send_window_end_hour: number | null;
+  send_window_end_minute: number | null;
   timezone: string | null;
   max_sends_per_day: number | null;
   min_interval_minutes: number | null;
@@ -50,7 +52,9 @@ export type SalesAgentInput = Partial<{
   customTextTemplate: unknown;
   aiImagePrompt: unknown;
   sendWindowStartHour: unknown;
+  sendWindowStartMinute: unknown;
   sendWindowEndHour: unknown;
+  sendWindowEndMinute: unknown;
   timezone: unknown;
   maxSendsPerDay: unknown;
   minIntervalMinutes: unknown;
@@ -91,6 +95,11 @@ function toHour(value: unknown, fallback: number): number {
   return Math.min(Math.max(parsed, 0), 23);
 }
 
+function toMinute(value: unknown, fallback: number): number {
+  const parsed = Math.trunc(toNumber(value, fallback));
+  return Math.min(Math.max(parsed, 0), 59);
+}
+
 function toSource(value: unknown): SalesAgentSource {
   const text = toText(value) as SalesAgentSource;
   return SALES_AGENT_SOURCES.includes(text) ? text : "awin";
@@ -118,7 +127,9 @@ function mapRowToAgent(row: SalesAgentRow, targetIds: string[]): SalesAgent {
     customTextTemplate: toOptionalText(row.custom_text_template),
     aiImagePrompt: toOptionalText(row.ai_image_prompt),
     sendWindowStartHour: toHour(row.send_window_start_hour, 8),
+    sendWindowStartMinute: toMinute(row.send_window_start_minute, 0),
     sendWindowEndHour: toHour(row.send_window_end_hour, 22),
+    sendWindowEndMinute: toMinute(row.send_window_end_minute, 0),
     timezone: toText(row.timezone) || "America/Sao_Paulo",
     maxSendsPerDay: Math.min(Math.max(Math.trunc(toNumber(row.max_sends_per_day, 10)), 1), 200),
     minIntervalMinutes: Math.min(
@@ -160,7 +171,15 @@ function mapInputToRow(input: SalesAgentInput, fallback?: SalesAgent) {
       input.sendWindowStartHour ?? fallback?.sendWindowStartHour,
       8,
     ),
+    send_window_start_minute: toMinute(
+      input.sendWindowStartMinute ?? fallback?.sendWindowStartMinute,
+      0,
+    ),
     send_window_end_hour: toHour(input.sendWindowEndHour ?? fallback?.sendWindowEndHour, 22),
+    send_window_end_minute: toMinute(
+      input.sendWindowEndMinute ?? fallback?.sendWindowEndMinute,
+      0,
+    ),
     timezone: toText(input.timezone ?? fallback?.timezone) || "America/Sao_Paulo",
     max_sends_per_day: Math.min(
       Math.max(Math.trunc(toNumber(input.maxSendsPerDay ?? fallback?.maxSendsPerDay, 10)), 1),

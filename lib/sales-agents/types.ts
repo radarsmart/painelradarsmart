@@ -27,7 +27,9 @@ export type SalesAgent = {
   customTextTemplate: string | null;
   aiImagePrompt: string | null;
   sendWindowStartHour: number;
+  sendWindowStartMinute: number;
   sendWindowEndHour: number;
+  sendWindowEndMinute: number;
   timezone: string;
   maxSendsPerDay: number;
   minIntervalMinutes: number;

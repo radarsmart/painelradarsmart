@@ -1,27 +1,32 @@
 import type { SalesAgent } from "./types";
 
-function getLocalHour(date: Date, timeZone: string): number {
+function getLocalMinutesOfDay(date: Date, timeZone: string): number {
   try {
     const parts = new Intl.DateTimeFormat("en-CA", {
       timeZone,
       hour: "2-digit",
+      minute: "2-digit",
       hourCycle: "h23",
     }).formatToParts(date);
-    return Number(parts.find((part) => part.type === "hour")?.value ?? "0");
+    const hour = Number(parts.find((part) => part.type === "hour")?.value ?? "0");
+    const minute = Number(parts.find((part) => part.type === "minute")?.value ?? "0");
+    return hour * 60 + minute;
   } catch {
-    return date.getUTCHours();
+    return date.getUTCHours() * 60 + date.getUTCMinutes();
   }
 }
 
 export function isWithinSendWindow(agent: SalesAgent, now: Date = new Date()): boolean {
-  const hour = getLocalHour(now, agent.timezone);
+  const minutesOfDay = getLocalMinutesOfDay(now, agent.timezone);
+  const startMinutes = agent.sendWindowStartHour * 60 + agent.sendWindowStartMinute;
+  const endMinutes = agent.sendWindowEndHour * 60 + agent.sendWindowEndMinute;
 
-  if (agent.sendWindowStartHour <= agent.sendWindowEndHour) {
-    return hour >= agent.sendWindowStartHour && hour < agent.sendWindowEndHour;
+  if (startMinutes <= endMinutes) {
+    return minutesOfDay >= startMinutes && minutesOfDay < endMinutes;
   }
 
-  // Janela que cruza a meia-noite (ex.: 22 -> 6).
-  return hour >= agent.sendWindowStartHour || hour < agent.sendWindowEndHour;
+  // Janela que cruza a meia-noite (ex.: 22:00 -> 06:00).
+  return minutesOfDay >= startMinutes || minutesOfDay < endMinutes;
 }
 
 export function hasMinIntervalElapsed(agent: SalesAgent, now: Date = new Date()): boolean {

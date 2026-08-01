@@ -1186,7 +1186,7 @@ export default function AdminNovaOfertaPage() {
       return;
     }
 
-    if (!manualAffiliate) {
+    if (!manualAffiliate && detectedMarketplace !== "mercadolivre") {
       setFeedback({
         type: "error",
         text: "Informe o seu Link de Afiliado antes de extrair.",
@@ -1199,6 +1199,44 @@ export default function AdminNovaOfertaPage() {
     setCopyFeedback(null);
     setExtractDebug("");
 
+    let effectiveAffiliate = manualAffiliate;
+
+    if (!effectiveAffiliate && detectedMarketplace === "mercadolivre") {
+      setFeedback({ type: "info", text: "Gerando link de afiliado do Mercado Livre..." });
+      try {
+        const accessToken = await getAccessToken();
+        const affiliateResponse = await fetch("/api/admin/mercadolivre/affiliate-link", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({ product_url: url }),
+        });
+        const affiliateData = (await affiliateResponse.json().catch(() => ({}))) as {
+          affiliate_url?: string;
+          error?: string;
+        };
+
+        if (!affiliateResponse.ok || !affiliateData.affiliate_url) {
+          throw new Error(affiliateData.error || "Falha ao gerar link de afiliado.");
+        }
+
+        effectiveAffiliate = affiliateData.affiliate_url;
+        setAffiliateUrl(effectiveAffiliate);
+      } catch (affiliateError) {
+        setExtracting(false);
+        setFeedback({
+          type: "error",
+          text:
+            affiliateError instanceof Error
+              ? `Nao foi possivel gerar o link de afiliado automaticamente: ${affiliateError.message}. Cole o link manualmente e tente de novo.`
+              : "Nao foi possivel gerar o link de afiliado automaticamente. Cole o link manualmente e tente de novo.",
+        });
+        return;
+      }
+    }
+
     try {
       setMarketplace(detectedMarketplace);
       const response = await fetch("/api/admin/extract", {
@@ -1208,7 +1246,7 @@ export default function AdminNovaOfertaPage() {
         },
         body: JSON.stringify({
           url,
-          affiliate_url: manualAffiliate,
+          affiliate_url: effectiveAffiliate,
         }),
       });
 
@@ -1233,7 +1271,7 @@ export default function AdminNovaOfertaPage() {
               original_price: unifiedProduct.original_price ?? undefined,
               image_url: unifiedProduct.image_url ?? undefined,
               product_url: unifiedProduct.url,
-              affiliate_url: manualAffiliate || unifiedProduct.url || url,
+              affiliate_url: effectiveAffiliate || unifiedProduct.url || url,
               rating: unifiedProduct.rating ?? undefined,
               reviews: unifiedProduct.rating_count ?? undefined,
             },
@@ -1242,7 +1280,7 @@ export default function AdminNovaOfertaPage() {
             old_price: unifiedProduct.original_price ?? undefined,
             image_url: unifiedProduct.image_url ?? undefined,
             product_url: unifiedProduct.url,
-            affiliate_url: manualAffiliate || unifiedProduct.url || url,
+            affiliate_url: effectiveAffiliate || unifiedProduct.url || url,
             debug_info: {
               layer_used:
                 data.meta?.extraction_method ||
@@ -1263,7 +1301,7 @@ export default function AdminNovaOfertaPage() {
       const nextPreview = buildPreviewFromExtractResponse(
         result,
         url,
-        manualAffiliate,
+        effectiveAffiliate,
         img,
       );
 
@@ -1631,8 +1669,12 @@ export default function AdminNovaOfertaPage() {
           <div className="space-y-1">
             <label className="text-xs font-semibold uppercase tracking-wide text-slate-600">
               Link de afiliado{" "}
-              <span className="text-red-600">
-                {marketplace === "awin" ? "(gerado pela API ou obrigatorio no manual)" : "(obrigatorio)"}
+              <span className={marketplace === "mercadolivre" ? "text-emerald-600" : "text-red-600"}>
+                {marketplace === "awin"
+                  ? "(gerado pela API ou obrigatorio no manual)"
+                  : marketplace === "mercadolivre"
+                    ? "(gerado automaticamente ao extrair)"
+                    : "(obrigatorio)"}
               </span>
             </label>
             <input
@@ -1643,12 +1685,14 @@ export default function AdminNovaOfertaPage() {
                   ? "Cole aqui seu link afiliado da Amazon"
                   : marketplace === "awin"
                     ? "A API AWIN preenche este campo; se for manual, cole aqui o link awin1.com"
-                  : "Cole aqui seu link afiliado do Mercado Livre"
+                    : "Deixe em branco para gerar automaticamente, ou cole aqui o link meli.la"
               }
               className="h-11 w-full rounded-lg border-2 border-amber-300 bg-amber-50 px-3 text-sm outline-none focus:border-orange"
             />
             <p className="text-xs text-slate-500">
-              Esse e o link final usado no card, na copy e nas paginas publicas.
+              {marketplace === "mercadolivre"
+                ? "Deixe em branco e clique em Extrair URL — o link oficial e gerado automaticamente pela sessao de Afiliados do Mercado Livre."
+                : "Esse e o link final usado no card, na copy e nas paginas publicas."}
             </p>
           </div>
 

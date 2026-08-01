@@ -38,16 +38,6 @@ function normalizeWhitespace(value: string): string {
   return value.replace(/\s+/g, " ").trim();
 }
 
-function normalizeMultiline(value: string): string {
-  return value
-    .replace(/\r\n/g, "\n")
-    .split("\n")
-    .map((line) => line.replace(/[ \t]+/g, " ").trim())
-    .join("\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-}
-
 function toNumber(value: unknown): number | null {
   if (value === null || value === undefined || value === "") return null;
   const parsed = Number(String(value).replace(/[^\d,.-]/g, "").replace(",", "."));
@@ -193,37 +183,109 @@ function computeDiscountPct(offer: OfferCopyInput, originalPrice: number | null)
   return null;
 }
 
+type CopyFields = {
+  headline: string;
+  product_line: string;
+  highlight: string;
+  benefit_bullets: string[];
+  cta_line: string;
+  closing_line: string;
+};
+
+const CTA_LINK_PHRASE = "Não perca essa oportunidade! Clique aqui:";
+
+function buildPriceBlock(
+  price: number,
+  originalPrice: number | null,
+  discountPct: number | null,
+): string {
+  if (originalPrice && originalPrice > price) {
+    const pct = discountPct ?? Math.round(((originalPrice - price) / originalPrice) * 100);
+    return [
+      `💰 De: ~${formatMoney(originalPrice)}~`,
+      `✅ Por: *${formatMoney(price)}*`,
+      `🔥 Desconto: ${formatPercent(pct)}`,
+    ].join("\n");
+  }
+
+  return `✅ Por: *${formatMoney(price)}*`;
+}
+
+function buildCtaLinkBlock(link: string): string {
+  return `${CTA_LINK_PHRASE}\n${link}`;
+}
+
+function assembleVariant(
+  depth: "short" | "medium" | "long",
+  fields: CopyFields,
+  priceBlock: string,
+  ctaLinkBlock: string,
+): string {
+  if (depth === "short") {
+    return [fields.headline, "", priceBlock, "", fields.cta_line, ctaLinkBlock].join("\n");
+  }
+
+  if (depth === "medium") {
+    return [
+      fields.headline,
+      "",
+      fields.product_line,
+      fields.highlight,
+      "",
+      priceBlock,
+      "",
+      fields.cta_line,
+      ctaLinkBlock,
+    ].join("\n");
+  }
+
+  return [
+    fields.headline,
+    "",
+    fields.product_line,
+    fields.highlight,
+    "",
+    priceBlock,
+    "",
+    fields.benefit_bullets.join("\n"),
+    "",
+    fields.cta_line,
+    ctaLinkBlock,
+    "",
+    fields.closing_line,
+  ].join("\n");
+}
+
 function buildSystemPrompt(): string {
   return [
-    "Voce e um copywriter senior de anuncios de afiliado de alta conversao da Radar Smart (mesmo estilo dos melhores anuncios de grupos de ofertas do WhatsApp/Telegram: gancho emocional, detalhe do produto, desejo/beneficio, CTA forte).",
+    "Voce e um estrategista de marketing de performance e copywriter senior da Radar Smart, especialista em anuncios de afiliado que realmente vendem em canais de ofertas do Telegram e grupos de WhatsApp.",
     "",
-    "ESTRUTURA DE CADA VERSAO (linhas separadas por quebra de linha real \\n, com linha em branco entre os blocos):",
-    "1) GANCHO: 1 linha curta e emocional/curiosa que prenda a atencao, com 1 emoji relevante. NAO escreva em caixa alta.",
-    "2) DETALHE (opcional, 1 linha): uma caracteristica, variacao ou funcionalidade concreta do produto, com emoji.",
-    "3) DESEJO: 1-2 linhas curtas mostrando o beneficio real / a transformacao que o produto entrega no dia a dia.",
-    "4) ACAO: 1 linha final de CTA com emoji (ex: 👉 ou 🛍️), urgencia genuina, convite direto a agir.",
+    "Antes de escrever, analise o produto, o publico provavel e o contexto de uso, e decida qual abordagem de abertura vai gerar mais desejo de compra PARA ESSE produto especifico. Voce tem liberdade total para escolher a estrategia: chamada direta ao publico (ex: \"Atenção, [publico]!\"), pergunta provocativa, urgencia, curiosidade, beneficio direto, prova social, entre outras. Nao repita sempre a mesma formula de abertura entre ofertas diferentes — varie conforme o que funciona melhor para cada caso, como um profissional de marketing faria ao analisar cada produto individualmente.",
+    "",
+    "Voce NUNCA escreve preco, valor em R$, percentual de desconto, cupom ou a URL/link — esses blocos sao montados automaticamente pelo sistema com base nos dados reais da oferta, logo apos as linhas que voce gerar. Use os dados de preco apenas para calibrar o tom (produto caro vs. barato), nunca como texto literal.",
+    "",
+    "Retorne APENAS JSON valido, sem markdown e sem blocos de codigo, no formato:",
+    "{",
+    '  "headline": "1 linha com 1 emoji no inicio (pode fechar com outro emoji), a abertura que voce escolheu como mais eficaz para esse produto",',
+    '  "product_line": "1 linha com 1 emoji no inicio, apresentando o produto de forma chamativa (pode usar *negrito* no nome)",',
+    '  "highlight": "1 linha com 1 emoji no inicio, destacando um diferencial ou funcionalidade concreta do produto",',
+    '  "benefit_bullets": ["1 linha com 1 emoji no inicio, um beneficio concreto", "opcional: uma segunda linha com outro beneficio, publico especifico ou uso pratico"],',
+    '  "cta_line": "1 linha com 1 emoji no inicio, frase de desejo/beneficio que antecede o link (evite comecar com \\"nao perca\\", pois a linha fixa que vem logo depois ja cobre a urgencia de clicar)",',
+    '  "closing_line": "1 linha com 1 emoji no inicio, frase curta e calorosa de fechamento"',
+    "}",
     "",
     "Regras obrigatorias:",
     "- Escreva em portugues do Brasil, tom humano e conversacional, como indicacao de amigo — nunca robotico.",
-    "- Retorne APENAS JSON valido, sem markdown e sem blocos de codigo.",
-    "- NUNCA escreva preco, valor em R$, percentual de desconto, cupom ou \"economia\" no texto — o sistema insere esse bloco automaticamente logo apos o gancho/detalhe. Use os dados de preco apenas para calibrar o tom (produto caro vs. barato), nunca como texto literal.",
-    "- NAO inclua a URL/link no texto — o sistema adiciona o link e o botao de compra no final.",
-    "- Nunca use abertura generica ou template repetido entre as versoes.",
-    "- Personalize a chamada com base no produto, na categoria e no contexto de uso.",
+    "- Cada campo (e cada item de benefit_bullets) e uma unica linha (sem quebras internas), comecando com exatamente 1 emoji relevante ao conteudo daquela linha.",
+    "- benefit_bullets deve ter 1 ou 2 itens, nunca mais que isso.",
+    "- Varie os emojis entre os campos — nunca repita o mesmo emoji em campos diferentes da mesma resposta.",
+    "- NUNCA escreva preco, R$, %, desconto, cupom, \"economia\" ou a URL/link no texto.",
+    "- Personalize a chamada com base no produto, na categoria e no contexto de uso — nunca use um template generico igual para qualquer produto.",
     "- Nao invente dados: frete, estoque, avaliacoes ou garantias so se estiverem no input.",
     "- Se houver rating e reviews_count, pode citar como prova social qualitativa (ex: \"aprovado por quem ja comprou\") sem inventar numeros que nao foram informados.",
-    "- Use de 3 a 8 emojis com sentido, nunca genericos demais.",
     "- Gere urgencia sem mentir.",
     "- Nao incluir assinatura final, rodape de marca ou texto como _Curadoria Radar Smart_.",
     "- O texto precisa funcionar tanto para WhatsApp quanto Telegram.",
-    "",
-    "Formato de saida obrigatorio (cada valor deve conter quebras de linha reais \\n entre os blocos da estrutura acima):",
-    "{",
-    '  "hook": "string curta e forte (so o gancho, 1 linha)",',
-    '  "short": "versao curta para status/stories (gancho + desejo + acao)",',
-    '  "medium": "versao media para grupos (gancho + detalhe + desejo + acao)",',
-    '  "long": "versao longa para canal/telegram (gancho + detalhe + desejo em 2 linhas + acao)"',
-    "}",
   ].join("\n");
 }
 
@@ -233,8 +295,8 @@ function buildUserPrompt(offer: OfferCopyInput): string {
   const context = inferProductContext(offer);
 
   return [
-    "Crie as versões de copy para a oferta abaixo, seguindo a estrutura GANCHO / DETALHE / DESEJO / ACAO do system prompt.",
-    "Lembre-se: NAO escreva preco, R$, % de desconto, cupom ou a URL no texto — isso e inserido automaticamente pelo sistema depois do gancho/detalhe.",
+    "Analise a oferta abaixo como um estrategista de marketing e crie os campos de copy que vao gerar mais desejo de compra para ESSE produto, seguindo o formato JSON do system prompt (headline, product_line, highlight, benefit_bullets, cta_line, closing_line).",
+    "Lembre-se: NAO escreva preco, R$, % de desconto, cupom ou a URL no texto — isso e montado automaticamente pelo sistema em blocos separados.",
     "",
     "DADOS DA OFERTA (apenas para calibrar o tom — nao escrever os valores no texto):",
     `- Título: ${offer.title}`,
@@ -246,24 +308,20 @@ function buildUserPrompt(offer: OfferCopyInput): string {
     `- Avaliação: ${typeof offer.rating === "number" ? offer.rating.toFixed(1) : "não informada"}`,
     `- Número de avaliações: ${typeof offer.reviews_count === "number" ? formatNumber(offer.reviews_count) : "não informado"}`,
     "",
-    "CONTEXTO INFERIDO:",
+    "CONTEXTO INFERIDO (use como referencia, nao como camisa de forca):",
     `- Público provável: ${context.audience}`,
     `- Problema que resolve: ${context.problem}`,
     `- Gatilho emocional principal: ${context.trigger}`,
     `- Contexto de uso no dia a dia brasileiro: ${context.dailyContext}`,
-    `- Sugestões de abertura: ${context.openingHints.join(" | ")}`,
+    `- Exemplos de abertura possíveis (inspiração, não copie literalmente): ${context.openingHints.join(" | ")}`,
     "",
     "REGRAS DE COPY:",
-    "- A primeira linha (gancho) precisa parecer natural e específica para o produto, não genérica.",
+    "- headline precisa parecer natural e específica para o produto, não genérica — escolha a abordagem (chamada ao público, pergunta, urgência, curiosidade, benefício direto etc.) que combina melhor com esse produto e público.",
     "- Use o nome do produto em negrito com asteriscos quando citar: *nome do produto*.",
-    "- Destaque benefício e contexto de uso real, não números.",
-    "- Não repita a mesma abertura entre short, medium e long.",
-    "",
-    "FORMATAÇÃO DAS VERSÕES (cada bloco em sua própria linha, separado por \\n, com linha em branco entre blocos):",
-    "- hook: 1 linha curta e forte (só o gancho).",
-    "- short: gancho + desejo (1 linha) + ação — ideal para Stories/Status.",
-    "- medium: gancho + detalhe + desejo (1-2 linhas) + ação — ideal para grupos de WhatsApp.",
-    "- long: gancho + detalhe + desejo (2 linhas) + ação — ideal para canal de Telegram.",
+    "- product_line e highlight juntas devem apresentar o produto e seu principal diferencial.",
+    "- benefit_bullets deve trazer 1 ou 2 detalhes extras e concretos (não repita o que já foi dito em highlight).",
+    "- cta_line deve gerar desejo genuíno pelo benefício do produto, preparando para o link que vem logo depois (a linha fixa seguinte já diz \"Não perca essa oportunidade! Clique aqui:\", então evite repetir essa mesma ideia em cta_line).",
+    "- closing_line deve ser curta e emocional, reforçando o benefício final.",
   ].join("\n");
 }
 
@@ -332,8 +390,8 @@ async function requestOpenAIJson(params: {
   throw lastError ?? new Error("Falha ao gerar copy com OpenAI.");
 }
 
-function normalizeVariant(value: unknown): string {
-  return stripBrandSignature(normalizeMultiline(toText(value)));
+function normalizeField(value: unknown): string {
+  return stripBrandSignature(normalizeWhitespace(toText(value)));
 }
 
 function stripBrandSignature(value: string): string {
@@ -343,15 +401,47 @@ function stripBrandSignature(value: string): string {
     .trim();
 }
 
-function normalizeCopyOutput(raw: Record<string, unknown>): WhatsAppCopyVariants {
-  const hook = normalizeVariant(raw.hook ?? raw.opening ?? "");
-  const short = normalizeVariant(raw.short ?? raw.message_short ?? raw.message ?? "");
-  const medium = normalizeVariant(raw.medium ?? raw.message_medium ?? raw.message ?? "");
-  const long = normalizeVariant(raw.long ?? raw.full_text ?? raw.message_long ?? raw.message ?? "");
+function normalizeFieldList(value: unknown): string[] {
+  const raw = Array.isArray(value) ? value : [value];
+  return raw
+    .map((item) => normalizeField(item))
+    .filter(Boolean)
+    .slice(0, 2);
+}
 
-  if (!hook || !short || !medium || !long) {
+function normalizeCopyOutput(
+  raw: Record<string, unknown>,
+  offer: OfferCopyInput,
+): WhatsAppCopyVariants {
+  const fields: CopyFields = {
+    headline: normalizeField(raw.headline ?? raw.hook ?? ""),
+    product_line: normalizeField(raw.product_line ?? ""),
+    highlight: normalizeField(raw.highlight ?? ""),
+    benefit_bullets: normalizeFieldList(raw.benefit_bullets ?? raw.benefit_bullet),
+    cta_line: normalizeField(raw.cta_line ?? ""),
+    closing_line: normalizeField(raw.closing_line ?? ""),
+  };
+
+  if (
+    !fields.headline ||
+    !fields.product_line ||
+    !fields.highlight ||
+    !fields.benefit_bullets.length ||
+    !fields.cta_line ||
+    !fields.closing_line
+  ) {
     throw new Error("Resposta de copy incompleta.");
   }
+
+  const originalPrice = computeOriginalPrice(offer);
+  const discountPct = computeDiscountPct(offer, originalPrice);
+  const priceBlock = buildPriceBlock(offer.price, originalPrice, discountPct);
+  const ctaLinkBlock = buildCtaLinkBlock(offer.affiliate_url);
+
+  const hook = fields.headline;
+  const short = assembleVariant("short", fields, priceBlock, ctaLinkBlock);
+  const medium = assembleVariant("medium", fields, priceBlock, ctaLinkBlock);
+  const long = assembleVariant("long", fields, priceBlock, ctaLinkBlock);
 
   return {
     hook,
@@ -402,5 +492,5 @@ export async function generateWhatsAppCopy(
     userPrompt,
   });
 
-  return normalizeCopyOutput(raw);
+  return normalizeCopyOutput(raw, normalizedOffer);
 }

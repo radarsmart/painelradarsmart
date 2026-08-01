@@ -2,7 +2,17 @@
 
 import StoryGeneratorButton from "@/components/admin/StoryGeneratorButton";
 import { useEffect, useMemo, useState } from "react";
-import { CheckCircle2, Copy, Link2, Loader2, MessageSquare, Save, Send, Trash2 } from "lucide-react";
+import {
+  CheckCircle2,
+  Copy,
+  Image as ImageIcon,
+  Link2,
+  Loader2,
+  MessageSquare,
+  Save,
+  Send,
+  Trash2,
+} from "lucide-react";
 import { formatBRL } from "@/lib/formatters";
 import { supabase } from "@/lib/supabase";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -565,6 +575,9 @@ export default function AdminNovaOfertaPage() {
   const [whatsappCopyVariants, setWhatsAppCopyVariants] = useState<WhatsAppCopyVariants | null>(null);
   const [copyLoading, setCopyLoading] = useState(false);
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
+  const [aiImageLoading, setAiImageLoading] = useState(false);
+  const [aiImageUrl, setAiImageUrl] = useState<string | null>(null);
+  const [originalImageUrl, setOriginalImageUrl] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<Feedback | null>(null);
   const [extractDebug, setExtractDebug] = useState<string>("");
   const [loadingExisting, setLoadingExisting] = useState(false);
@@ -638,6 +651,11 @@ export default function AdminNovaOfertaPage() {
     if (!whatsappCopyVariants) return;
     setCopyText(whatsappCopyVariants[selectedTemplate] || "");
   }, [selectedTemplate, whatsappCopyVariants]);
+
+  useEffect(() => {
+    setAiImageUrl(null);
+    setOriginalImageUrl(null);
+  }, [preview]);
 
   useEffect(() => {
     const loadExistingOffer = async () => {
@@ -924,6 +942,64 @@ export default function AdminNovaOfertaPage() {
       type: "success",
       text: `Preview manual criado (${MARKETPLACE_LABEL[marketplace]}). Revise e escolha o destino da oferta.`,
     });
+  };
+
+  const handleGenerateAiImage = async () => {
+    if (!preview) return;
+    const sourceImage = toCleanText(imageUrl) || preview.image_url || "";
+    if (!sourceImage) {
+      setFeedback({
+        type: "error",
+        text: "Nenhuma imagem de produto disponivel para gerar com IA.",
+      });
+      return;
+    }
+
+    setAiImageLoading(true);
+    setFeedback(null);
+
+    try {
+      const accessToken = await getAccessToken();
+      const response = await fetch("/api/admin/criativos/ai-product-image", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ image_url: sourceImage }),
+      });
+
+      const json = (await response.json().catch(() => ({}))) as {
+        image_url?: string;
+        error?: string;
+      };
+
+      if (!response.ok || !json.image_url) {
+        throw new Error(json.error || "Falha ao gerar imagem com IA.");
+      }
+
+      setOriginalImageUrl(sourceImage);
+      setAiImageUrl(json.image_url);
+      setImageUrl(json.image_url);
+      setFeedback({
+        type: "success",
+        text: "Imagem gerada com IA. Revise o preview antes de publicar.",
+      });
+    } catch (error) {
+      setFeedback({
+        type: "error",
+        text: error instanceof Error ? error.message : "Falha ao gerar imagem com IA.",
+      });
+    } finally {
+      setAiImageLoading(false);
+    }
+  };
+
+  const handleRestoreOriginalImage = () => {
+    if (originalImageUrl) {
+      setImageUrl(originalImageUrl);
+    }
+    setAiImageUrl(null);
   };
 
   const handleGenerateAwinAffiliate = () => {
@@ -1780,50 +1856,89 @@ export default function AdminNovaOfertaPage() {
                 <p className="text-xs font-semibold uppercase tracking-wide text-rs-muted">
                   Copy Inteligente (WhatsApp/Telegram)
                 </p>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (!preview) return;
-                    setCopyLoading(true);
-                    void getAccessToken()
-                      .then((accessToken) =>
-                        generateWhatsAppCopyFromPreview({
-                          preview,
-                          affiliateUrl: getOfferUrl(preview, affiliateUrl.trim()),
-                          marketplace,
-                          accessToken,
-                        }),
-                      )
-                      .then((generated) => {
-                        setWhatsAppCopyVariants(generated);
-                        setSelectedTemplate("medium");
-                        setCopyText(generated.medium);
-                        setCopyFeedback(null);
-                      })
-                      .catch((error) => {
-                        setFeedback({
-                          type: "error",
-                          text:
-                            error instanceof Error
-                              ? error.message
-                              : "Falha ao gerar copy inteligente.",
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void handleGenerateAiImage()}
+                    disabled={aiImageLoading || !preview}
+                    className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {aiImageLoading ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <ImageIcon className="h-4 w-4" />
+                    )}
+                    🖼️ Gerar Imagem com IA
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!preview) return;
+                      setCopyLoading(true);
+                      void getAccessToken()
+                        .then((accessToken) =>
+                          generateWhatsAppCopyFromPreview({
+                            preview,
+                            affiliateUrl: getOfferUrl(preview, affiliateUrl.trim()),
+                            marketplace,
+                            accessToken,
+                          }),
+                        )
+                        .then((generated) => {
+                          setWhatsAppCopyVariants(generated);
+                          setSelectedTemplate("medium");
+                          setCopyText(generated.medium);
+                          setCopyFeedback(null);
+                        })
+                        .catch((error) => {
+                          setFeedback({
+                            type: "error",
+                            text:
+                              error instanceof Error
+                                ? error.message
+                                : "Falha ao gerar copy inteligente.",
+                          });
+                        })
+                        .finally(() => {
+                          setCopyLoading(false);
                         });
-                      })
-                      .finally(() => {
-                        setCopyLoading(false);
-                      });
-                  }}
-                  disabled={copyLoading || !preview}
-                  className="inline-flex items-center gap-2 rounded-lg bg-orange px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {copyLoading ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Copy className="h-4 w-4" />
-                  )}
-                  🔥 Gerar Copy
-                </button>
+                    }}
+                    disabled={copyLoading || !preview}
+                    className="inline-flex items-center gap-2 rounded-lg bg-orange px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {copyLoading ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Copy className="h-4 w-4" />
+                    )}
+                    🔥 Gerar Copy
+                  </button>
+                </div>
               </div>
+
+              {aiImageUrl ? (
+                <div className="mt-3 flex flex-wrap items-center gap-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={aiImageUrl}
+                    alt="Imagem gerada com IA"
+                    className="h-16 w-16 rounded-lg border border-emerald-200 object-cover"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-semibold text-emerald-800">
+                      Imagem com IA aplicada ao preview e a publicacao.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={handleRestoreOriginalImage}
+                      className="mt-1 text-xs font-semibold text-emerald-700 underline"
+                    >
+                      Restaurar imagem original
+                    </button>
+                  </div>
+                </div>
+              ) : null}
 
               <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
                 <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">

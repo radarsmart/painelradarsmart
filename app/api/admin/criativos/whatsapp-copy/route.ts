@@ -55,16 +55,45 @@ function normalizeInput(body: Record<string, unknown>): OfferCopyInput {
   };
 }
 
+function formatCurrency(value: number): string {
+  return new Intl.NumberFormat("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+  }).format(value);
+}
+
 function buildFallbackCopy(offer: OfferCopyInput) {
-  const hook = `🔥 Oferta em destaque para ${offer.title}!`;
+  const hook = `🎯 Oferta em destaque para ${offer.title}!`;
+
+  const originalPrice =
+    typeof offer.original_price === "number" && offer.original_price > offer.price
+      ? offer.original_price
+      : null;
+  const discountPct =
+    typeof offer.discount_pct === "number" && offer.discount_pct > 0
+      ? Math.round(offer.discount_pct)
+      : originalPrice
+        ? Math.round(((originalPrice - offer.price) / originalPrice) * 100)
+        : null;
+
+  const priceBlock = originalPrice
+    ? [
+        `💰 De: ~${formatCurrency(originalPrice)}~`,
+        `✅ Por: *${formatCurrency(offer.price)}*`,
+        `🔥 Desconto: ${discountPct}%`,
+      ].join("\n")
+    : `✅ Por: *${formatCurrency(offer.price)}*`;
+
   const base = [
-    `🎯 ${hook}`,
+    hook,
     "",
-    `*${offer.title}*`,
+    `📦 *${offer.title}*`,
     "",
-    "⚡ Oferta ativa agora. Aproveite enquanto está disponível.",
+    priceBlock,
     "",
-    "👉 Confira e garanta o seu!",
+    "👍 Aproveite enquanto está disponível!",
+    "Não perca essa oportunidade! Clique aqui:",
+    offer.affiliate_url,
   ].join("\n");
 
   return {

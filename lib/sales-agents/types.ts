@@ -8,6 +8,8 @@ export const SALES_AGENT_SOURCES: SalesAgentSource[] = [
   "mercadolivre",
 ];
 
+export type SalesAgentTextMode = "ai" | "custom";
+
 export type SalesAgent = {
   id: string;
   name: string;
@@ -21,6 +23,9 @@ export type SalesAgent = {
   aavFilterEnabled: boolean;
   aiImageEnabled: boolean;
   aiInstructions: string | null;
+  textMode: SalesAgentTextMode;
+  customTextTemplate: string | null;
+  aiImagePrompt: string | null;
   sendWindowStartHour: number;
   sendWindowEndHour: number;
   timezone: string;

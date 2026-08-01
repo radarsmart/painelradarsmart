@@ -1,5 +1,10 @@
 import { supabaseAdmin } from "@/lib/supabase";
-import { SALES_AGENT_SOURCES, type SalesAgent, type SalesAgentSource } from "./types";
+import {
+  SALES_AGENT_SOURCES,
+  type SalesAgent,
+  type SalesAgentSource,
+  type SalesAgentTextMode,
+} from "./types";
 
 type SalesAgentRow = {
   id: string;
@@ -14,6 +19,9 @@ type SalesAgentRow = {
   aav_filter_enabled: boolean | null;
   ai_image_enabled: boolean | null;
   ai_instructions: string | null;
+  text_mode: string | null;
+  custom_text_template: string | null;
+  ai_image_prompt: string | null;
   send_window_start_hour: number | null;
   send_window_end_hour: number | null;
   timezone: string | null;
@@ -38,6 +46,9 @@ export type SalesAgentInput = Partial<{
   aavFilterEnabled: unknown;
   aiImageEnabled: unknown;
   aiInstructions: unknown;
+  textMode: unknown;
+  customTextTemplate: unknown;
+  aiImagePrompt: unknown;
   sendWindowStartHour: unknown;
   sendWindowEndHour: unknown;
   timezone: unknown;
@@ -85,6 +96,10 @@ function toSource(value: unknown): SalesAgentSource {
   return SALES_AGENT_SOURCES.includes(text) ? text : "awin";
 }
 
+function toTextMode(value: unknown): SalesAgentTextMode {
+  return toText(value) === "custom" ? "custom" : "ai";
+}
+
 function mapRowToAgent(row: SalesAgentRow, targetIds: string[]): SalesAgent {
   return {
     id: row.id,
@@ -99,6 +114,9 @@ function mapRowToAgent(row: SalesAgentRow, targetIds: string[]): SalesAgent {
     aavFilterEnabled: Boolean(row.aav_filter_enabled ?? true),
     aiImageEnabled: Boolean(row.ai_image_enabled ?? false),
     aiInstructions: toOptionalText(row.ai_instructions),
+    textMode: toTextMode(row.text_mode),
+    customTextTemplate: toOptionalText(row.custom_text_template),
+    aiImagePrompt: toOptionalText(row.ai_image_prompt),
     sendWindowStartHour: toHour(row.send_window_start_hour, 8),
     sendWindowEndHour: toHour(row.send_window_end_hour, 22),
     timezone: toText(row.timezone) || "America/Sao_Paulo",
@@ -135,6 +153,9 @@ function mapInputToRow(input: SalesAgentInput, fallback?: SalesAgent) {
     aav_filter_enabled: toBoolean(input.aavFilterEnabled, fallback?.aavFilterEnabled ?? true),
     ai_image_enabled: toBoolean(input.aiImageEnabled, fallback?.aiImageEnabled ?? false),
     ai_instructions: toOptionalText(input.aiInstructions ?? fallback?.aiInstructions),
+    text_mode: toTextMode(input.textMode ?? fallback?.textMode),
+    custom_text_template: toOptionalText(input.customTextTemplate ?? fallback?.customTextTemplate),
+    ai_image_prompt: toOptionalText(input.aiImagePrompt ?? fallback?.aiImagePrompt),
     send_window_start_hour: toHour(
       input.sendWindowStartHour ?? fallback?.sendWindowStartHour,
       8,

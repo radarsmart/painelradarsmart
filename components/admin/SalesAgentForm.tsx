@@ -7,6 +7,7 @@ import { ArrowLeft, ArrowRight, Bot, Loader2, Play, Save } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 
 type SalesAgentSource = "awin" | "lomadee" | "shopee" | "amazon" | "mercadolivre";
+type SalesAgentTextMode = "ai" | "custom";
 
 const SOURCE_OPTIONS: Array<{ value: SalesAgentSource; label: string }> = [
   { value: "awin", label: "AWIN" },
@@ -14,6 +15,15 @@ const SOURCE_OPTIONS: Array<{ value: SalesAgentSource; label: string }> = [
   { value: "shopee", label: "Shopee" },
   { value: "amazon", label: "Amazon" },
   { value: "mercadolivre", label: "Mercado Livre" },
+];
+
+const TEMPLATE_TAGS = [
+  "{nome_produto}",
+  "{preco}",
+  "{preco_original}",
+  "{desconto}",
+  "{loja}",
+  "{link}",
 ];
 
 type SalesAgent = {
@@ -29,6 +39,9 @@ type SalesAgent = {
   aavFilterEnabled: boolean;
   aiImageEnabled: boolean;
   aiInstructions: string | null;
+  textMode: SalesAgentTextMode;
+  customTextTemplate: string | null;
+  aiImagePrompt: string | null;
   sendWindowStartHour: number;
   sendWindowEndHour: number;
   timezone: string;
@@ -74,6 +87,9 @@ type FormState = {
   aavFilterEnabled: boolean;
   aiImageEnabled: boolean;
   aiInstructions: string;
+  textMode: SalesAgentTextMode;
+  customTextTemplate: string;
+  aiImagePrompt: string;
   sendWindowStartHour: string;
   sendWindowEndHour: string;
   timezone: string;
@@ -95,6 +111,9 @@ const DEFAULT_FORM: FormState = {
   aavFilterEnabled: true,
   aiImageEnabled: false,
   aiInstructions: "",
+  textMode: "ai",
+  customTextTemplate: "",
+  aiImagePrompt: "",
   sendWindowStartHour: "8",
   sendWindowEndHour: "22",
   timezone: "America/Sao_Paulo",
@@ -117,6 +136,9 @@ function agentToForm(agent: SalesAgent): FormState {
     aavFilterEnabled: agent.aavFilterEnabled,
     aiImageEnabled: agent.aiImageEnabled,
     aiInstructions: agent.aiInstructions ?? "",
+    textMode: agent.textMode,
+    customTextTemplate: agent.customTextTemplate ?? "",
+    aiImagePrompt: agent.aiImagePrompt ?? "",
     sendWindowStartHour: String(agent.sendWindowStartHour),
     sendWindowEndHour: String(agent.sendWindowEndHour),
     timezone: agent.timezone,
@@ -140,6 +162,9 @@ function formToPayload(form: FormState) {
     aavFilterEnabled: form.aavFilterEnabled,
     aiImageEnabled: form.aiImageEnabled,
     aiInstructions: form.aiInstructions.trim() || null,
+    textMode: form.textMode,
+    customTextTemplate: form.customTextTemplate.trim() || null,
+    aiImagePrompt: form.aiImagePrompt.trim() || null,
     sendWindowStartHour: Number(form.sendWindowStartHour),
     sendWindowEndHour: Number(form.sendWindowEndHour),
     timezone: form.timezone.trim() || "America/Sao_Paulo",
@@ -167,6 +192,7 @@ const STEPS = [
   { key: "volume", label: "Quantidade e Intervalo" },
   { key: "targets", label: "Grupos de Destino" },
   { key: "ai-text", label: "Orientacoes para a IA" },
+  { key: "text-mode", label: "Texto do Envio" },
   { key: "ai-image", label: "Imagem da Divulgacao" },
   { key: "activation", label: "Filtro AAV e Ativacao" },
 ] as const;
@@ -181,6 +207,7 @@ export default function SalesAgentForm({ agentId }: { agentId?: string }) {
   const [error, setError] = useState("");
   const [feedback, setFeedback] = useState("");
   const [step, setStep] = useState(0);
+  const [awinCategories, setAwinCategories] = useState<string[]>([]);
 
   const groupedTargets = useMemo(() => {
     const groups = new Map<string, TargetOption[]>();
@@ -247,6 +274,31 @@ export default function SalesAgentForm({ agentId }: { agentId?: string }) {
     void loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agentId]);
+
+  useEffect(() => {
+    if (form.source !== "awin") {
+      setAwinCategories([]);
+      return;
+    }
+
+    let cancelled = false;
+    const advertiserId = form.advertiserId.trim() || "18879";
+
+    fetchJson<{ categories?: string[] }>(
+      `/api/awin/feed/${encodeURIComponent(advertiserId)}?page=1`,
+    )
+      .then((payload) => {
+        if (!cancelled) setAwinCategories(payload.categories ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setAwinCategories([]);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.source, form.advertiserId]);
 
   function toggleTarget(id: string) {
     setForm((current) => ({
@@ -444,12 +496,30 @@ export default function SalesAgentForm({ agentId }: { agentId?: string }) {
                 <span className="text-xs font-bold uppercase tracking-wide text-slate-500">
                   Categoria (AWIN/Lomadee/Amazon)
                 </span>
-                <input
-                  value={form.category}
-                  onChange={(event) => setForm((current) => ({ ...current, category: event.target.value }))}
-                  placeholder="Opcional"
-                  className="h-11 w-full rounded-xl border border-slate-300 px-3 text-sm outline-none focus:border-orange"
-                />
+                {form.source === "awin" ? (
+                  <select
+                    value={form.category}
+                    onChange={(event) => setForm((current) => ({ ...current, category: event.target.value }))}
+                    className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm outline-none focus:border-orange"
+                  >
+                    <option value="">Todas as categorias</option>
+                    {form.category && !awinCategories.includes(form.category) ? (
+                      <option value={form.category}>{form.category}</option>
+                    ) : null}
+                    {awinCategories.map((category) => (
+                      <option key={category} value={category}>
+                        {category}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    value={form.category}
+                    onChange={(event) => setForm((current) => ({ ...current, category: event.target.value }))}
+                    placeholder="Opcional"
+                    className="h-11 w-full rounded-xl border border-slate-300 px-3 text-sm outline-none focus:border-orange"
+                  />
+                )}
               </label>
             </div>
           </div>
@@ -644,6 +714,94 @@ export default function SalesAgentForm({ agentId }: { agentId?: string }) {
           </label>
         ) : null}
 
+        {currentStep.key === "text-mode" ? (
+          <div className="space-y-3">
+            <p className="text-sm text-slate-500">Como o agente deve criar o texto das divulgacoes?</p>
+            <label
+              className={`block cursor-pointer rounded-xl border p-4 ${
+                form.textMode === "ai" ? "border-orange bg-orange/5" : "border-slate-200 bg-white"
+              }`}
+            >
+              <span className="flex items-center gap-3">
+                <input
+                  type="radio"
+                  checked={form.textMode === "ai"}
+                  onChange={() => setForm((current) => ({ ...current, textMode: "ai" }))}
+                  className="h-5 w-5 accent-orange"
+                />
+                <span>
+                  <span className="block text-sm font-bold text-navy">Gerado por IA</span>
+                  <span className="block text-xs text-slate-500">
+                    A IA cria um texto personalizado com base na orientacao que voce definiu.
+                  </span>
+                </span>
+              </span>
+            </label>
+            <label
+              className={`block cursor-pointer rounded-xl border p-4 ${
+                form.textMode === "custom" ? "border-orange bg-orange/5" : "border-slate-200 bg-white"
+              }`}
+            >
+              <span className="flex items-center gap-3">
+                <input
+                  type="radio"
+                  checked={form.textMode === "custom"}
+                  onChange={() => setForm((current) => ({ ...current, textMode: "custom" }))}
+                  className="h-5 w-5 accent-orange"
+                />
+                <span>
+                  <span className="block text-sm font-bold text-navy">Texto Personalizado</span>
+                  <span className="block text-xs text-slate-500">
+                    Voce define um template fixo com tags que serao substituidas automaticamente.
+                  </span>
+                </span>
+              </span>
+            </label>
+
+            {form.textMode === "custom" ? (
+              <div className="space-y-2 pt-2">
+                <div className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-xs text-sky-800">
+                  Use as tags abaixo no texto. O marcador <strong>{"{link}"}</strong> sera substituido pelo link de
+                  afiliado.
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {TEMPLATE_TAGS.map((tag) => (
+                    <button
+                      key={tag}
+                      type="button"
+                      onClick={() =>
+                        setForm((current) => ({
+                          ...current,
+                          customTextTemplate: `${current.customTextTemplate}${tag}`,
+                        }))
+                      }
+                      className="rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-slate-600 hover:border-orange hover:text-orange"
+                    >
+                      + {tag}
+                    </button>
+                  ))}
+                </div>
+                <textarea
+                  value={form.customTextTemplate}
+                  onChange={(event) =>
+                    setForm((current) => ({ ...current, customTextTemplate: event.target.value }))
+                  }
+                  rows={6}
+                  maxLength={1000}
+                  placeholder={
+                    "Ex: Crie um texto chamativo para {nome_produto}. Preco: R$ {preco} (era R$ {preco_original}, {desconto}% OFF). Loja: {loja}. Compre aqui: {link}"
+                  }
+                  className="w-full rounded-xl border border-slate-300 p-3 text-sm outline-none focus:border-orange"
+                />
+                <span className="block text-xs text-slate-400">
+                  {form.customTextTemplate.length}/1000 caracteres. Se deixar em branco, o agente usa o texto
+                  gerado por IA.
+                </span>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
         {currentStep.key === "ai-image" ? (
           <div className="space-y-3">
             <p className="text-sm text-slate-500">Qual imagem o agente deve usar nas divulgacoes?</p>
@@ -685,6 +843,21 @@ export default function SalesAgentForm({ agentId }: { agentId?: string }) {
                 </span>
               </span>
             </label>
+
+            {form.aiImageEnabled ? (
+              <label className="block space-y-2 pt-2">
+                <span className="text-xs font-bold uppercase tracking-wide text-slate-500">
+                  Prompt customizado (opcional)
+                </span>
+                <textarea
+                  value={form.aiImagePrompt}
+                  onChange={(event) => setForm((current) => ({ ...current, aiImagePrompt: event.target.value }))}
+                  rows={4}
+                  placeholder="Se deixar em branco, usamos o prompt padrao (foto realista, fundo neutro, produto centralizado)."
+                  className="w-full rounded-xl border border-slate-300 p-3 text-sm outline-none focus:border-orange"
+                />
+              </label>
+            ) : null}
           </div>
         ) : null}
 

@@ -3,6 +3,7 @@ import { generateWhatsAppCopy } from "@/lib/copy/whatsapp-generator";
 import { generateAiProductImage } from "@/lib/ai/product-image";
 import { dispatchToSpecificTargets } from "@/lib/distribution/legacy-dispatch";
 import { passesRadarSniperPreFilter, rankSniperCandidates } from "@/lib/radar-sniper";
+import { renderCustomTemplate } from "./custom-template";
 import { discoverForAgent } from "./discovery";
 import { getSalesAgent, saveSalesAgentRunResult } from "./agent-store";
 import type { AgentRunResult, DiscoveryCandidate, SalesAgent } from "./types";
@@ -178,7 +179,10 @@ export async function runSalesAgent(agentId: string): Promise<AgentRunResult> {
         let imageUrlForCopy = candidate.imageUrl || undefined;
         if (agent.aiImageEnabled && candidate.imageUrl) {
           try {
-            const generatedImage = await generateAiProductImage({ imageUrl: candidate.imageUrl });
+            const generatedImage = await generateAiProductImage({
+              imageUrl: candidate.imageUrl,
+              prompt: agent.aiImagePrompt ?? undefined,
+            });
             imageUrlForCopy = generatedImage.imageUrl;
             await supabaseAdmin
               .from("offers")
@@ -193,24 +197,42 @@ export async function runSalesAgent(agentId: string): Promise<AgentRunResult> {
           }
         }
 
-        const copy = await generateWhatsAppCopy({
-          title: candidate.title,
-          price: candidate.price,
-          original_price: candidate.oldPrice ?? undefined,
-          discount_pct: candidate.discountPct ?? undefined,
-          affiliate_url: candidate.affiliateUrl,
-          image_url: imageUrlForCopy,
-          category: candidate.category ?? undefined,
-          marketplace: agent.source,
-          extra_instructions: agent.aiInstructions ?? undefined,
-        });
+        let telegramText: string;
+        let whatsappText: string;
+
+        if (agent.textMode === "custom" && agent.customTextTemplate) {
+          const rendered = renderCustomTemplate(agent.customTextTemplate, {
+            productName: candidate.title,
+            price: candidate.price,
+            originalPrice: candidate.oldPrice,
+            discountPct: candidate.discountPct,
+            store: agent.source,
+            link: candidate.affiliateUrl,
+          });
+          telegramText = rendered;
+          whatsappText = rendered;
+        } else {
+          const copy = await generateWhatsAppCopy({
+            title: candidate.title,
+            price: candidate.price,
+            original_price: candidate.oldPrice ?? undefined,
+            discount_pct: candidate.discountPct ?? undefined,
+            affiliate_url: candidate.affiliateUrl,
+            image_url: imageUrlForCopy,
+            category: candidate.category ?? undefined,
+            marketplace: agent.source,
+            extra_instructions: agent.aiInstructions ?? undefined,
+          });
+          telegramText = copy.long;
+          whatsappText = copy.medium;
+        }
 
         const dispatch = await dispatchToSpecificTargets({
           offerId,
           targetIds: agent.targetIds,
           agentId: agent.id,
           affiliateUrl: candidate.affiliateUrl,
-          copyByChannel: { telegram: copy.long, whatsapp: copy.medium },
+          copyByChannel: { telegram: telegramText, whatsapp: whatsappText },
         });
 
         queued += dispatch.queued;

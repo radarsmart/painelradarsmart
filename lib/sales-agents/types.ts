@@ -61,9 +61,17 @@ export type AgentRunResult = {
   candidatesFound: number;
   candidatesConsidered: number;
   queued: number;
+  staged: number;
   skipped: number;
   errors: number;
   offers: Array<{ offerId: string; title: string; queued: number; skipped: number }>;
   details: Array<{ title: string; action: string; reason?: string; error?: string }>;
   executedAt: string;
 };
+
+/**
+ * Lojas onde o link de afiliado nao pode ser gerado automaticamente com
+ * confianca (sem API/servico oficial configurado). Ofertas dessas lojas
+ * entram em revisao manual (curadoria) em vez de serem publicadas direto.
+ */
+export const SOURCES_REQUIRING_MANUAL_AFFILIATE: SalesAgentSource[] = ["mercadolivre"];

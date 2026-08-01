@@ -6,6 +6,7 @@ import { passesRadarSniperPreFilter, rankSniperCandidates } from "@/lib/radar-sn
 import { renderCustomTemplate } from "./custom-template";
 import { discoverForAgent } from "./discovery";
 import { getSalesAgent, saveSalesAgentRunResult } from "./agent-store";
+import { SOURCES_REQUIRING_MANUAL_AFFILIATE } from "./types";
 import type { AgentRunResult, DiscoveryCandidate, SalesAgent } from "./types";
 
 function toText(value: unknown): string {
@@ -44,11 +45,18 @@ async function saveOfferCandidate(payload: Record<string, unknown>): Promise<{ i
   return saveResult.data as { id: string };
 }
 
-async function findExistingOfferByAffiliateUrl(affiliateUrl: string): Promise<{ id: string } | null> {
+async function findExistingOffer(
+  candidate: DiscoveryCandidate,
+  useProductUrl: boolean,
+): Promise<{ id: string } | null> {
+  const column = useProductUrl ? "product_url" : "affiliate_url";
+  const value = useProductUrl ? candidate.productUrl : candidate.affiliateUrl;
+  if (!value) return null;
+
   const { data, error } = await supabaseAdmin
     .from("offers")
     .select("id")
-    .eq("affiliate_url", affiliateUrl)
+    .eq(column, value)
     .limit(1)
     .maybeSingle();
 
@@ -112,8 +120,10 @@ export async function runSalesAgent(agentId: string): Promise<AgentRunResult> {
   const details: AgentRunResult["details"] = [];
   const offers: AgentRunResult["offers"] = [];
   let queued = 0;
+  let staged = 0;
   let skipped = 0;
   let errors = 0;
+  const needsManualAffiliate = SOURCES_REQUIRING_MANUAL_AFFILIATE.includes(agent.source);
 
   try {
     const remainingQuota = agent.maxSendsPerDay - (await countSentToday(agent.id));
@@ -124,6 +134,7 @@ export async function runSalesAgent(agentId: string): Promise<AgentRunResult> {
         candidatesFound: 0,
         candidatesConsidered: 0,
         queued: 0,
+        staged: 0,
         skipped: 0,
         errors: 0,
         offers: [],
@@ -140,7 +151,7 @@ export async function runSalesAgent(agentId: string): Promise<AgentRunResult> {
 
     for (const candidate of selected) {
       try {
-        const existing = await findExistingOfferByAffiliateUrl(candidate.affiliateUrl);
+        const existing = await findExistingOffer(candidate, needsManualAffiliate);
         if (existing) {
           skipped += 1;
           details.push({ title: candidate.title, action: "skipped", reason: "duplicate" });
@@ -155,11 +166,11 @@ export async function runSalesAgent(agentId: string): Promise<AgentRunResult> {
           discount_pct: candidate.discountPct ?? 0,
           image_url: candidate.imageUrl,
           product_url: candidate.productUrl,
-          affiliate_url: candidate.affiliateUrl,
+          affiliate_url: needsManualAffiliate ? null : candidate.affiliateUrl,
           marketplace: agent.source,
           category: candidate.category,
-          status: "active",
-          curations_status: "approved",
+          status: needsManualAffiliate ? "inactive" : "active",
+          curations_status: needsManualAffiliate ? "review" : "approved",
           slot_type: "flash",
           source: `sales_agent:${agent.id}`,
           currency: "BRL",
@@ -168,12 +179,26 @@ export async function runSalesAgent(agentId: string): Promise<AgentRunResult> {
             agent_id: agent.id,
             agent_name: agent.name,
             discovery: candidate.raw,
+            ...(needsManualAffiliate
+              ? { needs_manual_approval: true, needs_manual_affiliate_url: true }
+              : {}),
           },
         });
 
         const offerId = toText(savedOffer.id);
         if (!offerId) {
           throw new Error("Oferta criada sem id valido.");
+        }
+
+        if (needsManualAffiliate) {
+          staged += 1;
+          offers.push({ offerId, title: candidate.title, queued: 0, skipped: 0 });
+          details.push({
+            title: candidate.title,
+            action: "staged_for_review",
+            reason: "link_de_afiliado_pendente",
+          });
+          continue;
         }
 
         let imageUrlForCopy = candidate.imageUrl || undefined;
@@ -254,14 +279,17 @@ export async function runSalesAgent(agentId: string): Promise<AgentRunResult> {
       }
     }
 
+    const messageParts: string[] = [];
+    if (offers.length - staged > 0) messageParts.push(`${offers.length - staged} oferta(s) despachada(s)`);
+    if (staged > 0) messageParts.push(`${staged} aguardando link de afiliado manual (revisao)`);
+
     const result: AgentRunResult = {
       success: errors === 0,
-      message: offers.length
-        ? `${offers.length} oferta(s) despachada(s).`
-        : "Nenhuma oferta nova encontrada nesta rodada.",
+      message: messageParts.length ? messageParts.join(", ") + "." : "Nenhuma oferta nova encontrada nesta rodada.",
       candidatesFound,
       candidatesConsidered: selected.length,
       queued,
+      staged,
       skipped,
       errors,
       offers,
@@ -278,6 +306,7 @@ export async function runSalesAgent(agentId: string): Promise<AgentRunResult> {
       candidatesFound: 0,
       candidatesConsidered: 0,
       queued,
+      staged,
       skipped,
       errors: errors + 1,
       offers,

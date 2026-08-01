@@ -59,6 +59,7 @@ type AgentRunResult = {
   candidatesFound: number;
   candidatesConsidered: number;
   queued: number;
+  staged: number;
   skipped: number;
   errors: number;
   offers: Array<{ offerId: string; title: string; queued: number; skipped: number }>;
@@ -522,6 +523,15 @@ export default function SalesAgentForm({ agentId }: { agentId?: string }) {
                 )}
               </label>
             </div>
+
+            {form.source === "mercadolivre" ? (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
+                <strong>Atenção:</strong> o rastreamento de afiliado do Mercado Livre ainda não está configurado
+                com um ID oficial. Ofertas encontradas por este agente vão entrar como{" "}
+                <strong>rascunho aguardando revisão</strong> na Curadoria — sem link de afiliado nem publicação
+                automática — até você colar o link oficial gerado no programa Mercado Livre Afiliados.
+              </div>
+            ) : null}
           </div>
         ) : null}
 
@@ -956,10 +966,14 @@ export default function SalesAgentForm({ agentId }: { agentId?: string }) {
             </div>
           </div>
 
-          <div className="mt-5 grid gap-4 md:grid-cols-3">
+          <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             <div className="rounded-2xl bg-emerald-50 p-4">
               <p className="text-xs font-bold uppercase tracking-wide text-emerald-700">Enviados</p>
               <p className="mt-2 text-3xl font-black text-emerald-700">{lastResult?.queued ?? 0}</p>
+            </div>
+            <div className="rounded-2xl bg-sky-50 p-4">
+              <p className="text-xs font-bold uppercase tracking-wide text-sky-700">Aguardando revisao</p>
+              <p className="mt-2 text-3xl font-black text-sky-700">{lastResult?.staged ?? 0}</p>
             </div>
             <div className="rounded-2xl bg-amber-50 p-4">
               <p className="text-xs font-bold uppercase tracking-wide text-amber-700">Ignorados</p>

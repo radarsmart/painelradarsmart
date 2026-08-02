@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { Menu, MessageCircle, X } from "lucide-react";
+import { Menu, MessageCircle, Search, X } from "lucide-react";
 import BrandWordmark from "@/components/layout/BrandWordmark";
 
 type HeaderProps = {
@@ -71,25 +71,35 @@ export default function Header({ withTickerOffset = false }: HeaderProps) {
           ))}
         </nav>
 
-        <a
-          href={GROUP_URL}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="hidden items-center gap-2 rounded-full bg-[#9e6a18] px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all duration-200 hover:brightness-110 lg:inline-flex"
-        >
-          <MessageCircle className="h-4 w-4" />
-          Entrar no Grupo
-        </a>
+        <div className="flex items-center justify-end gap-2">
+          <Link
+            href="/buscar"
+            aria-label="Buscar"
+            className="hidden items-center justify-center rounded-full border border-slate-200 p-2 text-[#22223B] transition hover:border-[#9e6a18] hover:text-[#9e6a18] lg:inline-flex"
+          >
+            <Search className="h-4 w-4" />
+          </Link>
 
-        <button
-          type="button"
-          className="inline-flex items-center justify-center rounded-full border border-slate-200 p-2 text-[#22223B] transition hover:border-[#9e6a18] hover:text-[#9e6a18] lg:hidden"
-          aria-label={mobileMenuOpen ? "Fechar menu" : "Abrir menu"}
-          aria-expanded={mobileMenuOpen}
-          onClick={() => setMobileMenuOpen((current) => !current)}
-        >
-          {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-        </button>
+          <a
+            href={GROUP_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hidden items-center gap-2 rounded-full bg-[#9e6a18] px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all duration-200 hover:brightness-110 lg:inline-flex"
+          >
+            <MessageCircle className="h-4 w-4" />
+            Entrar no Grupo
+          </a>
+
+          <button
+            type="button"
+            className="inline-flex items-center justify-center rounded-full border border-slate-200 p-2 text-[#22223B] transition hover:border-[#9e6a18] hover:text-[#9e6a18] lg:hidden"
+            aria-label={mobileMenuOpen ? "Fechar menu" : "Abrir menu"}
+            aria-expanded={mobileMenuOpen}
+            onClick={() => setMobileMenuOpen((current) => !current)}
+          >
+            {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+          </button>
+        </div>
       </div>
 
       {mobileMenuOpen ? (

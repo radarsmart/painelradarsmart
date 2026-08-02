@@ -68,6 +68,7 @@ type HomeOffer = {
   rating: number | null;
   reviews: number | null;
   expiresAt: string | null;
+  updatedAt: string | null;
 };
 
 type HomePost = {
@@ -192,7 +193,22 @@ function normalizeOffer(row: OfferRow): HomeOffer | null {
     rating: toNumber(row.rating),
     reviews: toNumber(row.review_count) ?? toNumber(row.reviews_count),
     expiresAt: row.expires_at ?? null,
+    updatedAt: row.updated_at ?? row.published_at ?? null,
   };
+}
+
+function formatFreshness(updatedAt: string | null): string | null {
+  if (!updatedAt) return null;
+  const updatedMs = new Date(updatedAt).getTime();
+  if (!Number.isFinite(updatedMs)) return null;
+
+  const diffMinutes = Math.max(0, Math.round((Date.now() - updatedMs) / 60_000));
+  if (diffMinutes < 1) return "Atualizado agora";
+  if (diffMinutes < 60) return `Atualizado há ${diffMinutes} min`;
+  const diffHours = Math.round(diffMinutes / 60);
+  if (diffHours < 24) return `Atualizado há ${diffHours}h`;
+  const diffDays = Math.round(diffHours / 24);
+  return `Atualizado há ${diffDays}d`;
 }
 
 function normalizePost(row: BlogPostRow): HomePost {
@@ -411,18 +427,20 @@ export default function HomePage() {
               </div>
             </div>
 
-            <div className="hidden">
-              <div className="rounded-2xl border border-white/10 bg-white/10 p-4">
-                <p className="text-xs uppercase text-slate-200">Ofertas monitoradas</p>
-                <p className="mt-1 text-2xl font-bold">{offers.length || 0}</p>
+            <div className="mt-8 grid grid-cols-3 gap-2 sm:mt-10 sm:gap-4">
+              <div className="rounded-2xl border border-white/10 bg-white/10 p-3 text-center sm:p-4 sm:text-left">
+                <p className="text-[10px] uppercase text-slate-200 sm:text-xs">Ofertas monitoradas</p>
+                <p className="mt-1 text-lg font-bold sm:text-2xl">{offers.length || 0}</p>
               </div>
-              <div className="rounded-2xl border border-white/10 bg-white/10 p-4">
-                <p className="text-xs uppercase text-slate-200">Marketplaces</p>
-                <p className="mt-1 text-2xl font-bold">2+</p>
+              <div className="rounded-2xl border border-white/10 bg-white/10 p-3 text-center sm:p-4 sm:text-left">
+                <p className="text-[10px] uppercase text-slate-200 sm:text-xs">Marketplaces</p>
+                <p className="mt-1 text-lg font-bold sm:text-2xl">
+                  {new Set(offers.map((offer) => offer.marketplace)).size || 0}
+                </p>
               </div>
-              <div className="rounded-2xl border border-white/10 bg-white/10 p-4">
-                <p className="text-xs uppercase text-slate-200">Economia média</p>
-                <p className="mt-1 text-2xl font-bold">
+              <div className="rounded-2xl border border-white/10 bg-white/10 p-3 text-center sm:p-4 sm:text-left">
+                <p className="text-[10px] uppercase text-slate-200 sm:text-xs">Economia média</p>
+                <p className="mt-1 text-lg font-bold sm:text-2xl">
                   {offers.length
                     ? `${Math.round(
                         offers.reduce((acc, offer) => acc + offer.discount, 0) /
@@ -453,13 +471,13 @@ export default function HomePage() {
             </Link>
           </div>
           {relampagoOffers.length ? (
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:gap-6 lg:grid-cols-3 xl:grid-cols-4">
+            <div className="grid grid-cols-2 gap-2 sm:gap-3 md:gap-6 lg:grid-cols-3 xl:grid-cols-4">
               {relampagoOffers.map((offer) => (
               <article
                 key={`flash-${offer.id}`}
-                className="rounded-2xl border border-slate-200 bg-white p-4 shadow-card"
+                className="rounded-2xl border border-slate-200 bg-white p-2.5 shadow-card sm:p-4"
               >
-                <div className="flex h-44 items-center justify-center overflow-hidden rounded-t-xl border border-slate-100 bg-white sm:h-52">
+                <div className="flex h-28 items-center justify-center overflow-hidden rounded-t-xl border border-slate-100 bg-white sm:h-44 md:h-52">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={offer.imageUrl || "/next.svg"}
@@ -467,28 +485,33 @@ export default function HomePage() {
                     className="h-full w-full object-contain"
                   />
                 </div>
-                <p className="mt-3 line-clamp-2 text-sm font-semibold sm:text-[15px]">{offer.title}</p>
-                <div className="mt-2 flex flex-wrap items-center gap-2">
-                  <p className="font-mono text-lg font-bold text-[#22223B] sm:text-xl">
+                <p className="mt-2 line-clamp-2 text-xs font-semibold sm:mt-3 sm:text-sm md:text-[15px]">{offer.title}</p>
+                <div className="mt-2 flex flex-wrap items-center gap-1.5 sm:gap-2">
+                  <p className="font-mono text-sm font-bold text-[#22223B] sm:text-lg md:text-xl">
                     {formatOfferPrice(offer.price)}
                   </p>
                   {offer.oldPrice ? (
-                    <span className="text-xs text-slate-400 line-through">
+                    <span className="text-[10px] text-slate-400 line-through sm:text-xs">
                       {formatBRL(offer.oldPrice)}
                     </span>
                   ) : null}
                 </div>
-                <div className="mt-2 flex items-center justify-between">
-                  <span className="rounded-full bg-[#9e6a18]/15 px-2 py-1 text-xs font-bold text-[#9e6a18]">
+                <div className="mt-2 flex flex-wrap items-center justify-between gap-1">
+                  <span className="rounded-full bg-[#9e6a18]/15 px-2 py-1 text-[10px] font-bold text-[#9e6a18] sm:text-xs">
                     {offer.discount}% OFF
                   </span>
                   {offer.expiresAt ? <CountdownTimer endAt={offer.expiresAt} /> : null}
                 </div>
+                {formatFreshness(offer.updatedAt) ? (
+                  <p className="mt-1 text-[10px] font-medium text-slate-400">
+                    {formatFreshness(offer.updatedAt)}
+                  </p>
+                ) : null}
                 <a
                   href={buildTrackedOfferUrl(offer.id, "home_flash")}
                   target="_blank"
                   rel="noopener noreferrer sponsored"
-                  className="mt-3 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#22223B] px-3 py-2 text-sm font-semibold text-white hover:bg-[#2f2f4d]"
+                  className="mt-3 inline-flex min-h-11 w-full items-center justify-center gap-1.5 rounded-xl bg-[#22223B] px-2 py-2 text-xs font-semibold text-white hover:bg-[#2f2f4d] sm:gap-2 sm:px-3 sm:text-sm"
                 >
                   Comprar agora <ArrowUpRight className="h-4 w-4" />
                 </a>
@@ -515,13 +538,13 @@ export default function HomePage() {
             </Link>
           </div>
           {dayOffers.length ? (
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:gap-6 lg:grid-cols-3 xl:grid-cols-4">
+            <div className="grid grid-cols-2 gap-2 sm:gap-3 md:gap-6 lg:grid-cols-3 xl:grid-cols-4">
               {dayOffers.map((offer) => (
               <article
                 key={`day-${offer.id}`}
-                className="group rounded-2xl border border-slate-200 bg-white p-4 shadow-card transition hover:-translate-y-0.5"
+                className="group rounded-2xl border border-slate-200 bg-white p-2.5 shadow-card transition hover:-translate-y-0.5 sm:p-4"
               >
-                <div className="flex h-44 items-center justify-center overflow-hidden rounded-t-xl border border-slate-100 bg-white sm:h-52">
+                <div className="flex h-28 items-center justify-center overflow-hidden rounded-t-xl border border-slate-100 bg-white sm:h-44 md:h-52">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={offer.imageUrl || "/next.svg"}
@@ -529,30 +552,35 @@ export default function HomePage() {
                     className="h-full w-full object-contain"
                   />
                 </div>
-                <p className="mt-3 text-xs uppercase tracking-wide text-slate-500">
+                <p className="mt-2 text-[10px] uppercase tracking-wide text-slate-500 sm:mt-3 sm:text-xs">
                   {offer.marketplace}
                 </p>
-                <div className="mt-2 flex flex-wrap items-center gap-2">
+                <div className="mt-2 flex flex-wrap items-center gap-1.5 sm:gap-2">
                   {offer.discount > 0 ? (
-                    <span className="rounded-full bg-emerald-50 px-2 py-1 text-[11px] font-bold text-emerald-700">
+                    <span className="rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-700 sm:text-[11px]">
                       {offer.discount}% OFF
                     </span>
                   ) : null}
                   {offer.oldPrice ? (
-                    <span className="text-xs text-slate-400 line-through">
+                    <span className="text-[10px] text-slate-400 line-through sm:text-xs">
                       {formatBRL(offer.oldPrice)}
                     </span>
                   ) : null}
                 </div>
-                <h3 className="mt-1 line-clamp-2 text-sm font-semibold">{offer.title}</h3>
-                <p className="mt-2 font-mono text-lg font-bold text-[#22223B] sm:text-xl">
+                <h3 className="mt-1 line-clamp-2 text-xs font-semibold sm:text-sm">{offer.title}</h3>
+                <p className="mt-2 font-mono text-sm font-bold text-[#22223B] sm:text-lg md:text-xl">
                   {formatOfferPrice(offer.price)}
                 </p>
+                {formatFreshness(offer.updatedAt) ? (
+                  <p className="mt-1 text-[10px] font-medium text-slate-400">
+                    {formatFreshness(offer.updatedAt)}
+                  </p>
+                ) : null}
                 <a
                   href={buildTrackedOfferUrl(offer.id, "home_best")}
                   target="_blank"
                   rel="noopener noreferrer sponsored"
-                  className="mt-3 inline-flex min-h-11 w-full items-center justify-center rounded-xl border border-[#9e6a18] px-3 py-2 text-sm font-semibold text-[#9e6a18] transition group-hover:bg-[#9e6a18] group-hover:text-white"
+                  className="mt-3 inline-flex min-h-11 w-full items-center justify-center rounded-xl border border-[#9e6a18] px-2 py-2 text-xs font-semibold text-[#9e6a18] transition group-hover:bg-[#9e6a18] group-hover:text-white sm:px-3 sm:text-sm"
                 >
                   Ver oferta
                 </a>

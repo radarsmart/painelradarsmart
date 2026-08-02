@@ -44,7 +44,33 @@ export async function GET(req: NextRequest) {
       JSON.stringify(__rawAll.data),
     );
 
-    const agents = await listActiveSalesAgents();
+    const __filtered = await __debugClient
+      .from("sales_agents")
+      .select("id,name,active")
+      .eq("active", true);
+    // eslint-disable-next-line no-console
+    console.log(
+      "[cron-debug] filtered eq(active,true) count=",
+      __filtered.data?.length ?? "ERR",
+      "error=",
+      __filtered.error?.message ?? null,
+      "rows=",
+      JSON.stringify(__filtered.data),
+    );
+
+    let agents: Awaited<ReturnType<typeof listActiveSalesAgents>> = [];
+    try {
+      agents = await listActiveSalesAgents();
+      // eslint-disable-next-line no-console
+      console.log("[cron-debug] listActiveSalesAgents length=", agents.length);
+    } catch (listError) {
+      // eslint-disable-next-line no-console
+      console.log(
+        "[cron-debug] listActiveSalesAgents THREW=",
+        listError instanceof Error ? listError.message : String(listError),
+      );
+      throw listError;
+    }
     const now = new Date();
     const eligible = agents.filter((agent) => isAgentEligibleNow(agent, now));
 

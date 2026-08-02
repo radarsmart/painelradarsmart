@@ -2,9 +2,11 @@ import type { Metadata } from "next";
 import { unstable_noStore as noStore } from "next/cache";
 import Header from "@/components/layout/Header";
 import Footer from "@/components/layout/Footer";
+import Link from "next/link";
 import GridOfertas from "@/components/vitrine/GridOfertas";
 import type { OfertaCard } from "@/components/vitrine/CardOferta";
 import { isOfferVisibleOnSite } from "@/lib/offers/site-visibility";
+import { CATEGORY_MENU, resolveCategory } from "@/lib/offers/categories";
 import { toAbsoluteSiteUrl } from "@/lib/site";
 import { supabaseAdmin } from "@/lib/supabase";
 
@@ -47,6 +49,7 @@ type OfferRow = {
   affiliate_url: string | null;
   product_url: string | null;
   slot_type: string | null;
+  category: string | null;
   expires_at: string | null;
   published_at?: string | null;
   created_at?: string | null;
@@ -131,15 +134,21 @@ function normalizeOffer(row: OfferRow): OfertaCard {
   };
 }
 
-export default async function OfertasPage() {
+export default async function OfertasPage({
+  searchParams,
+}: {
+  searchParams: { categoria?: string };
+}) {
   noStore();
 
-  let offers: OfertaCard[] = [];
+  const selectedCategory = String(searchParams?.categoria ?? "").trim();
+
+  let rows: OfferRow[] = [];
   try {
     const { data } = await supabaseAdmin
       .from("offers")
       .select(
-        "id,title,marketplace,price,old_price,original_price,discount_pct,discount_percent,image_url,affiliate_url,product_url,slot_type,expires_at,status,curations_status,updated_at,created_at,published_at,manual_copy",
+        "id,title,marketplace,price,old_price,original_price,discount_pct,discount_percent,image_url,affiliate_url,product_url,slot_type,category,expires_at,status,curations_status,updated_at,created_at,published_at,manual_copy",
       )
       .eq("status", "active")
       .in("slot_type", ["flash", "best", "comparator"])
@@ -147,12 +156,25 @@ export default async function OfertasPage() {
       .order("updated_at", { ascending: false })
       .limit(300);
 
-    offers = ((data ?? []) as OfferRow[])
-      .filter((row) => isOfferVisibleOnSite(row))
-      .map(normalizeOffer);
+    rows = ((data ?? []) as OfferRow[]).filter((row) => isOfferVisibleOnSite(row));
   } catch {
-    offers = [];
+    rows = [];
   }
+
+  const categoryCounts = new Map<string, number>();
+  for (const row of rows) {
+    const slug = resolveCategory(row.category).slug;
+    categoryCounts.set(slug, (categoryCounts.get(slug) ?? 0) + 1);
+  }
+
+  const visibleCategories = CATEGORY_MENU.filter((cat) => categoryCounts.has(cat.slug));
+
+  const filteredRows = selectedCategory
+    ? rows.filter((row) => resolveCategory(row.category).slug === selectedCategory)
+    : rows;
+
+  const offers: OfertaCard[] = filteredRows.map(normalizeOffer);
+  const activeCategoryLabel = CATEGORY_MENU.find((cat) => cat.slug === selectedCategory)?.label;
 
   return (
     <>
@@ -161,8 +183,40 @@ export default async function OfertasPage() {
         <section className="rounded-3xl border border-slate-200 bg-white px-6 py-8 shadow-sm md:px-8">
           <h1 className="font-display text-4xl font-black text-navy">Ofertas</h1>
           <p className="mt-3 text-sm text-rs-muted md:text-base">
-            Lista de ofertas aprovadas e ativas no Radar Smart.
+            {activeCategoryLabel
+              ? `Ofertas de ${activeCategoryLabel.toLowerCase()} aprovadas e ativas no Radar Smart.`
+              : "Lista de ofertas aprovadas e ativas no Radar Smart."}
           </p>
+
+          {visibleCategories.length > 1 ? (
+            <div className="mt-6 -mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
+              <Link
+                href="/ofertas"
+                className={`flex-none rounded-full border px-4 py-2 text-sm font-semibold transition ${
+                  !selectedCategory
+                    ? "border-navy bg-navy text-white"
+                    : "border-slate-200 text-slate-600 hover:border-navy"
+                }`}
+              >
+                Todas
+              </Link>
+              {visibleCategories.map((cat) => (
+                <Link
+                  key={cat.slug}
+                  href={`/ofertas?categoria=${cat.slug}`}
+                  className={`flex-none rounded-full border px-4 py-2 text-sm font-semibold transition ${
+                    selectedCategory === cat.slug
+                      ? "border-navy bg-navy text-white"
+                      : "border-slate-200 text-slate-600 hover:border-navy"
+                  }`}
+                >
+                  {cat.icon} {cat.label}
+                  <span className="ml-1.5 text-xs opacity-70">{categoryCounts.get(cat.slug)}</span>
+                </Link>
+              ))}
+            </div>
+          ) : null}
+
           <div className="mt-8">
             <GridOfertas offers={offers} />
           </div>

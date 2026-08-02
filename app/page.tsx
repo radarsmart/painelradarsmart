@@ -16,6 +16,7 @@ import Header from "@/components/layout/Header";
 import Footer from "@/components/layout/Footer";
 import CountdownTimer from "@/components/vitrine/CountdownTimer";
 import { formatBRL } from "@/lib/formatters";
+import { CATEGORY_MENU } from "@/lib/offers/categories";
 import { isOfferVisibleOnSite } from "@/lib/offers/site-visibility";
 import { supabase } from "@/lib/supabase";
 
@@ -452,6 +453,18 @@ export default function HomePage() {
             </div>
           </div>
         </motion.section>
+
+        <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
+          {CATEGORY_MENU.filter((cat) => cat.slug !== "outros").map((cat) => (
+            <Link
+              key={cat.slug}
+              href={`/ofertas?categoria=${cat.slug}`}
+              className="flex-none rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 shadow-sm transition hover:border-[#9e6a18] hover:text-[#9e6a18]"
+            >
+              {cat.icon} {cat.label}
+            </Link>
+          ))}
+        </div>
 
         <motion.section
           variants={reveal}

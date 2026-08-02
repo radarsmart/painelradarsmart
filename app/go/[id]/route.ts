@@ -6,8 +6,47 @@ export const dynamic = "force-dynamic";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+// Robos de previa de link (WhatsApp, Telegram, Facebook...) abrem a URL
+// sozinhos antes da pessoa clicar, so pra montar o cartao com imagem/titulo.
+// Se deixarmos isso seguir ate o link de afiliado de verdade, "gasta" um
+// clique de rastreamento que a rede (Mercado Livre, AWIN etc.) as vezes trata
+// como uso unico — a pessoa clica depois e o rastreamento nao conta mais.
+const PREVIEW_BOT_USER_AGENT_PATTERN =
+  /whatsapp|telegrambot|facebookexternalhit|facebot|slackbot|linkedinbot|twitterbot|discordbot|skypeuripreview|pinterest|redditbot|vkshare|w3c_validator|embedly/i;
+
 function toText(value: unknown): string {
   return String(value ?? "").trim();
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function isPreviewBot(request: NextRequest): boolean {
+  const userAgent = request.headers.get("user-agent") ?? "";
+  return PREVIEW_BOT_USER_AGENT_PATTERN.test(userAgent);
+}
+
+function buildPreviewHtml(params: { title: string; imageUrl: string | null; pageUrl: string }): string {
+  const title = escapeHtml(params.title || "Radar Smart");
+  const image = params.imageUrl ? escapeHtml(params.imageUrl) : "";
+
+  return `<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<title>${title}</title>
+<meta property="og:title" content="${title}" />
+<meta property="og:type" content="product" />
+<meta property="og:url" content="${escapeHtml(params.pageUrl)}" />
+${image ? `<meta property="og:image" content="${image}" />` : ""}
+</head>
+<body></body>
+</html>`;
 }
 
 export async function GET(
@@ -26,13 +65,25 @@ export async function GET(
 
   const { data: offer, error } = await supabaseAdmin
     .from("offers")
-    .select("id,affiliate_url,click_count")
+    .select("id,title,image_url,affiliate_url,click_count")
     .eq(lookupColumn, param)
     .maybeSingle();
 
   const affiliateUrl = toText(offer?.affiliate_url);
   if (error || !offer || !affiliateUrl) {
     return NextResponse.redirect(new URL("/", request.url));
+  }
+
+  if (isPreviewBot(request)) {
+    const html = buildPreviewHtml({
+      title: toText(offer.title),
+      imageUrl: offer.image_url ? toText(offer.image_url) : null,
+      pageUrl: request.url,
+    });
+    return new NextResponse(html, {
+      status: 200,
+      headers: { "Content-Type": "text/html; charset=utf-8" },
+    });
   }
 
   const offerId = String(offer.id);

@@ -7,6 +7,14 @@ import {
   type SiteSlotType,
 } from "./types";
 
+// select("*") retorna 0 linhas em producao quando combinado com .eq(...) —
+// sintoma classico de cache de schema do PostgREST desatualizado (as
+// migrations deste projeto rodam via SQL direto, que nao dispara o reload
+// automatico que o fluxo de migration do Supabase dispara). Lista explicita
+// de colunas evita depender desse cache.
+const SALES_AGENT_COLUMNS =
+  "id,name,source,advertiser_id,search_query,category,price_min,price_max,min_discount_pct,aav_filter_enabled,ai_image_enabled,ai_instructions,send_window_start_hour,send_window_end_hour,timezone,max_sends_per_day,min_interval_minutes,active,last_run_at,last_run_result,created_at,updated_at,text_mode,custom_text_template,ai_image_prompt,send_window_start_minute,send_window_end_minute,publish_to_site,site_slot_type";
+
 type SalesAgentRow = {
   id: string;
   name: string | null;
@@ -263,7 +271,7 @@ async function replaceAgentTargets(agentId: string, targetIds: string[]): Promis
 export async function listSalesAgents(): Promise<SalesAgent[]> {
   const { data, error } = await supabaseAdmin
     .from("sales_agents")
-    .select("*")
+    .select(SALES_AGENT_COLUMNS)
     .order("created_at", { ascending: false });
 
   if (error) {
@@ -279,7 +287,7 @@ export async function listSalesAgents(): Promise<SalesAgent[]> {
 export async function listActiveSalesAgents(): Promise<SalesAgent[]> {
   const { data, error } = await supabaseAdmin
     .from("sales_agents")
-    .select("*")
+    .select(SALES_AGENT_COLUMNS)
     .eq("active", true);
 
   if (error) {
@@ -295,7 +303,7 @@ export async function listActiveSalesAgents(): Promise<SalesAgent[]> {
 export async function getSalesAgent(id: string): Promise<SalesAgent | null> {
   const { data, error } = await supabaseAdmin
     .from("sales_agents")
-    .select("*")
+    .select(SALES_AGENT_COLUMNS)
     .eq("id", id)
     .maybeSingle();
 
@@ -313,7 +321,7 @@ export async function createSalesAgent(input: SalesAgentInput): Promise<SalesAge
   const { data, error } = await supabaseAdmin
     .from("sales_agents")
     .insert(row)
-    .select("*")
+    .select(SALES_AGENT_COLUMNS)
     .single();
 
   if (error) {
@@ -338,7 +346,7 @@ export async function updateSalesAgent(id: string, input: SalesAgentInput): Prom
     .from("sales_agents")
     .update(row)
     .eq("id", id)
-    .select("*")
+    .select(SALES_AGENT_COLUMNS)
     .single();
 
   if (error) {

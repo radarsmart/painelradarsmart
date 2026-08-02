@@ -81,6 +81,20 @@ export async function GET(req: NextRequest) {
       __noLastResult.error?.message ?? null,
     );
 
+    const __withNewCols = await __debugClient
+      .from("sales_agents")
+      .select("id,name,active,publish_to_site,site_slot_type")
+      .eq("active", true);
+    // eslint-disable-next-line no-console
+    console.log(
+      "[cron-debug] with publish_to_site+site_slot_type count=",
+      __withNewCols.data?.length ?? "ERR",
+      "error=",
+      __withNewCols.error?.message ?? null,
+      "rows=",
+      JSON.stringify(__withNewCols.data),
+    );
+
     let agents: Awaited<ReturnType<typeof listActiveSalesAgents>> = [];
     try {
       agents = await listActiveSalesAgents();

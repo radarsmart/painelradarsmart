@@ -29,31 +29,34 @@ export async function GET(req: NextRequest) {
     const now = new Date();
     const eligible = agents.filter((agent) => isAgentEligibleNow(agent, now));
 
-    const results = await Promise.allSettled(
-      eligible.map(async (agent) => ({
-        agentId: agent.id,
-        agentName: agent.name,
-        result: await runSalesAgent(agent.id),
-      })),
-    );
+    // Roda um agente por vez (nao em paralelo): agentes de Mercado Livre
+    // compartilham a mesma pagina/contexto do navegador local (Playwright), e
+    // rodar dois ao mesmo tempo faz um navigate() cancelar o outro
+    // (net::ERR_ABORTED). Sequencial evita essa disputa pelo mesmo recurso.
+    const runs: Array<{
+      agentId: string;
+      agentName: string;
+      result: Awaited<ReturnType<typeof runSalesAgent>> | { success: false; message: string };
+    }> = [];
 
-    const runs = results.map((settled, index) => {
-      const agent = eligible[index];
-      if (settled.status === "fulfilled") {
-        return settled.value;
+    for (const agent of eligible) {
+      try {
+        const result = await runSalesAgent(agent.id);
+        runs.push({ agentId: agent.id, agentName: agent.name, result });
+      } catch (agentError) {
+        runs.push({
+          agentId: agent.id,
+          agentName: agent.name,
+          result: {
+            success: false,
+            message:
+              agentError instanceof Error
+                ? agentError.message
+                : "Falha desconhecida ao rodar o agente.",
+          },
+        });
       }
-      return {
-        agentId: agent.id,
-        agentName: agent.name,
-        result: {
-          success: false,
-          message:
-            settled.reason instanceof Error
-              ? settled.reason.message
-              : "Falha desconhecida ao rodar o agente.",
-        },
-      };
-    });
+    }
 
     return NextResponse.json({
       ok: true,

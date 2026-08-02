@@ -58,6 +58,17 @@ export async function GET(req: NextRequest) {
       JSON.stringify(__filtered.data),
     );
 
+    const __star = await __debugClient.from("sales_agents").select("*").eq("active", true);
+    // eslint-disable-next-line no-console
+    console.log(
+      "[cron-debug] SELECT STAR eq(active,true) count=",
+      __star.data?.length ?? "ERR",
+      "error=",
+      __star.error?.message ?? null,
+      "keys=",
+      __star.data?.[0] ? Object.keys(__star.data[0]).join(",") : "N/A",
+    );
+
     let agents: Awaited<ReturnType<typeof listActiveSalesAgents>> = [];
     try {
       agents = await listActiveSalesAgents();

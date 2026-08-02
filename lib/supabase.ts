@@ -34,6 +34,17 @@ function warnMissingEnv(name: string) {
   }
 }
 
+// O App Router do Next.js "patcheia" o fetch global e cacheia respostas por
+// padrao (Data Cache, persistente entre deploys) — inclusive chamadas feitas
+// por baixo dos panos pelo supabase-js, mesmo em rotas com dynamic =
+// "force-dynamic" (isso so afeta o cache da ROTA, nao fetches individuais de
+// libs de terceiros). Sem isso, uma consulta identica (mesma URL) pode ficar
+// presa numa resposta antiga pra sempre, mesmo com dado novo no banco — foi
+// a causa real do cron "nao ver" agentes recem-criados/ativados.
+function noStoreFetch(input: RequestInfo | URL, init?: RequestInit) {
+  return fetch(input, { ...init, cache: "no-store" });
+}
+
 function createPublicClient() {
   if (!supabaseUrl) {
     warnMissingEnv("SUPABASE_URL ou NEXT_PUBLIC_SUPABASE_URL");
@@ -47,6 +58,9 @@ function createPublicClient() {
       autoRefreshToken: true,
       persistSession: true,
       detectSessionInUrl: true,
+    },
+    global: {
+      fetch: noStoreFetch,
     },
   });
 }
@@ -71,6 +85,9 @@ function createAdminClient() {
       autoRefreshToken: false,
       persistSession: false,
       detectSessionInUrl: false,
+    },
+    global: {
+      fetch: noStoreFetch,
     },
   });
 }

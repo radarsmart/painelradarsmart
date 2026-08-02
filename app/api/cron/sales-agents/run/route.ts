@@ -69,6 +69,18 @@ export async function GET(req: NextRequest) {
       __star.data?.[0] ? Object.keys(__star.data[0]).join(",") : "N/A",
     );
 
+    const __noLastResult = await __debugClient
+      .from("sales_agents")
+      .select("id,name,active,last_run_at,last_run_result")
+      .eq("active", true);
+    // eslint-disable-next-line no-console
+    console.log(
+      "[cron-debug] with last_run_result count=",
+      __noLastResult.data?.length ?? "ERR",
+      "error=",
+      __noLastResult.error?.message ?? null,
+    );
+
     let agents: Awaited<ReturnType<typeof listActiveSalesAgents>> = [];
     try {
       agents = await listActiveSalesAgents();

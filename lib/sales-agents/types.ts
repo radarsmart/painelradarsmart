@@ -10,6 +10,10 @@ export const SALES_AGENT_SOURCES: SalesAgentSource[] = [
 
 export type SalesAgentTextMode = "ai" | "custom";
 
+// Mesmas 3 opcoes que a Central de Oferta ja usa pra decidir onde no site a
+// oferta aparece (ver lib/offers/site-visibility.ts).
+export type SiteSlotType = "flash" | "best" | "comparator";
+
 export type SalesAgent = {
   id: string;
   name: string;
@@ -34,6 +38,8 @@ export type SalesAgent = {
   maxSendsPerDay: number;
   minIntervalMinutes: number;
   active: boolean;
+  publishToSite: boolean;
+  siteSlotType: SiteSlotType;
   lastRunAt: string | null;
   lastRunResult: unknown | null;
   createdAt: string;

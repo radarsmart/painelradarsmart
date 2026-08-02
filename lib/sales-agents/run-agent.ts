@@ -3,6 +3,7 @@ import { generateWhatsAppCopy } from "@/lib/copy/whatsapp-generator";
 import { generateAiProductImage } from "@/lib/ai/product-image";
 import { generateMlAffiliateLink, fetchMlSellerReputation } from "@/lib/scraping/ml-session-client";
 import { dispatchToSpecificTargets, todayLocalDate } from "@/lib/distribution/legacy-dispatch";
+import { buildSiteManualCopyOverride } from "@/lib/offers/site-visibility";
 import { passesRadarSniperPreFilter, rankSniperCandidates } from "@/lib/radar-sniper";
 import { renderCustomTemplate } from "./custom-template";
 import { discoverForAgent } from "./discovery";
@@ -274,6 +275,11 @@ export async function runSalesAgent(agentId: string): Promise<AgentRunResult> {
 
         const needsManualAffiliate = !candidate.affiliateLinkVerified;
 
+        // So publica no site quando a oferta ja esta pronta pra ir ao ar (link
+        // de afiliado confirmado) e o agente tem "publicar no site" ativado —
+        // mesmas 3 opcoes (flash/best/comparator) que a Central de Oferta usa.
+        const publishToSiteNow = agent.publishToSite && !needsManualAffiliate;
+
         const offerFields = {
           title: candidate.title,
           price: candidate.price,
@@ -284,6 +290,17 @@ export async function runSalesAgent(agentId: string): Promise<AgentRunResult> {
           affiliate_url: needsManualAffiliate ? null : candidate.affiliateUrl,
           status: needsManualAffiliate ? "inactive" : "active",
           curations_status: needsManualAffiliate ? "review" : "approved",
+          slot_type: publishToSiteNow ? agent.siteSlotType : null,
+          published_at: publishToSiteNow ? new Date().toISOString() : null,
+          // Um trigger antigo do banco (auto_curate_offer) reavalia curations_status
+          // sozinho com base numa coluna "score" que os agentes nunca preenchem, e
+          // acaba marcando como "rejected" mesmo apos AAV + reputacao ja terem
+          // aprovado a oferta. O manual_copy com site_override e o mesmo mecanismo
+          // que a Central de Oferta usa pra aprovacao manual — isOfferVisibleOnSite()
+          // aceita esse override independente do que o trigger fizer com curations_status.
+          manual_copy: publishToSiteNow
+            ? buildSiteManualCopyOverride(null, agent.siteSlotType, new Date().toISOString())
+            : null,
           raw_data: {
             source: "sales_agent",
             agent_id: agent.id,
@@ -317,7 +334,6 @@ export async function runSalesAgent(agentId: string): Promise<AgentRunResult> {
             product_url: candidate.productUrl,
             marketplace: agent.source,
             category: candidate.category,
-            slot_type: "flash",
             source: `sales_agent:${agent.id}`,
             currency: "BRL",
           });

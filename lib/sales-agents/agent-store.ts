@@ -4,6 +4,7 @@ import {
   type SalesAgent,
   type SalesAgentSource,
   type SalesAgentTextMode,
+  type SiteSlotType,
 } from "./types";
 
 type SalesAgentRow = {
@@ -30,6 +31,8 @@ type SalesAgentRow = {
   max_sends_per_day: number | null;
   min_interval_minutes: number | null;
   active: boolean | null;
+  publish_to_site: boolean | null;
+  site_slot_type: string | null;
   last_run_at: string | null;
   last_run_result: unknown | null;
   created_at: string;
@@ -59,6 +62,8 @@ export type SalesAgentInput = Partial<{
   maxSendsPerDay: unknown;
   minIntervalMinutes: unknown;
   active: unknown;
+  publishToSite: unknown;
+  siteSlotType: unknown;
   targetIds: unknown;
 }>;
 
@@ -109,6 +114,11 @@ function toTextMode(value: unknown): SalesAgentTextMode {
   return toText(value) === "custom" ? "custom" : "ai";
 }
 
+function toSiteSlotType(value: unknown): SiteSlotType {
+  const text = toText(value);
+  return text === "flash" || text === "comparator" ? text : "best";
+}
+
 function mapRowToAgent(row: SalesAgentRow, targetIds: string[]): SalesAgent {
   return {
     id: row.id,
@@ -137,6 +147,8 @@ function mapRowToAgent(row: SalesAgentRow, targetIds: string[]): SalesAgent {
       1440,
     ),
     active: Boolean(row.active),
+    publishToSite: Boolean(row.publish_to_site ?? true),
+    siteSlotType: toSiteSlotType(row.site_slot_type),
     lastRunAt: row.last_run_at,
     lastRunResult: row.last_run_result,
     createdAt: row.created_at,
@@ -193,6 +205,8 @@ function mapInputToRow(input: SalesAgentInput, fallback?: SalesAgent) {
       1440,
     ),
     active: toBoolean(input.active, fallback?.active ?? false),
+    publish_to_site: toBoolean(input.publishToSite, fallback?.publishToSite ?? true),
+    site_slot_type: toSiteSlotType(input.siteSlotType ?? fallback?.siteSlotType),
     updated_at: new Date().toISOString(),
   };
 }

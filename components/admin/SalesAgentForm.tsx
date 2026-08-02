@@ -8,6 +8,25 @@ import { supabase } from "@/lib/supabase";
 
 type SalesAgentSource = "awin" | "lomadee" | "shopee" | "amazon" | "mercadolivre";
 type SalesAgentTextMode = "ai" | "custom";
+type SiteSlotType = "flash" | "best" | "comparator";
+
+const SITE_SLOT_OPTIONS: Array<{ value: SiteSlotType; label: string; description: string }> = [
+  {
+    value: "best",
+    label: "Melhores Ofertas",
+    description: "Vitrine geral do site — a maioria das ofertas entra aqui.",
+  },
+  {
+    value: "flash",
+    label: "Ofertas Relampago",
+    description: "Reservado pra ofertas de tempo limitado (ex.: flash deals da propria loja).",
+  },
+  {
+    value: "comparator",
+    label: "Comparador",
+    description: "Aparece na pagina de comparacao de precos.",
+  },
+];
 
 const SOURCE_OPTIONS: Array<{ value: SalesAgentSource; label: string }> = [
   { value: "awin", label: "AWIN" },
@@ -50,6 +69,8 @@ type SalesAgent = {
   maxSendsPerDay: number;
   minIntervalMinutes: number;
   active: boolean;
+  publishToSite: boolean;
+  siteSlotType: SiteSlotType;
   lastRunAt: string | null;
   lastRunResult: AgentRunResult | null;
   targetIds: string[];
@@ -101,6 +122,8 @@ type FormState = {
   maxSendsPerDay: string;
   minIntervalMinutes: string;
   active: boolean;
+  publishToSite: boolean;
+  siteSlotType: SiteSlotType;
   targetIds: string[];
 };
 
@@ -127,6 +150,8 @@ const DEFAULT_FORM: FormState = {
   maxSendsPerDay: "10",
   minIntervalMinutes: "20",
   active: false,
+  publishToSite: true,
+  siteSlotType: "best",
   targetIds: [],
 };
 
@@ -154,6 +179,8 @@ function agentToForm(agent: SalesAgent): FormState {
     maxSendsPerDay: String(agent.maxSendsPerDay),
     minIntervalMinutes: String(agent.minIntervalMinutes),
     active: agent.active,
+    publishToSite: agent.publishToSite,
+    siteSlotType: agent.siteSlotType,
     targetIds: agent.targetIds,
   };
 }
@@ -182,6 +209,8 @@ function formToPayload(form: FormState) {
     maxSendsPerDay: Number(form.maxSendsPerDay) || 10,
     minIntervalMinutes: Number(form.minIntervalMinutes) || 20,
     active: form.active,
+    publishToSite: form.publishToSite,
+    siteSlotType: form.siteSlotType,
     targetIds: form.targetIds,
   };
 }
@@ -745,6 +774,53 @@ export default function SalesAgentForm({ agentId }: { agentId?: string }) {
                 ))}
               </div>
             )}
+
+            <div className="mt-6 border-t border-slate-200 pt-5">
+              <label className="flex items-center gap-3">
+                <input
+                  type="checkbox"
+                  checked={form.publishToSite}
+                  onChange={(event) =>
+                    setForm((current) => ({ ...current, publishToSite: event.target.checked }))
+                  }
+                  className="h-5 w-5 accent-orange"
+                />
+                <span>
+                  <span className="block text-sm font-bold text-navy">Publicar tambem no site</span>
+                  <span className="block text-xs text-slate-500">
+                    Alem dos grupos, a oferta aparece automaticamente no radarsmart.com.br.
+                  </span>
+                </span>
+              </label>
+
+              {form.publishToSite ? (
+                <div className="mt-4 grid gap-2 md:grid-cols-3">
+                  {SITE_SLOT_OPTIONS.map((option) => (
+                    <label
+                      key={option.value}
+                      className={`block cursor-pointer rounded-xl border p-3 text-sm ${
+                        form.siteSlotType === option.value
+                          ? "border-orange bg-orange/5"
+                          : "border-slate-200 bg-white"
+                      }`}
+                    >
+                      <span className="flex items-start gap-2">
+                        <input
+                          type="radio"
+                          checked={form.siteSlotType === option.value}
+                          onChange={() => setForm((current) => ({ ...current, siteSlotType: option.value }))}
+                          className="mt-1 h-4 w-4 accent-orange"
+                        />
+                        <span>
+                          <span className="block font-semibold text-navy">{option.label}</span>
+                          <span className="block text-xs text-slate-500">{option.description}</span>
+                        </span>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              ) : null}
+            </div>
           </div>
         ) : null}
 

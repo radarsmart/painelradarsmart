@@ -95,6 +95,34 @@ export async function GET(req: NextRequest) {
       JSON.stringify(__withNewCols.data),
     );
 
+    const __groupA = await __debugClient
+      .from("sales_agents")
+      .select(
+        "id,name,active,source,advertiser_id,search_query,category,price_min,price_max,min_discount_pct,aav_filter_enabled,ai_image_enabled,ai_instructions,send_window_start_hour",
+      )
+      .eq("active", true);
+    // eslint-disable-next-line no-console
+    console.log(
+      "[cron-debug] GROUP A count=",
+      __groupA.data?.length ?? "ERR",
+      "error=",
+      __groupA.error?.message ?? null,
+    );
+
+    const __groupB = await __debugClient
+      .from("sales_agents")
+      .select(
+        "id,name,active,send_window_end_hour,timezone,max_sends_per_day,min_interval_minutes,created_at,updated_at,text_mode,custom_text_template,ai_image_prompt,send_window_start_minute,send_window_end_minute",
+      )
+      .eq("active", true);
+    // eslint-disable-next-line no-console
+    console.log(
+      "[cron-debug] GROUP B count=",
+      __groupB.data?.length ?? "ERR",
+      "error=",
+      __groupB.error?.message ?? null,
+    );
+
     let agents: Awaited<ReturnType<typeof listActiveSalesAgents>> = [];
     try {
       agents = await listActiveSalesAgents();

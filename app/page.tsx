@@ -67,6 +67,7 @@ type HomeOffer = {
   affiliateUrl: string;
   rating: number | null;
   reviews: number | null;
+  expiresAt: string | null;
 };
 
 type HomePost = {
@@ -190,6 +191,7 @@ function normalizeOffer(row: OfferRow): HomeOffer | null {
     affiliateUrl,
     rating: toNumber(row.rating),
     reviews: toNumber(row.review_count) ?? toNumber(row.reviews_count),
+    expiresAt: row.expires_at ?? null,
   };
 }
 
@@ -234,8 +236,8 @@ export default function HomePage() {
   }, []);
 
   useEffect(() => {
-    const loadData = async () => {
-      setLoading(true);
+    const loadData = async (isInitial: boolean) => {
+      if (isInitial) setLoading(true);
 
       const offerSelect =
         "id,title,price,old_price,original_price,price_old,discount_pct,discount_percent,image_url,affiliate_url,product_url,marketplace,rating,review_count,reviews_count,slot_type,curations_status,created_at,updated_at,published_at,expires_at,manual_copy,status";
@@ -298,10 +300,15 @@ export default function HomePage() {
       setBestOffers(normalizedBestOffers);
       setComparatorOffers(normalizedComparatorOffers);
       setPosts(normalizedPosts.length ? normalizedPosts : fallbackGuides);
-      setLoading(false);
+      if (isInitial) setLoading(false);
     };
 
-    void loadData();
+    void loadData(true);
+    // Ofertas relampago expiram (48h) e o contador na tela mostra o prazo
+    // real — precisa buscar de novo periodicamente pra tirar as vencidas e
+    // trazer as novas aprovadas, sem precisar recarregar a pagina.
+    const interval = setInterval(() => void loadData(false), 60_000);
+    return () => clearInterval(interval);
   }, []);
 
   const offers = useMemo(
@@ -323,7 +330,7 @@ export default function HomePage() {
   );
 
   const relampagoOffers = useMemo(
-    () => flashOffers.slice(0, 4),
+    () => flashOffers.slice(0, 8),
     [flashOffers],
   );
 
@@ -437,12 +444,17 @@ export default function HomePage() {
           className="space-y-5"
         >
           <div className="flex items-center justify-between">
-            <h2 className="font-display text-2xl font-bold text-navy">Ofertas Relâmpago</h2>
-            <Flame className="h-5 w-5 text-[#9e6a18]" />
+            <div className="flex items-center gap-2">
+              <h2 className="font-display text-2xl font-bold text-navy">Ofertas Relâmpago</h2>
+              <Flame className="h-5 w-5 text-[#9e6a18]" />
+            </div>
+            <Link href="/ofertas-relampago" className="text-sm font-semibold text-[#9e6a18] hover:underline">
+              Ver todas
+            </Link>
           </div>
           {relampagoOffers.length ? (
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:gap-6 lg:grid-cols-3 xl:grid-cols-4">
-              {relampagoOffers.map((offer, index) => (
+              {relampagoOffers.map((offer) => (
               <article
                 key={`flash-${offer.id}`}
                 className="rounded-2xl border border-slate-200 bg-white p-4 shadow-card"
@@ -470,9 +482,7 @@ export default function HomePage() {
                   <span className="rounded-full bg-[#9e6a18]/15 px-2 py-1 text-xs font-bold text-[#9e6a18]">
                     {offer.discount}% OFF
                   </span>
-                  <CountdownTimer
-                    endAt={new Date(Date.now() + (index + 2) * 45 * 60 * 1000).toISOString()}
-                  />
+                  {offer.expiresAt ? <CountdownTimer endAt={offer.expiresAt} /> : null}
                 </div>
                 <a
                   href={buildTrackedOfferUrl(offer.id, "home_flash")}

@@ -463,14 +463,14 @@ export default function HomePage() {
           className="space-y-4"
         >
           <h2 className="font-display text-2xl font-bold text-navy">Categorias</h2>
-          <div className="-mx-1 flex gap-3 overflow-x-auto px-1 pb-1 sm:mx-0 sm:flex-wrap sm:gap-4 sm:overflow-visible sm:px-0">
+          <div className="-mx-1 flex gap-3 overflow-x-auto px-1 pb-1 sm:grid sm:grid-cols-6 sm:gap-4 sm:overflow-visible">
             {CATEGORY_MENU.filter((cat) => cat.slug !== "outros").map((cat) => (
               <Link
                 key={cat.slug}
                 href={`/ofertas?categoria=${cat.slug}`}
-                className="flex w-20 flex-none flex-col items-center gap-2 rounded-2xl border border-slate-200 bg-white px-2 py-3 text-center shadow-card transition hover:-translate-y-0.5 hover:border-[#9e6a18] sm:w-24 sm:py-4"
+                className="flex w-20 flex-none flex-col items-center gap-2 rounded-2xl border border-slate-200 bg-white px-2 py-3 text-center shadow-card transition hover:-translate-y-0.5 hover:border-[#9e6a18] sm:w-auto"
               >
-                <span className="flex h-11 w-11 items-center justify-center rounded-full bg-[#9e6a18]/10 text-xl sm:h-12 sm:w-12 sm:text-2xl">
+                <span className="flex h-11 w-11 items-center justify-center rounded-full bg-[#9e6a18]/10 text-xl">
                   {cat.icon}
                 </span>
                 <span className="text-[11px] font-semibold leading-tight text-[#22223B] sm:text-xs">

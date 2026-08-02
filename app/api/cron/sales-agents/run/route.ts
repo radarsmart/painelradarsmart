@@ -25,6 +25,25 @@ export async function GET(req: NextRequest) {
   }
 
   try {
+    // eslint-disable-next-line no-console
+    console.log("[cron-debug] SUPABASE_URL=", process.env.NEXT_PUBLIC_SUPABASE_URL?.slice(0, 40));
+    // eslint-disable-next-line no-console
+    console.log(
+      "[cron-debug] SERVICE_KEY_LEN=",
+      String(process.env.SUPABASE_SERVICE_ROLE_KEY ?? "").length,
+    );
+    const { supabaseAdmin: __debugClient } = await import("@/lib/supabase");
+    const __rawAll = await __debugClient.from("sales_agents").select("id,name,active");
+    // eslint-disable-next-line no-console
+    console.log(
+      "[cron-debug] raw sales_agents count=",
+      __rawAll.data?.length ?? "ERR",
+      "error=",
+      __rawAll.error?.message ?? null,
+      "rows=",
+      JSON.stringify(__rawAll.data),
+    );
+
     const agents = await listActiveSalesAgents();
     const now = new Date();
     const eligible = agents.filter((agent) => isAgentEligibleNow(agent, now));

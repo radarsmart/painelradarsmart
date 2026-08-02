@@ -35,7 +35,7 @@ type BlogPostRow = {
   slug: string | null;
   title: string | null;
   excerpt: string | null;
-  cover_image: string | null;
+  featured_image: string | null;
   published_at: string | null;
   created_at: string | null;
   status: string | null;
@@ -164,7 +164,7 @@ function normalizePosts(rows: BlogPostRow[]): NormalizedBlogPost[] {
         title,
         excerpt: post.excerpt?.trim() || buildExcerptFallback(title, category),
         coverImage:
-          post.cover_image?.trim() ||
+          post.featured_image?.trim() ||
           "https://images.unsplash.com/photo-1545239351-1141bd82e8a6?w=1200",
         publishedAt: post.published_at || post.created_at,
         category,
@@ -198,7 +198,7 @@ function buildTrackedOfferUrl(id: string, source: string): string {
 async function getPosts() {
   const { data } = await supabaseAdmin
     .from("blog_posts")
-    .select("id,slug,title,excerpt,cover_image,published_at,created_at,status,is_published")
+    .select("id,slug,title,excerpt,featured_image,published_at,created_at,status,is_published")
     .or("status.eq.published,is_published.eq.true")
     .order("published_at", { ascending: false })
     .order("created_at", { ascending: false });

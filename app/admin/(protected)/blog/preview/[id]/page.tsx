@@ -79,7 +79,7 @@ async function getPostById(id: string): Promise<BlogPost | null> {
       data.content ??
       data.content_md ??
       null,
-    cover_image: data.cover_image ?? null,
+    cover_image: (data.featured_image as string | null) ?? null,
     meta_title: data.meta_title ?? null,
     meta_description: data.meta_description ?? null,
     faq: (data.faq as FaqItem[] | null) ?? null,

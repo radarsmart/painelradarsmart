@@ -51,7 +51,7 @@ type BlogPostRow = {
   title: string | null;
   slug: string | null;
   excerpt: string | null;
-  cover_image: string | null;
+  cover: string | null;
   featured_image: string | null;
   published_at: string | null;
   created_at: string | null;
@@ -220,7 +220,7 @@ function normalizePost(row: BlogPostRow): HomePost {
     excerpt:
       row.excerpt?.trim() ||
       "Conteúdo editorial com análise prática para comprar melhor.",
-    image: row.cover_image || row.featured_image,
+    image: row.featured_image || row.cover,
     publishedAt: row.published_at || row.created_at,
   };
 }
@@ -289,7 +289,7 @@ export default function HomePage() {
         supabase
           .from("blog_posts")
           .select(
-            "id,title,slug,excerpt,cover_image,featured_image,published_at,created_at,status,is_published",
+            "id,title,slug,excerpt,cover,featured_image,published_at,created_at,status,is_published",
           )
           .or("status.eq.published,is_published.eq.true")
           .order("published_at", { ascending: false })

@@ -1,7 +1,25 @@
-﻿import { NextRequest, NextResponse } from "next/server";
+﻿import { randomUUID } from "crypto";
+import { NextRequest, NextResponse } from "next/server";
 
 import { requireAdmin } from "@/lib/admin-auth";
+import { ensureOfferShortCode } from "@/lib/offers/short-link";
+import { toAbsoluteSiteUrl } from "@/lib/site";
 import { supabaseAdmin } from "@/lib/supabase";
+
+const WHATSAPP_GROUP_URL =
+  process.env.NEXT_PUBLIC_WHATSAPP_GROUP_URL ??
+  "https://chat.whatsapp.com/G5fdVL51Zr94XDoqOexP9d";
+
+async function resolveOfferLink(offerId: string): Promise<string> {
+  const shortCode = await ensureOfferShortCode(supabaseAdmin, offerId);
+  return toAbsoluteSiteUrl(`/go/${shortCode}`);
+}
+
+function fillLinkPlaceholders(text: string, offerLink: string | null): string {
+  return text
+    .replaceAll("{{LINK_OFERTA}}", offerLink ?? toAbsoluteSiteUrl("/ofertas"))
+    .replaceAll("{{LINK_GRUPO}}", WHATSAPP_GROUP_URL);
+}
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -70,23 +88,39 @@ async function generateContent(params: {
   context: string;
   offer?: OfferContext | null;
 }): Promise<GeneratedGuide> {
-  const systemPrompt = `Você é um especialista em SEO, GEO e curadoria de ofertas do Brasil.
-Escreva guias de compra otimizados para:
-- SEO tradicional (Google)
-- GEO (ChatGPT, Perplexity, Gemini)
-- AEO (respostas diretas)
-- Rich Snippets (FAQPage, Article)
+  const systemPrompt = `Você é um redator sênior de conteúdo comercial, do time editorial de um site de curadoria de ofertas no Brasil (Radar Smart). Seu texto é lido por gente decidindo se compra algo AGORA — não é um blog genérico, é conteúdo que precisa converter leitura em clique de compra, do jeito que sites grandes de review/afiliado (tipo Wirecutter, Buzzfeed Shopping, "Melhores Produtos") fazem, adaptado pro público brasileiro.
+
+Por que esses sites vendem mais que um blog comum:
+1. Respondem a pergunta ANTES de explicar — quem só quer a resposta rápida encontra ela nas primeiras linhas.
+2. Não empurram um produto único como "o melhor pra todo mundo" — apresentam 2-4 cenários reais ("melhor custo-benefício", "melhor pra quem viaja", "vale mais a pena se você já tem X") pra que o leitor se reconheça em um deles. Cada cenário é um novo momento de decisão de compra.
+3. Explicam o CRITÉRIO de escolha (o "como avaliar"), não só o resultado — isso constrói autoridade e reduz o medo de errar na compra.
+4. Admitem um ponto fraco real de cada opção. Textos que só elogiam soam patrocinados e convertem pior; um texto honesto com 1 ressalva por item converte melhor porque parece imparcial.
+5. Usam número específico em vez de elogio vago ("economiza cerca de 40% comparado ao preço médio" bate muito mais forte que "ótimo custo-benefício").
+6. Fecham CADA recomendação com uma frase de ação natural (não só no final do texto todo) — o call-to-action fica espalhado nos momentos de decisão, não empilhado só na conclusão.
+
+Escreva guias otimizados para SEO tradicional (Google), GEO (ChatGPT/Perplexity/Gemini citando o conteúdo) e AEO (aparecer como resposta direta / rich snippet).
+
+Estrutura obrigatória do conteúdo (markdown):
+1. Título com a keyword principal logo no início, prometendo algo concreto (não use "Guia completo sobre X" — prometa um resultado: "os 3 melhores X por menos de R$Y", "como não errar na hora de comprar X").
+2. Logo após o título, um bloco "## Resposta rápida" com 2-3 frases cravando a recomendação principal — isso é o que motores de IA e o Google extraem primeiro.
+3. Uma seção explicando os critérios que importam pra escolher bem (H2 em formato de pergunta real que gente digita no Google).
+4. 2-4 subseções (H3), cada uma um cenário/perfil diferente de quem compra, cada uma terminando com uma frase de call-to-action natural.
+5. Pelo menos 1 ressalva/contra honesto em algum ponto do texto.
+6. FAQ com 4 perguntas e respostas completas (mín. 60 palavras cada), respondendo objeções reais de compra.
+7. Fechamento curto com CTA pro grupo de ofertas.
+
+Regra crítica sobre links (NUNCA quebre isso):
+- Só existe UM produto real com link de compra disponível: o produto informado abaixo (se houver).
+- Toda vez que recomendar ESSE produto, use exatamente \`{{LINK_OFERTA}}\` como o link em markdown normal, sem codificar os caracteres (ex.: \`[Confira o preço atual]({{LINK_OFERTA}})\` — não invente URL, não use "#").
+- NÃO invente nomes de marcas/modelos concorrentes específicos como se fossem produtos à venda — isso cria links quebrados e reduz a confiança do leitor. Os 2-4 cenários/perfis devem girar em torno de COMO USAR ou PRA QUEM SERVE o produto informado (ex.: "ideal se você viaja com frequência", "vale mais a pena se seu aparelho já usa USB-C"), não em comparar com produtos que não vendemos.
+- Se não houver produto informado, não crie nenhum link de compra — fale em termos de características a procurar, sem nome de marca específica, e no fechamento direcione pro grupo de ofertas (link \`{{LINK_GRUPO}}\`) pra ver as opções atualizadas.
 
 Regras obrigatórias:
-- Português brasileiro, tom direto e prático
-- Se houver um produto selecionado, use esse produto como base para inferir a melhor keyword de compra
-- Estruture o conteúdo com lógica AIDA: atenção no título e abertura, interesse com critérios claros, desejo com benefícios reais, ação com CTA natural
-- Título com keyword principal no início
-- H2s com perguntas que usuários realmente fazem
-- FAQ com 4 perguntas e respostas completas (mín. 60 palavras cada)
-- CTA natural para grupo de ofertas ao final
-- Conteúdo mínimo: 600 palavras
-- Formato: JSON puro, sem markdown externo
+- Português brasileiro, tom direto, de quem entende do assunto e já comprou o produto — nunca robótico ou genérico.
+- Se houver um produto selecionado, use-o como a recomendação central de todo o texto, inferindo a keyword principal a partir dele.
+- Conteúdo mínimo: 700 palavras.
+- O campo "excerpt" é texto puro (sem markdown, sem link, sem colchetes) — os links com {{LINK_OFERTA}}/{{LINK_GRUPO}} só aparecem dentro de "content".
+- Formato: JSON puro, sem markdown externo ao redor do JSON.
 
 Retorne APENAS JSON válido com os campos: title, excerpt, content (markdown completo), meta_title (máx 60 chars), meta_description (máx 155 chars), faq (array de {question, answer}).`;
 
@@ -238,9 +272,12 @@ async function generateCoverImage(
   title: string,
   offer?: OfferContext | null,
 ): Promise<string | null> {
-  if (offer?.imageUrl) {
-    return offer.imageUrl;
-  }
+  // Sempre gera uma capa editorial única com IA — reaproveitar a foto crua do
+  // produto (quando o post tem uma oferta linkada) fazia varios posts
+  // diferentes usarem a mesma imagem de catalogo, sem cara de conteudo
+  // editorial de verdade.
+  const subject = offer?.title || title;
+  const category = offer?.category ? ` da categoria ${offer.category}` : "";
 
   try {
     const response = await fetch("https://api.openai.com/v1/images/generations", {
@@ -250,11 +287,11 @@ async function generateCoverImage(
         Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
       },
       body: JSON.stringify({
-        model: "dall-e-3",
-        prompt: `Brazilian e-commerce editorial cover for "${title}". Show the central product as the clear hero object, large in frame, realistic product photography, premium marketplace aesthetic, desire-driven composition inspired by AIDA, clean background, no books, no magazines, no visible text, no watermarks.`,
+        model: "gpt-image-1",
+        prompt: `Editorial blog cover photo for a Brazilian shopping/deals article titled "${title}", about "${subject}"${category}. Professional lifestyle product photography, the product as clear hero subject shot in real-world context (not floating on plain white), warm inviting light, premium e-commerce magazine aesthetic, shallow depth of field. No text, no logos, no watermarks, no collage, no books or laptops unless they are literally the product.`,
         n: 1,
-        size: "1792x1024",
-        quality: "standard",
+        size: "1536x1024",
+        quality: "medium",
       }),
       cache: "no-store",
     });
@@ -263,8 +300,25 @@ async function generateCoverImage(
       return null;
     }
 
-    const data = (await response.json()) as { data: Array<{ url: string }> };
-    return data.data[0]?.url ?? null;
+    // gpt-image-1 sempre devolve a imagem em base64 (nao tem mais URL pronta
+    // como o dall-e-3 antigo) — precisa subir pro Storage pra virar uma URL
+    // publica que a coluna featured_image possa guardar.
+    const data = (await response.json()) as { data: Array<{ b64_json?: string }> };
+    const b64 = data.data[0]?.b64_json;
+    if (!b64) return null;
+
+    const buffer = Buffer.from(b64, "base64");
+    const storagePath = `blog-covers/${randomUUID()}.png`;
+    const bucket = "ugc-assets";
+
+    const { error: uploadError } = await supabaseAdmin.storage
+      .from(bucket)
+      .upload(storagePath, buffer, { contentType: "image/png", upsert: true });
+
+    if (uploadError) return null;
+
+    const { data: publicUrlData } = supabaseAdmin.storage.from(bucket).getPublicUrl(storagePath);
+    return publicUrlData.publicUrl ?? null;
   } catch {
     return null;
   }
@@ -336,6 +390,10 @@ export async function POST(req: NextRequest) {
       offer: offerContext,
     });
     const coverImage = await generateCoverImage(generated.title, offerContext);
+
+    const offerLink = linkedOfferId ? await resolveOfferLink(linkedOfferId) : null;
+    generated.content = fillLinkPlaceholders(generated.content, offerLink);
+    generated.excerpt = fillLinkPlaceholders(generated.excerpt, offerLink);
 
     const slug = buildSlug(generated.title);
     const schemaOrg = buildSchemaOrg({

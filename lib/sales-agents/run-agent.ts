@@ -4,6 +4,7 @@ import { generateAiProductImage } from "@/lib/ai/product-image";
 import { generateMlAffiliateLink, fetchMlSellerReputation } from "@/lib/scraping/ml-session-client";
 import { dispatchToSpecificTargets, todayLocalDate } from "@/lib/distribution/legacy-dispatch";
 import { buildSiteManualCopyOverride } from "@/lib/offers/site-visibility";
+import { ensureOfferShortCode } from "@/lib/offers/short-link";
 import { trackAndComputeDiscount } from "./price-tracking";
 import { passesRadarSniperPreFilter, rankSniperCandidates } from "@/lib/radar-sniper";
 import { renderCustomTemplate } from "./custom-template";
@@ -108,8 +109,11 @@ function resolveSiteBaseUrl(): string {
 // Link rastreado (em vez do link de afiliado cru) para que cliques vindos dos
 // grupos de WhatsApp/Telegram tambem contem como sinal de interesse, do mesmo
 // jeito que os cliques do site — necessario pro criterio de repost acima.
-function buildTrackedLink(offerId: string): string {
-  return `${resolveSiteBaseUrl()}/go/${offerId}?source=sales_agent`;
+// Usa o short_code (6 caracteres) em vez do uuid completo da oferta pra nao
+// ficar um link gigante dentro da mensagem do grupo.
+async function buildTrackedLink(offerId: string): Promise<string> {
+  const shortCode = await ensureOfferShortCode(supabaseAdmin, offerId);
+  return `${resolveSiteBaseUrl()}/go/${shortCode}`;
 }
 
 async function countSentToday(agentId: string): Promise<number> {
@@ -435,7 +439,7 @@ export async function runSalesAgent(agentId: string): Promise<AgentRunResult> {
         // Link rastreado (nao o link de afiliado cru) embutido no texto — assim
         // cliques vindos do grupo tambem contam como sinal de interesse pro
         // criterio de repost (ver isEligibleForRepost).
-        const trackedLink = buildTrackedLink(offerId);
+        const trackedLink = await buildTrackedLink(offerId);
 
         let telegramText: string;
         let whatsappText: string;

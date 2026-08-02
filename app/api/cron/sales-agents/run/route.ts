@@ -29,17 +29,26 @@ export async function GET(req: NextRequest) {
     const now = new Date();
     const eligible = agents.filter((agent) => isAgentEligibleNow(agent, now));
 
-    // Roda um agente por vez (nao em paralelo): agentes de Mercado Livre
-    // compartilham a mesma pagina/contexto do navegador local (Playwright), e
-    // rodar dois ao mesmo tempo faz um navigate() cancelar o outro
-    // (net::ERR_ABORTED). Sequencial evita essa disputa pelo mesmo recurso.
+    // Limite GLOBAL de 1 anuncio por rodada (nao por agente): com varios
+    // agentes ativos, cada um so respeitando o proprio intervalo, dava pra
+    // varios ficarem elegiveis no mesmo tick e disparar juntos — o grupo
+    // recebia varias mensagens em sequencia rapida. Como o cron ja roda a
+    // cada 15min, processar so o mais "atrasado" (menor last_run_at) garante
+    // 1 envio a cada 15min no total, revezando de forma justa entre agentes.
+    const sortedByOldest = [...eligible].sort((a, b) => {
+      const aTime = a.lastRunAt ? new Date(a.lastRunAt).getTime() : 0;
+      const bTime = b.lastRunAt ? new Date(b.lastRunAt).getTime() : 0;
+      return aTime - bTime;
+    });
+    const toRun = sortedByOldest.slice(0, 1);
+
     const runs: Array<{
       agentId: string;
       agentName: string;
       result: Awaited<ReturnType<typeof runSalesAgent>> | { success: false; message: string };
     }> = [];
 
-    for (const agent of eligible) {
+    for (const agent of toRun) {
       try {
         const result = await runSalesAgent(agent.id);
         runs.push({ agentId: agent.id, agentName: agent.name, result });

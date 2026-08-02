@@ -173,12 +173,14 @@ export function passesRadarSniperPreFilter(input: SniperInput): boolean {
   const popularity = computePopularityScore(input);
   if (signals.hasBestSeller || signals.hasPrimeOrFull || popularity >= 55) return true;
 
-  // Algumas fontes (ex.: busca do Mercado Livre) nao expoe rating/reviewCount,
-  // entao popularidade fica sempre 0 e o filtro nunca passaria. Nesses casos,
-  // usa o desconto como sinal substituto de potencial de conversao.
-  const hasPopularitySignal = input.rating !== null && input.rating !== undefined
-    ? true
-    : input.reviewCount !== null && input.reviewCount !== undefined;
+  // Algumas fontes (ex.: busca do Mercado Livre, feed da AWIN) nao expoe
+  // rating/reviewCount de verdade — as vezes vem null, as vezes vem 0 (nao e
+  // "nota zero", e "sem avaliacao"). Tratar 0 como sinal real travava o
+  // fallback de desconto/comissao pra fontes que so mandam 0 em vez de null.
+  const ratingValue = toNumber(input.rating);
+  const reviewCountValue = toNumber(input.reviewCount);
+  const hasPopularitySignal =
+    (ratingValue !== null && ratingValue > 0) || (reviewCountValue !== null && reviewCountValue > 0);
   if (!hasPopularitySignal) {
     const discountPct = toNumber(input.discountPct) ?? 0;
     if (discountPct > 0) return discountPct >= 30;

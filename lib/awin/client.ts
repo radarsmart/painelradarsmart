@@ -134,6 +134,8 @@ export type NormalizedAwinAdvertiserFeedProduct = {
   currency: string;
   originalSearchPrice: number;
   originalCurrency: string;
+  basePrice: number | null;
+  savingsPercent: number | null;
   merchantName: string;
   categoryName: string;
   rating: number;
@@ -788,6 +790,19 @@ function normalizeAdvertiserFeedProduct(
   );
   const originalCurrency = (pickRecordValue(record, ["currency"]) || "BRL").toUpperCase();
   const searchPrice = convertToBrl(originalSearchPrice, originalCurrency, brlRates);
+
+  // O feed da AWIN ja traz preco de tabela e desconto real (savings_percent,
+  // base_price) — antes isso ficava sempre null e nada usava desconto de
+  // verdade. base_price esta na mesma moeda que search_price, mesma conversao.
+  const rawBasePrice = parseOptionalBRLNumber(pickRecordValue(record, ["base_price", "basePrice"]));
+  const basePrice =
+    rawBasePrice !== null && rawBasePrice > originalSearchPrice
+      ? convertToBrl(rawBasePrice, originalCurrency, brlRates)
+      : null;
+  const savingsPercentText = pickRecordValue(record, ["savings_percent", "savingsPercent"]);
+  const savingsPercent = savingsPercentText
+    ? parseOptionalBRLNumber(savingsPercentText.replace("%", ""))
+    : null;
   const categoryName = translateAwinCategory(
     pickRecordValue(record, ["category_name", "categoryName"]) || "Sem categoria",
   );
@@ -829,6 +844,8 @@ function normalizeAdvertiserFeedProduct(
     currency: "BRL",
     originalSearchPrice,
     originalCurrency,
+    basePrice,
+    savingsPercent,
     merchantName: pickRecordValue(record, ["merchant_name", "merchantName"]) || "AWIN",
     categoryName,
     rating,
@@ -1108,8 +1125,17 @@ async function fetchAwinAdvertiserProductsFromMasterFeed(params: {
 
   if (shouldSort) {
     const sortedProducts = sortableProducts.slice();
-    if (params.sort === "best_deals" || params.sort === "price_asc") {
+    if (params.sort === "price_asc") {
       sortedProducts.sort((a, b) => a.searchPrice - b.searchPrice);
+    } else if (params.sort === "best_deals") {
+      // "Melhor oferta" e desconto real, nao preco mais barato — savings_percent
+      // vem direto do feed da AWIN. Se nenhum produto tiver esse dado, cai pro
+      // preco crescente como aproximacao (comportamento antigo).
+      if (sortedProducts.some((product) => product.savingsPercent !== null)) {
+        sortedProducts.sort((a, b) => (b.savingsPercent ?? 0) - (a.savingsPercent ?? 0));
+      } else {
+        sortedProducts.sort((a, b) => a.searchPrice - b.searchPrice);
+      }
     } else if (params.sort === "price_desc") {
       sortedProducts.sort((a, b) => b.searchPrice - a.searchPrice);
     } else if (params.sort === "top_selling" && sortedProducts.some((product) => product.rating > 0)) {
@@ -1257,8 +1283,14 @@ export async function fetchAwinAdvertiserFeedProducts(params: {
     }
     if (shouldSort) {
       const sortedProducts = sortableProducts.slice();
-      if (sort === "best_deals" || sort === "price_asc") {
+      if (sort === "price_asc") {
         sortedProducts.sort((a, b) => a.searchPrice - b.searchPrice);
+      } else if (sort === "best_deals") {
+        if (sortedProducts.some((product) => product.savingsPercent !== null)) {
+          sortedProducts.sort((a, b) => (b.savingsPercent ?? 0) - (a.savingsPercent ?? 0));
+        } else {
+          sortedProducts.sort((a, b) => a.searchPrice - b.searchPrice);
+        }
       } else if (sort === "price_desc") {
         sortedProducts.sort((a, b) => b.searchPrice - a.searchPrice);
       } else if (sort === "top_selling" && sortedProducts.some((product) => product.rating > 0)) {

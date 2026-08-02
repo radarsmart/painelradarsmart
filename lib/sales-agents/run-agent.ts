@@ -4,6 +4,7 @@ import { generateAiProductImage } from "@/lib/ai/product-image";
 import { generateMlAffiliateLink, fetchMlSellerReputation } from "@/lib/scraping/ml-session-client";
 import { dispatchToSpecificTargets, todayLocalDate } from "@/lib/distribution/legacy-dispatch";
 import { buildSiteManualCopyOverride } from "@/lib/offers/site-visibility";
+import { trackAndComputeDiscount } from "./price-tracking";
 import { passesRadarSniperPreFilter, rankSniperCandidates } from "@/lib/radar-sniper";
 import { renderCustomTemplate } from "./custom-template";
 import { discoverForAgent } from "./discovery";
@@ -50,6 +51,7 @@ type ExistingOfferInfo = {
   id: string;
   createdAt: string;
   clickCount: number;
+  everDispatched: boolean;
 };
 
 async function findExistingOffer(candidate: DiscoveryCandidate): Promise<ExistingOfferInfo | null> {
@@ -68,17 +70,32 @@ async function findExistingOffer(candidate: DiscoveryCandidate): Promise<Existin
   }
   if (!data) return null;
 
+  const { data: queueRow, error: queueError } = await supabaseAdmin
+    .from("post_queue")
+    .select("id")
+    .eq("offer_id", data.id)
+    .limit(1)
+    .maybeSingle();
+  if (queueError) {
+    throw new Error(`Falha ao verificar historico de envio da oferta: ${queueError.message}`);
+  }
+
   return {
     id: String(data.id),
     createdAt: String(data.created_at),
     clickCount: Number(data.click_count ?? 0),
+    everDispatched: Boolean(queueRow),
   };
 }
 
 // O cliente pode ter visto e nao comprado na hora, mas se depois voltar a ver
 // pode comprar — entao repetir oferta e permitido, mas so quando ha sinal real
-// de interesse (cliques no grupo/site), nao so por ter passado tempo.
+// de interesse (cliques no grupo/site), nao so por ter passado tempo. Excecao:
+// uma oferta que nunca foi de fato enviada (ex.: criada so pra acumular
+// historico de preco via price-tracking) nao e "repost" nenhum — e a primeira
+// vez publicando de verdade, entao libera na hora.
 function isEligibleForRepost(existing: ExistingOfferInfo): boolean {
+  if (!existing.everDispatched) return true;
   const hoursSinceLastPost = (Date.now() - new Date(existing.createdAt).getTime()) / 3600000;
   return hoursSinceLastPost >= MIN_REPOST_HOURS && existing.clickCount > 0;
 }
@@ -138,6 +155,43 @@ function passesBasicFilters(agent: SalesAgent, candidate: DiscoveryCandidate): b
   return true;
 }
 
+// Fontes que nao trazem desconto/avaliacao/comissao real por produto (ex.: a
+// maioria dos anunciantes da AWIN) usam rastreamento de preco proprio —
+// grava o preco de hoje e so libera o candidato quando ja da pra confirmar
+// uma queda real vs a media historica (ver lib/sales-agents/price-tracking.ts).
+async function enrichWithPriceTracking(
+  agent: SalesAgent,
+  candidates: DiscoveryCandidate[],
+): Promise<DiscoveryCandidate[]> {
+  const enriched: DiscoveryCandidate[] = [];
+
+  for (const candidate of candidates) {
+    if (candidate.discountPct !== null) {
+      enriched.push(candidate);
+      continue;
+    }
+    if (!candidate.title || !(candidate.price > 0) || !candidate.affiliateUrl) continue;
+    if (typeof agent.priceMin === "number" && candidate.price < agent.priceMin) continue;
+    if (typeof agent.priceMax === "number" && candidate.price > agent.priceMax) continue;
+
+    try {
+      const tracked = await trackAndComputeDiscount(agent, candidate);
+      if (tracked.ready && tracked.discountPct !== null) {
+        enriched.push({
+          ...candidate,
+          discountPct: tracked.discountPct,
+          oldPrice: tracked.avgPrice !== null ? Math.round(tracked.avgPrice * 100) / 100 : null,
+        });
+      }
+    } catch {
+      // Falha no rastreamento nao deve travar o agente inteiro — so deixa de
+      // considerar esse candidato nesta rodada.
+    }
+  }
+
+  return enriched;
+}
+
 function selectCandidates(agent: SalesAgent, candidates: DiscoveryCandidate[]): DiscoveryCandidate[] {
   const filtered = candidates.filter((candidate) => passesBasicFilters(agent, candidate));
 
@@ -188,7 +242,8 @@ export async function runSalesAgent(agentId: string): Promise<AgentRunResult> {
 
     const discovered = await discoverForAgent(agent);
     const candidatesFound = discovered.length;
-    const ranked = selectCandidates(agent, discovered);
+    const withPriceTracking = await enrichWithPriceTracking(agent, discovered);
+    const ranked = selectCandidates(agent, withPriceTracking);
 
     // So processa 1 oferta por execucao: o cron roda a cada poucos minutos, entao
     // isso e o que garante o espacamento entre mensagens (min_interval_minutes)

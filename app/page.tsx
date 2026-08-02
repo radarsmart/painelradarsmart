@@ -454,17 +454,32 @@ export default function HomePage() {
           </div>
         </motion.section>
 
-        <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
-          {CATEGORY_MENU.filter((cat) => cat.slug !== "outros").map((cat) => (
-            <Link
-              key={cat.slug}
-              href={`/ofertas?categoria=${cat.slug}`}
-              className="flex-none rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 shadow-sm transition hover:border-[#9e6a18] hover:text-[#9e6a18]"
-            >
-              {cat.icon} {cat.label}
-            </Link>
-          ))}
-        </div>
+        <motion.section
+          variants={reveal}
+          initial="hidden"
+          whileInView="show"
+          viewport={{ once: true, amount: 0.2 }}
+          transition={{ duration: 0.55 }}
+          className="space-y-4"
+        >
+          <h2 className="font-display text-2xl font-bold text-navy">Categorias</h2>
+          <div className="-mx-1 flex gap-3 overflow-x-auto px-1 pb-1 sm:grid sm:grid-cols-6 sm:gap-4 sm:overflow-visible">
+            {CATEGORY_MENU.filter((cat) => cat.slug !== "outros").map((cat) => (
+              <Link
+                key={cat.slug}
+                href={`/ofertas?categoria=${cat.slug}`}
+                className="flex w-20 flex-none flex-col items-center gap-2 rounded-2xl border border-slate-200 bg-white px-2 py-3 text-center shadow-card transition hover:-translate-y-0.5 hover:border-[#9e6a18] sm:w-auto"
+              >
+                <span className="flex h-11 w-11 items-center justify-center rounded-full bg-[#9e6a18]/10 text-xl">
+                  {cat.icon}
+                </span>
+                <span className="text-[11px] font-semibold leading-tight text-[#22223B] sm:text-xs">
+                  {cat.label}
+                </span>
+              </Link>
+            ))}
+          </div>
+        </motion.section>
 
         <motion.section
           variants={reveal}

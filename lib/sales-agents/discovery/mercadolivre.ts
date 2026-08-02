@@ -37,6 +37,11 @@ export async function discoverMercadoLivre(agent: SalesAgent): Promise<Discovery
       // avaliacoes, mas alimenta o mesmo calculo de popularidade do AAV.
       reviewCount: item.sold_count,
       commissionRatePct: null,
+      installmentCount: item.installments?.count ?? null,
+      installmentAmount: item.installments?.amount ?? null,
+      installmentInterestFree: item.installments?.interest_free ?? null,
+      couponCode: null,
+      couponDescription: null,
       badges: item.is_full ? ["FULL"] : [],
       raw: item,
       affiliateLinkVerified: false,

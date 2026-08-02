@@ -38,12 +38,20 @@ async function callMlSession<T>(path: string, timeoutMs: number): Promise<T> {
   }
 }
 
+export type MlInstallments = {
+  text: string;
+  count: number | null;
+  amount: number | null;
+  interest_free: boolean;
+} | null;
+
 export type MlSessionProduct = {
   title: string | null;
   price: number | null;
   old_price: number | null;
   image_url: string | null;
   url: string;
+  installments?: MlInstallments;
 };
 
 export type MlSessionSearchItem = {
@@ -55,6 +63,7 @@ export type MlSessionSearchItem = {
   rating: number | null;
   sold_count: number | null;
   is_full: boolean;
+  installments?: MlInstallments;
 };
 
 export type MlSellerReputation = {

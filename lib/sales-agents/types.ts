@@ -66,6 +66,13 @@ export type DiscoveryCandidate = {
    * AAV (ver passesRadarSniperPreFilter).
    */
   commissionRatePct: number | null;
+  /** Parcelamento real informado pela loja (hoje so o Mercado Livre traz isso). */
+  installmentCount: number | null;
+  installmentAmount: number | null;
+  installmentInterestFree: boolean | null;
+  /** Cupom real de desconto (hoje so a AWIN traz isso). */
+  couponCode: string | null;
+  couponDescription: string | null;
   raw: unknown;
   /**
    * true quando affiliateUrl e um link de afiliado real/rastreado (API ou

@@ -44,6 +44,11 @@ type OfferRow = {
   expires_at?: string | null;
   manual_copy?: unknown;
   status: string | null;
+  installment_count: number | string | null;
+  installment_amount: number | string | null;
+  installment_interest_free: boolean | null;
+  coupon_code: string | null;
+  coupon_description: string | null;
 };
 
 type BlogPostRow = {
@@ -70,6 +75,11 @@ type HomeOffer = {
   reviews: number | null;
   expiresAt: string | null;
   updatedAt: string | null;
+  installmentCount: number | null;
+  installmentAmount: number | null;
+  installmentInterestFree: boolean | null;
+  couponCode: string | null;
+  couponDescription: string | null;
 };
 
 type HomePost = {
@@ -195,6 +205,11 @@ function normalizeOffer(row: OfferRow): HomeOffer | null {
     reviews: toNumber(row.review_count) ?? toNumber(row.reviews_count),
     expiresAt: row.expires_at ?? null,
     updatedAt: row.updated_at ?? row.published_at ?? null,
+    installmentCount: toNumber(row.installment_count),
+    installmentAmount: toNumber(row.installment_amount),
+    installmentInterestFree: row.installment_interest_free,
+    couponCode: row.coupon_code?.trim() || null,
+    couponDescription: row.coupon_description?.trim() || null,
   };
 }
 
@@ -210,6 +225,12 @@ function formatFreshness(updatedAt: string | null): string | null {
   if (diffHours < 24) return `Atualizado há ${diffHours}h`;
   const diffDays = Math.round(diffHours / 24);
   return `Atualizado há ${diffDays}d`;
+}
+
+function formatInstallmentText(offer: HomeOffer): string | null {
+  if (!offer.installmentCount || !offer.installmentAmount) return null;
+  const suffix = offer.installmentInterestFree ? " sem juros" : "";
+  return `ou ${offer.installmentCount}x de ${formatBRL(offer.installmentAmount)}${suffix}`;
 }
 
 function normalizePost(row: BlogPostRow): HomePost {
@@ -257,7 +278,7 @@ export default function HomePage() {
       if (isInitial) setLoading(true);
 
       const offerSelect =
-        "id,title,price,old_price,original_price,price_old,discount_pct,discount_percent,image_url,affiliate_url,product_url,marketplace,rating,review_count,reviews_count,slot_type,curations_status,created_at,updated_at,published_at,expires_at,manual_copy,status";
+        "id,title,price,old_price,original_price,price_old,discount_pct,discount_percent,image_url,affiliate_url,product_url,marketplace,rating,review_count,reviews_count,slot_type,curations_status,created_at,updated_at,published_at,expires_at,manual_copy,status,installment_count,installment_amount,installment_interest_free,coupon_code,coupon_description";
 
       const [
         { data: flashRows },
@@ -524,12 +545,20 @@ export default function HomePage() {
                     </span>
                   ) : null}
                 </div>
+                {formatInstallmentText(offer) ? (
+                  <p className="mt-0.5 text-[10px] text-slate-500 sm:text-xs">{formatInstallmentText(offer)}</p>
+                ) : null}
                 <div className="mt-2 flex flex-wrap items-center justify-between gap-1">
                   <span className="rounded-full bg-[#9e6a18]/15 px-2 py-1 text-[10px] font-bold text-[#9e6a18] sm:text-xs">
                     {offer.discount}% OFF
                   </span>
                   {offer.expiresAt ? <CountdownTimer endAt={offer.expiresAt} /> : null}
                 </div>
+                {offer.couponCode ? (
+                  <p className="mt-1 truncate text-[10px] font-semibold text-emerald-600 sm:text-xs" title={offer.couponDescription ?? undefined}>
+                    🏷️ Cupom {offer.couponCode}
+                  </p>
+                ) : null}
                 {formatFreshness(offer.updatedAt) ? (
                   <p className="mt-1 text-[10px] font-medium text-slate-400">
                     {formatFreshness(offer.updatedAt)}
@@ -599,6 +628,14 @@ export default function HomePage() {
                 <p className="mt-2 font-mono text-sm font-bold text-[#22223B] sm:text-lg md:text-xl">
                   {formatOfferPrice(offer.price)}
                 </p>
+                {formatInstallmentText(offer) ? (
+                  <p className="mt-0.5 text-[10px] text-slate-500 sm:text-xs">{formatInstallmentText(offer)}</p>
+                ) : null}
+                {offer.couponCode ? (
+                  <p className="mt-1 truncate text-[10px] font-semibold text-emerald-600 sm:text-xs" title={offer.couponDescription ?? undefined}>
+                    🏷️ Cupom {offer.couponCode}
+                  </p>
+                ) : null}
                 {formatFreshness(offer.updatedAt) ? (
                   <p className="mt-1 text-[10px] font-medium text-slate-400">
                     {formatFreshness(offer.updatedAt)}

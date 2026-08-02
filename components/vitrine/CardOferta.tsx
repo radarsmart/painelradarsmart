@@ -13,6 +13,11 @@ export type OfertaCard = {
   affiliate_url?: string;
   product_url?: string;
   slot_type?: string;
+  installment_count?: number | null;
+  installment_amount?: number | null;
+  installment_interest_free?: boolean | null;
+  coupon_code?: string | null;
+  coupon_description?: string | null;
 };
 
 function getMarketplaceBadgeLabel(marketplace?: string): string {
@@ -52,6 +57,10 @@ export default function CardOferta({ offer }: { offer: OfertaCard }) {
   const href = offer.affiliate_url || "#";
   const slotBadge = getSlotBadge(offer.slot_type);
   const hasImage = Boolean(String(offer.image_url ?? "").trim());
+  const installmentText =
+    offer.installment_count && offer.installment_amount
+      ? `ou ${offer.installment_count}x de ${formatBRL(offer.installment_amount)}${offer.installment_interest_free ? " sem juros" : ""}`
+      : null;
 
   return (
     <article className="flex h-full flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white p-2.5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md sm:rounded-3xl sm:p-4">
@@ -111,6 +120,18 @@ export default function CardOferta({ offer }: { offer: OfertaCard }) {
               {formatBRL(offer.price)}
             </span>
           </div>
+
+          {installmentText ? (
+            <p className="mb-1.5 text-[11px] text-slate-500 sm:text-xs">{installmentText}</p>
+          ) : null}
+          {offer.coupon_code ? (
+            <p
+              className="mb-2 truncate text-[11px] font-semibold text-emerald-600 sm:text-xs"
+              title={offer.coupon_description ?? undefined}
+            >
+              🏷️ Cupom {offer.coupon_code}
+            </p>
+          ) : null}
 
           <BotaoAfiliado
             offerId={offer.id}

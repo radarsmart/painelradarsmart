@@ -37,6 +37,11 @@ type OfferRow = {
   product_url: string | null;
   slot_type: string | null;
   expires_at: string | null;
+  installment_count: number | string | null;
+  installment_amount: number | string | null;
+  installment_interest_free: boolean | null;
+  coupon_code: string | null;
+  coupon_description: string | null;
   published_at?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
@@ -79,6 +84,11 @@ function normalizeOffer(row: OfferRow): OfertaCard {
     affiliate_url: row.affiliate_url || undefined,
     product_url: row.product_url || undefined,
     slot_type: row.slot_type || undefined,
+    installment_count: toNumber(row.installment_count) || null,
+    installment_amount: toNumber(row.installment_amount) || null,
+    installment_interest_free: row.installment_interest_free,
+    coupon_code: row.coupon_code,
+    coupon_description: row.coupon_description,
   };
 }
 
@@ -97,7 +107,7 @@ export default async function BuscarPage({
       const { data } = await supabaseAdmin
         .from("offers")
         .select(
-          "id,title,marketplace,price,old_price,original_price,discount_pct,discount_percent,image_url,affiliate_url,product_url,slot_type,expires_at,status,curations_status,updated_at,created_at,published_at,manual_copy",
+          "id,title,marketplace,price,old_price,original_price,discount_pct,discount_percent,image_url,affiliate_url,product_url,slot_type,expires_at,status,curations_status,updated_at,created_at,published_at,manual_copy,installment_count,installment_amount,installment_interest_free,coupon_code,coupon_description",
         )
         .eq("status", "active")
         .in("slot_type", ["flash", "best", "comparator"])

@@ -26,6 +26,7 @@ export async function discoverAwin(agent: SalesAgent): Promise<DiscoveryCandidat
     category: product.categoryName || null,
     rating: Number.isFinite(product.rating) ? product.rating : null,
     reviewCount: null,
+    commissionRatePct: null,
     badges: product.isFreeShipping ? ["frete gratis"] : [],
     raw: product,
     affiliateLinkVerified: true,

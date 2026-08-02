@@ -6,6 +6,15 @@ function toNumber(value: unknown): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+// API da Shopee retorna a comissao como fracao decimal em string (ex.: "0.29"
+// = 29%). Nao ha desconto/avaliacao real na API — a comissao e o unico sinal
+// de qualidade disponivel, usado como fallback no filtro AAV.
+function toCommissionPct(value: unknown): number | null {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  return Math.round(parsed * 100 * 100) / 100;
+}
+
 export async function discoverShopee(agent: SalesAgent): Promise<DiscoveryCandidate[]> {
   const keyword = agent.searchQuery || agent.category || undefined;
   const result = await fetchShopeeTopProducts(20, keyword, 1);
@@ -45,6 +54,7 @@ export async function discoverShopee(agent: SalesAgent): Promise<DiscoveryCandid
       category: agent.category || null,
       rating: null,
       reviewCount: null,
+      commissionRatePct: toCommissionPct(product.commissionRate),
       badges: [],
       raw: product,
       affiliateLinkVerified,

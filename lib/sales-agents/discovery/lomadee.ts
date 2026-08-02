@@ -43,6 +43,7 @@ export async function discoverLomadee(agent: SalesAgent): Promise<DiscoveryCandi
       category: agent.category || null,
       rating: null,
       reviewCount: null,
+      commissionRatePct: null,
       badges: [],
       raw: product,
       affiliateLinkVerified,

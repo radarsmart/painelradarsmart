@@ -60,6 +60,7 @@ export async function discoverAmazon(agent: SalesAgent): Promise<DiscoveryCandid
       category: agent.category || null,
       rating: null,
       reviewCount: null,
+      commissionRatePct: null,
       badges: row.classification ? [row.classification] : [],
       raw: row,
       affiliateLinkVerified: true,

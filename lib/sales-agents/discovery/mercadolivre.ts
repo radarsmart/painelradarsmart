@@ -36,6 +36,7 @@ export async function discoverMercadoLivre(agent: SalesAgent): Promise<Discovery
       // o card de busca do ML mostra quantidade vendida, nao contagem de
       // avaliacoes, mas alimenta o mesmo calculo de popularidade do AAV.
       reviewCount: item.sold_count,
+      commissionRatePct: null,
       badges: item.is_full ? ["FULL"] : [],
       raw: item,
       affiliateLinkVerified: false,

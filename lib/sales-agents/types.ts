@@ -60,6 +60,12 @@ export type DiscoveryCandidate = {
   rating: number | null;
   reviewCount: number | null;
   badges: string[];
+  /**
+   * Comissao real do afiliado em % (ex.: Shopee), quando a loja nao expoe
+   * desconto/avaliacao real na API — usado como sinal substituto no filtro
+   * AAV (ver passesRadarSniperPreFilter).
+   */
+  commissionRatePct: number | null;
   raw: unknown;
   /**
    * true quando affiliateUrl e um link de afiliado real/rastreado (API ou

@@ -28,6 +28,7 @@ type SniperInput = {
   isPrime?: boolean | null;
   isFull?: boolean | null;
   isBestSeller?: boolean | null;
+  commissionRatePct?: number | null;
 };
 
 function clamp(value: number, min: number, max: number) {
@@ -180,7 +181,15 @@ export function passesRadarSniperPreFilter(input: SniperInput): boolean {
     : input.reviewCount !== null && input.reviewCount !== undefined;
   if (!hasPopularitySignal) {
     const discountPct = toNumber(input.discountPct) ?? 0;
-    return discountPct >= 30;
+    if (discountPct > 0) return discountPct >= 30;
+
+    // Sem popularidade nem desconto (ex.: Shopee, cuja API so expoe faixa de
+    // preco por variante, nao desconto real) — usa a comissao real do
+    // afiliado como ultimo sinal substituto de potencial de conversao.
+    const commissionRatePct = toNumber(input.commissionRatePct) ?? 0;
+    if (commissionRatePct > 0) return commissionRatePct >= 15;
+
+    return false;
   }
 
   return false;

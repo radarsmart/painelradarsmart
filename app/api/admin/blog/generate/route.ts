@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { requireAdmin } from "@/lib/admin-auth";
 import { ensureOfferShortCode } from "@/lib/offers/short-link";
+import { isValidRemoteImageUrl } from "@/lib/story-image-allowlist";
 import { toAbsoluteSiteUrl } from "@/lib/site";
 import { supabaseAdmin } from "@/lib/supabase";
 
@@ -268,14 +269,94 @@ async function syncPrimaryOffer(postId: string, offerId: string) {
   );
 }
 
-async function generateCoverImage(
+async function uploadGeneratedCover(b64: string): Promise<string | null> {
+  // gpt-image-1 sempre devolve a imagem em base64 (nao tem mais URL pronta
+  // como o dall-e-3 antigo) — precisa subir pro Storage pra virar uma URL
+  // publica que a coluna featured_image possa guardar.
+  const buffer = Buffer.from(b64, "base64");
+  const storagePath = `blog-covers/${randomUUID()}.png`;
+  const bucket = "ugc-assets";
+
+  const { error: uploadError } = await supabaseAdmin.storage
+    .from(bucket)
+    .upload(storagePath, buffer, { contentType: "image/png", upsert: true });
+
+  if (uploadError) return null;
+
+  const { data: publicUrlData } = supabaseAdmin.storage.from(bucket).getPublicUrl(storagePath);
+  return publicUrlData.publicUrl ?? null;
+}
+
+async function fetchImageBuffer(src: string): Promise<{ buffer: Buffer; contentType: string } | null> {
+  if (!isValidRemoteImageUrl(src)) return null;
+  try {
+    const upstream = await fetch(src, {
+      redirect: "follow",
+      headers: {
+        accept: "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+        "user-agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+      },
+      cache: "no-store",
+    });
+    if (!upstream.ok) return null;
+    const contentType = upstream.headers.get("content-type") ?? "image/jpeg";
+    const arrayBuffer = await upstream.arrayBuffer();
+    return { buffer: Buffer.from(arrayBuffer), contentType };
+  } catch {
+    return null;
+  }
+}
+
+// Pega a foto real do produto e pede pra IA recompor numa cena editorial,
+// mantendo o produto reconhecivel — em vez de so descrever o produto por
+// texto e deixar a IA "imaginar" como ele e (o que gera algo parecido, mas
+// nao o produto de verdade que a pessoa vai receber).
+async function generateCoverFromProductPhoto(
+  title: string,
+  offer: OfferContext,
+): Promise<string | null> {
+  const productImage = await fetchImageBuffer(offer.imageUrl ?? "");
+  if (!productImage) return null;
+
+  try {
+    const form = new FormData();
+    form.append("model", "gpt-image-1");
+    form.append(
+      "prompt",
+      `Turn the attached product photo into a premium editorial blog cover for a Brazilian shopping article titled "${title}". Keep the exact product from the photo — same shape, color, branding and design — completely recognizable and unchanged. Place it as the hero subject in a realistic lifestyle scene that fits how it's used, warm natural light, shallow depth of field, magazine-quality composition. No added text, no watermark, no collage, no other products.`,
+    );
+    form.append("size", "1536x1024");
+    form.append("quality", "medium");
+    form.append(
+      "image[]",
+      new Blob([new Uint8Array(productImage.buffer)], { type: productImage.contentType }),
+      "product.jpg",
+    );
+
+    const response = await fetch("https://api.openai.com/v1/images/edits", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
+      body: form,
+      cache: "no-store",
+    });
+
+    if (!response.ok) return null;
+
+    const data = (await response.json()) as { data: Array<{ b64_json?: string }> };
+    const b64 = data.data[0]?.b64_json;
+    if (!b64) return null;
+
+    return uploadGeneratedCover(b64);
+  } catch {
+    return null;
+  }
+}
+
+async function generateCoverFromScratch(
   title: string,
   offer?: OfferContext | null,
 ): Promise<string | null> {
-  // Sempre gera uma capa editorial única com IA — reaproveitar a foto crua do
-  // produto (quando o post tem uma oferta linkada) fazia varios posts
-  // diferentes usarem a mesma imagem de catalogo, sem cara de conteudo
-  // editorial de verdade.
   const subject = offer?.title || title;
   const category = offer?.category ? ` da categoria ${offer.category}` : "";
 
@@ -296,32 +377,29 @@ async function generateCoverImage(
       cache: "no-store",
     });
 
-    if (!response.ok) {
-      return null;
-    }
+    if (!response.ok) return null;
 
-    // gpt-image-1 sempre devolve a imagem em base64 (nao tem mais URL pronta
-    // como o dall-e-3 antigo) — precisa subir pro Storage pra virar uma URL
-    // publica que a coluna featured_image possa guardar.
     const data = (await response.json()) as { data: Array<{ b64_json?: string }> };
     const b64 = data.data[0]?.b64_json;
     if (!b64) return null;
 
-    const buffer = Buffer.from(b64, "base64");
-    const storagePath = `blog-covers/${randomUUID()}.png`;
-    const bucket = "ugc-assets";
-
-    const { error: uploadError } = await supabaseAdmin.storage
-      .from(bucket)
-      .upload(storagePath, buffer, { contentType: "image/png", upsert: true });
-
-    if (uploadError) return null;
-
-    const { data: publicUrlData } = supabaseAdmin.storage.from(bucket).getPublicUrl(storagePath);
-    return publicUrlData.publicUrl ?? null;
+    return uploadGeneratedCover(b64);
   } catch {
     return null;
   }
+}
+
+async function generateCoverImage(
+  title: string,
+  offer?: OfferContext | null,
+): Promise<string | null> {
+  if (offer?.imageUrl) {
+    const fromPhoto = await generateCoverFromProductPhoto(title, offer);
+    if (fromPhoto) return fromPhoto;
+  }
+
+  // Sem produto real (ou a edicao a partir da foto falhou): gera do zero.
+  return generateCoverFromScratch(title, offer);
 }
 
 function buildSchemaOrg(params: {

@@ -5,6 +5,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { Menu, MessageCircle, Search, X } from "lucide-react";
 import BrandWordmark from "@/components/layout/BrandWordmark";
+import { trackGroupJoinClick } from "@/lib/analytics/track-event";
 
 type HeaderProps = {
   withTickerOffset?: boolean;
@@ -84,6 +85,7 @@ export default function Header({ withTickerOffset = false }: HeaderProps) {
             href={GROUP_URL}
             target="_blank"
             rel="noopener noreferrer"
+            onClick={() => trackGroupJoinClick("whatsapp", "header_desktop")}
             className="hidden items-center gap-2 rounded-full bg-[#9e6a18] px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all duration-200 hover:brightness-110 lg:inline-flex"
           >
             <MessageCircle className="h-4 w-4" />
@@ -122,7 +124,10 @@ export default function Header({ withTickerOffset = false }: HeaderProps) {
             target="_blank"
             rel="noopener noreferrer"
             className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-full bg-[#9e6a18] px-4 py-3 text-sm font-semibold text-white shadow-sm transition-all duration-200 hover:brightness-110"
-            onClick={() => setMobileMenuOpen(false)}
+            onClick={() => {
+              trackGroupJoinClick("whatsapp", "header_mobile");
+              setMobileMenuOpen(false);
+            }}
           >
             <MessageCircle className="h-4 w-4" />
             Entrar no Grupo

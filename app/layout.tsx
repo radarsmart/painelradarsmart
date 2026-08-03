@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { AnalyticsScripts } from "@/components/analytics/AnalyticsScripts";
 import { AwinMasterTag } from "@/components/awin/AwinMasterTag";
 import { BottomNav } from "@/components/navigation/BottomNav";
 import { InstallPrompt } from "@/components/navigation/InstallPrompt";
@@ -132,6 +133,7 @@ export default function RootLayout({
         <InstallPrompt />
         <BottomNav />
         <AwinMasterTag />
+        <AnalyticsScripts />
       </body>
     </html>
   );

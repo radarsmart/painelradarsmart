@@ -3,6 +3,12 @@
 import { useState } from "react";
 import Header from "@/components/layout/Header";
 import Footer from "@/components/layout/Footer";
+import { trackGroupJoinClick } from "@/lib/analytics/track-event";
+
+const WHATSAPP_GROUP_URL =
+  process.env.NEXT_PUBLIC_WHATSAPP_GROUP_URL ??
+  "https://chat.whatsapp.com/G5fdVL51Zr94XDoqOexP9d";
+const TELEGRAM_URL = process.env.NEXT_PUBLIC_TELEGRAM_URL ?? "https://t.me/";
 
 export default function GrupoPage() {
   const [canal, setCanal] = useState("whatsapp");
@@ -20,8 +26,9 @@ export default function GrupoPage() {
       });
       if (!res.ok) throw new Error("Falha ao registrar entrada no grupo");
       setStatus("Registro realizado. Abrindo canal...");
+      trackGroupJoinClick(canal === "whatsapp" ? "whatsapp" : "telegram", "landing_grupo");
       window.open(
-        canal === "whatsapp" ? "https://www.whatsapp.com/" : "https://t.me/",
+        canal === "whatsapp" ? WHATSAPP_GROUP_URL : TELEGRAM_URL,
         "_blank",
         "noopener,noreferrer",
       );

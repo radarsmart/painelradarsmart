@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { Instagram } from "lucide-react";
 import BrandWordmark from "@/components/layout/BrandWordmark";
+import { trackSupportContactClick } from "@/lib/analytics/track-event";
 
 const SUPPORT_WHATSAPP_NUMBER = (
   process.env.NEXT_PUBLIC_SUPPORT_WHATSAPP ?? "5547992890613"
@@ -80,6 +81,7 @@ export default function Footer() {
                 href={SUPPORT_WHATSAPP_URL}
                 target="_blank"
                 rel="noopener noreferrer"
+                onClick={() => trackSupportContactClick("footer")}
                 className="rounded-full bg-[#25D366] p-2.5 shadow-lg shadow-green-900/20 transition-all hover:scale-110"
                 aria-label="WhatsApp"
               >

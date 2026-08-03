@@ -17,6 +17,7 @@ import {
   Send,
   Settings,
   ShoppingBag,
+  Sparkles,
   Store,
   Zap,
 } from "lucide-react";
@@ -190,6 +191,12 @@ const MENU_ITEMS: SidebarGroup[] = [
         href: "/admin/criativos/tiktok-engine",
         activePatterns: ["/admin/criativos/tiktok-engine"],
       },
+      {
+        label: "Prompt Gemini",
+        icon: Sparkles,
+        href: "/admin/criativos/gemini-video",
+        activePatterns: ["/admin/criativos/gemini-video"],
+      },
     ],
   },
   {
@@ -219,7 +226,8 @@ function isItemActive(pathname: string, item: SidebarItem) {
   if (
     item.href === "/admin/criativos" &&
     (pathname.startsWith("/admin/criativos/tiktok-engine") ||
-      pathname.startsWith("/admin/criativos/video-jobs"))
+      pathname.startsWith("/admin/criativos/video-jobs") ||
+      pathname.startsWith("/admin/criativos/gemini-video"))
   ) {
     return false;
   }

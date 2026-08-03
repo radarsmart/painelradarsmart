@@ -298,6 +298,11 @@ export default function TikTokVideoSystem() {
   const [voiceId, setVoiceId] = useState("");
   const [savingVoiceDefault, setSavingVoiceDefault] = useState(false);
   const [avatarId] = useState("");
+  // ── Preencher a partir de oferta real
+  const [realOffers, setRealOffers] = useState([]);
+  const [selectedOfferId, setSelectedOfferId] = useState("");
+  const [loadingOffers, setLoadingOffers] = useState(false);
+  const [fillingFromOffer, setFillingFromOffer] = useState(false);
   // ── Pipeline
   const [activeTab, setActiveTab] = useState("form");
   const [briefingId, setBriefingId] = useState("");
@@ -332,6 +337,48 @@ export default function TikTokVideoSystem() {
   }, [addLog, voiceId]);
 
   useEffect(() => { void loadVoices(); }, [loadVoices]);
+
+  // ── Carregar ofertas reais (pra nao ter que digitar produto do zero)
+  const loadRealOffers = useCallback(async () => {
+    setLoadingOffers(true);
+    try {
+      const data = await apiFetch("/api/tiktok-engine/offer-briefing");
+      setRealOffers(data.offers ?? []);
+    } catch (e) {
+      addLog(e instanceof Error ? e.message : "Falha ao carregar ofertas reais.", "error");
+    } finally {
+      setLoadingOffers(false);
+    }
+  }, [addLog]);
+
+  useEffect(() => { void loadRealOffers(); }, [loadRealOffers]);
+
+  const fillFromSelectedOffer = useCallback(async () => {
+    if (!selectedOfferId) return;
+    setFillingFromOffer(true);
+    try {
+      const data = await apiFetch("/api/tiktok-engine/offer-briefing", {
+        method: "POST",
+        body: JSON.stringify({ offer_id: selectedOfferId }),
+      });
+      const b = data.briefing ?? {};
+      setProductName(b.product_name ?? "");
+      setProductPrice(b.product_price ?? "");
+      setProductDiscount(b.product_discount ?? "");
+      setProductCategory(b.product_category ?? "");
+      setProductBenefits(b.product_benefits ?? "");
+      setProductPain(b.product_pain ?? "");
+      setCompetitorName(b.competitor_name ?? "");
+      setCompetitorPrice(b.competitor_price ?? "");
+      setShopUrl(b.shop_url ?? "");
+      setProductImageUrls((b.product_image_urls ?? []).join("\n"));
+      addLog("Campos preenchidos com a oferta real selecionada.", "success");
+    } catch (e) {
+      addLog(e instanceof Error ? e.message : "Falha ao preencher a partir da oferta.", "error");
+    } finally {
+      setFillingFromOffer(false);
+    }
+  }, [addLog, selectedOfferId]);
 
   // ── Polling de status
   const stopPolling = useCallback(() => {
@@ -497,6 +544,38 @@ export default function TikTokVideoSystem() {
       {/* ── ABA: BRIEFING ─────────────────────────────────────────────────────── */}
       {activeTab === "form" && (
         <div className="space-y-5">
+          {/* Gerar a partir de oferta real */}
+          <section className="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-5">
+            <h2 className="mb-1 text-sm font-bold uppercase tracking-wide text-emerald-400">
+              Gerar a partir de uma oferta real
+            </h2>
+            <p className="mb-4 text-xs text-white/50">
+              Escolhe uma oferta que ja esta no site/grupo — preco, desconto e imagem vem do catalogo,
+              e a IA preenche beneficios/dor do cliente. Bem mais rapido que digitar tudo do zero.
+            </p>
+            <div className="flex flex-col gap-3 md:flex-row md:items-end">
+              <div className="flex-1">
+                <Select
+                  label={loadingOffers ? "Carregando ofertas..." : "Oferta"}
+                  value={selectedOfferId}
+                  onChange={setSelectedOfferId}
+                  options={realOffers.map((o) => ({
+                    value: o.id,
+                    label: `${o.title.slice(0, 60)} — R$ ${o.price.toFixed(2).replace(".", ",")}${o.discountPct ? ` (${o.discountPct}% OFF)` : ""} [${o.marketplace}]`,
+                  }))}
+                />
+              </div>
+              <button
+                type="button"
+                onClick={fillFromSelectedOffer}
+                disabled={!selectedOfferId || fillingFromOffer}
+                className="rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {fillingFromOffer ? "Preenchendo..." : "Preencher com esta oferta"}
+              </button>
+            </div>
+          </section>
+
           {/* Produto */}
           <section className="rounded-2xl border border-white/10 bg-white/5 p-5">
             <h2 className="mb-4 text-sm font-bold uppercase tracking-wide text-[#C9973A]">

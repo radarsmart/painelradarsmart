@@ -173,7 +173,7 @@ function buildScriptPrompts(
   return { system, user, durationTargetSeconds };
 }
 
-type OpenAIResponsesApiResponse = {
+export type OpenAIResponsesApiResponse = {
   output_text?: string;
   output?: Array<{
     content?: Array<{
@@ -183,7 +183,7 @@ type OpenAIResponsesApiResponse = {
   }>;
 };
 
-function extractResponseText(payload: OpenAIResponsesApiResponse): string {
+export function extractResponseText(payload: OpenAIResponsesApiResponse): string {
   if (typeof payload.output_text === "string" && payload.output_text.trim()) {
     return payload.output_text.trim();
   }

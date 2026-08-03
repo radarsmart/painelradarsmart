@@ -40,7 +40,14 @@ export async function GET(req: NextRequest) {
       const bTime = b.lastRunAt ? new Date(b.lastRunAt).getTime() : 0;
       return aTime - bTime;
     });
-    const toRun = sortedByOldest.slice(0, 1);
+
+    // Cascata: se o agente mais atrasado nao despachar nada (fonte fora do ar,
+    // erro, sem candidato novo), tenta o proximo mais atrasado dentro do MESMO
+    // tick, em vez de so tentar 1 e deixar o cronometro do grupo parado ate o
+    // proximo ciclo. So para quando um agente realmente enfileira algo (queued
+    // > 0) ou quando a lista de elegiveis acaba. Teto de seguranca pra nao
+    // estourar o tempo maximo da funcao se muitas fontes caírem juntas.
+    const MAX_ATTEMPTS_PER_TICK = 8;
 
     const runs: Array<{
       agentId: string;
@@ -48,10 +55,11 @@ export async function GET(req: NextRequest) {
       result: Awaited<ReturnType<typeof runSalesAgent>> | { success: false; message: string };
     }> = [];
 
-    for (const agent of toRun) {
+    for (const agent of sortedByOldest.slice(0, MAX_ATTEMPTS_PER_TICK)) {
       try {
         const result = await runSalesAgent(agent.id);
         runs.push({ agentId: agent.id, agentName: agent.name, result });
+        if ("queued" in result && result.queued > 0) break;
       } catch (agentError) {
         runs.push({
           agentId: agent.id,

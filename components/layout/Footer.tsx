@@ -43,6 +43,12 @@ export default function Footer() {
               Curadoria premium de ofertas para comprar melhor, mais rapido e com
               seguranca.
             </p>
+            <a
+              href="mailto:contato@radarsmart.com.br"
+              className="block text-sm text-slate-400 transition-all hover:text-[#9e6a18]"
+            >
+              Email: contato@radarsmart.com.br
+            </a>
           </div>
 
           <div>

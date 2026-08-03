@@ -65,6 +65,9 @@ export default function Footer() {
               <Link href="/blog" className="transition-all hover:text-[#9e6a18]">
                 Guias e Blog
               </Link>
+              <Link href="/parcerias" className="transition-all hover:text-[#9e6a18]">
+                Parcerias
+              </Link>
             </nav>
           </div>
 

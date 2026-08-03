@@ -9,6 +9,16 @@ const GROUP_URL =
   process.env.NEXT_PUBLIC_WHATSAPP_GROUP_URL ??
   "https://chat.whatsapp.com/G5fdVL51Zr94XDoqOexP9d";
 
+const INSTAGRAM_URL =
+  process.env.NEXT_PUBLIC_INSTAGRAM_URL ?? "https://www.instagram.com/radarsmart.oficial/";
+const FACEBOOK_URL =
+  process.env.NEXT_PUBLIC_FACEBOOK_URL ??
+  "https://www.facebook.com/profile.php?id=61585280878080";
+const TIKTOK_URL =
+  process.env.NEXT_PUBLIC_TIKTOK_URL ?? "https://www.tiktok.com/@radarsmart.oferta";
+// Ainda sem perfil no X — quando tiver, so preencher NEXT_PUBLIC_X_URL.
+const X_URL = process.env.NEXT_PUBLIC_X_URL ?? "";
+
 export default function Footer() {
   return (
     <footer className="border-t border-white/10 bg-[#22223B] pb-28 pt-12 text-white md:pb-12">
@@ -67,7 +77,9 @@ export default function Footer() {
               </a>
 
               <a
-                href="#"
+                href={INSTAGRAM_URL}
+                target="_blank"
+                rel="noopener noreferrer"
                 className="rounded-full bg-[linear-gradient(135deg,#f58529_0%,#feda77_18%,#dd2a7b_50%,#8134af_78%,#515bd4_100%)] p-2.5 shadow-lg shadow-pink-900/20 transition-all hover:scale-110"
                 aria-label="Instagram"
               >
@@ -75,7 +87,9 @@ export default function Footer() {
               </a>
 
               <a
-                href="#"
+                href={FACEBOOK_URL}
+                target="_blank"
+                rel="noopener noreferrer"
                 className="rounded-full bg-[#1877F2] p-2.5 shadow-lg shadow-blue-900/20 transition-all hover:scale-110"
                 aria-label="Facebook"
               >
@@ -85,7 +99,9 @@ export default function Footer() {
               </a>
 
               <a
-                href="#"
+                href={TIKTOK_URL}
+                target="_blank"
+                rel="noopener noreferrer"
                 className="rounded-full border border-white/10 bg-black p-2.5 shadow-lg shadow-black/40 transition-all hover:scale-110"
                 aria-label="TikTok"
               >
@@ -94,15 +110,19 @@ export default function Footer() {
                 </svg>
               </a>
 
-              <a
-                href="#"
-                className="rounded-full border border-white/10 bg-black p-2.5 shadow-lg shadow-black/40 transition-all hover:scale-110"
-                aria-label="X"
-              >
-                <svg className="h-5 w-5 fill-white" viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M18.901 1.153h3.68l-8.04 9.19L24 22.846h-7.406l-5.8-7.584-6.638 7.584H.474l8.6-9.83L0 1.154h7.594l5.243 6.932ZM17.61 20.644h2.039L6.486 3.24H4.298Z" />
-                </svg>
-              </a>
+              {X_URL ? (
+                <a
+                  href={X_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="rounded-full border border-white/10 bg-black p-2.5 shadow-lg shadow-black/40 transition-all hover:scale-110"
+                  aria-label="X"
+                >
+                  <svg className="h-5 w-5 fill-white" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M18.901 1.153h3.68l-8.04 9.19L24 22.846h-7.406l-5.8-7.584-6.638 7.584H.474l8.6-9.83L0 1.154h7.594l5.243 6.932ZM17.61 20.644h2.039L6.486 3.24H4.298Z" />
+                  </svg>
+                </a>
+              ) : null}
             </div>
           </div>
         </div>

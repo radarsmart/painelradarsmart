@@ -17,6 +17,32 @@ function toText(value: unknown): string {
   return String(value ?? "").trim();
 }
 
+// Quantas horas deixar os agentes de ML pausados apos um bloqueio de
+// rate-limit do gerador de link — tempo fixo (nao sondagem ativa), porque
+// testar a pagina bloqueada de novo cedo demais so estende o bloqueio do
+// lado do Mercado Livre.
+const ML_RATE_LIMIT_COOLDOWN_HOURS = 2;
+const ML_RATE_LIMIT_PAUSE_REASON = "ml_affiliate_rate_limited";
+
+function isMlAffiliateRateLimitError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return /RATE_LIMITED/i.test(message);
+}
+
+// Pausa TODOS os agentes de ML ativos assim que um deles esbarra no
+// rate-limit do gerador de link — eles compartilham a mesma sessao/pagina do
+// ML, entao deixar os outros continuarem tentando so bateria no mesmo
+// bloqueio de novo. resumeAutoPausedAgents() no cron reativa sozinho depois
+// do cooldown (ver app/api/cron/sales-agents/run/route.ts).
+async function pauseMlAgentsForRateLimit(): Promise<void> {
+  const until = new Date(Date.now() + ML_RATE_LIMIT_COOLDOWN_HOURS * 3600000).toISOString();
+  await supabaseAdmin
+    .from("sales_agents")
+    .update({ active: false, auto_paused_reason: ML_RATE_LIMIT_PAUSE_REASON, auto_paused_until: until })
+    .eq("source", "mercadolivre")
+    .eq("active", true);
+}
+
 function getMissingColumnFromError(message: string): string | null {
   return (
     message.match(/Could not find the '([^']+)' column/i)?.[1] ||
@@ -432,6 +458,16 @@ export async function runSalesAgent(agentId: string): Promise<AgentRunResult> {
             candidate.affiliateUrl = await generateMlAffiliateLink(candidate.productUrl);
             candidate.affiliateLinkVerified = true;
           } catch (affiliateError) {
+            if (isMlAffiliateRateLimitError(affiliateError)) {
+              await pauseMlAgentsForRateLimit();
+              details.push({
+                title: candidate.title,
+                action: "ml_affiliate_rate_limited",
+                error: `Mercado Livre bloqueou por excesso de requisicoes — agentes de ML pausados por ${ML_RATE_LIMIT_COOLDOWN_HOURS}h.`,
+              });
+              break;
+            }
+
             details.push({
               title: candidate.title,
               action: "ml_affiliate_link_failed",

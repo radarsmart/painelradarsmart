@@ -20,7 +20,7 @@ async function resumeAutoPausedAgents(): Promise<
 > {
   const { data: pausedAgents } = await supabaseAdmin
     .from("sales_agents")
-    .select("id,name,advertiser_id,auto_paused_reason")
+    .select("id,name,advertiser_id,auto_paused_reason,auto_paused_until")
     .eq("active", false)
     .not("auto_paused_reason", "is", null);
 
@@ -35,7 +35,30 @@ async function resumeAutoPausedAgents(): Promise<
   const summary: Array<{ reason: string; resumed: string[]; stillDown?: boolean }> = [];
 
   for (const [reason, group] of byReason) {
-    if (reason !== "awin_feed_500") continue; // unico motivo automatico existente por enquanto
+    // ml_affiliate_rate_limited: sem sondagem ativa (sondar a pagina
+    // bloqueada de novo cedo demais so estenderia o bloqueio do lado do ML)
+    // — so reativa quando o cooldown gravado em auto_paused_until passar.
+    if (reason === "ml_affiliate_rate_limited") {
+      const ready = group.filter((a) => {
+        const until = a.auto_paused_until ? Date.parse(String(a.auto_paused_until)) : 0;
+        return Number.isFinite(until) && until > 0 && until <= Date.now();
+      });
+      if (!ready.length) {
+        summary.push({ reason, resumed: [], stillDown: true });
+        continue;
+      }
+      await supabaseAdmin
+        .from("sales_agents")
+        .update({ active: true, auto_paused_reason: null, auto_paused_until: null })
+        .in(
+          "id",
+          ready.map((a) => a.id),
+        );
+      summary.push({ reason, resumed: ready.map((a) => a.name) });
+      continue;
+    }
+
+    if (reason !== "awin_feed_500") continue; // demais motivos nao tem sondagem automatica
 
     const probeAdvertiserId = group.find((a) => a.advertiser_id)?.advertiser_id;
     if (!probeAdvertiserId) continue;

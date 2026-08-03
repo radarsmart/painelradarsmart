@@ -14,6 +14,8 @@ type CandidateOffer = {
   imageUrl: string | null;
 };
 
+type PromptOption = { slug: string; label: string; description: string };
+
 async function getAccessToken() {
   const { data, error } = await supabase.auth.getSession();
   const token = data.session?.access_token;
@@ -45,12 +47,22 @@ export default function GeminiVideoPromptGenerator() {
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
 
+  const [formatOptions, setFormatOptions] = useState<PromptOption[]>([]);
+  const [lightingOptions, setLightingOptions] = useState<PromptOption[]>([]);
+  const [angleOptions, setAngleOptions] = useState<PromptOption[]>([]);
+  const [format, setFormat] = useState("");
+  const [lighting, setLighting] = useState("");
+  const [angle, setAngle] = useState("");
+
   const loadOffers = useCallback(async () => {
     setLoadingOffers(true);
     setError("");
     try {
       const data = await apiFetch("/api/tiktok-engine/gemini-prompt");
       setOffers(data.offers ?? []);
+      setFormatOptions(data.formatOptions ?? []);
+      setLightingOptions(data.lightingOptions ?? []);
+      setAngleOptions(data.angleOptions ?? []);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Falha ao carregar ofertas.");
     } finally {
@@ -71,7 +83,12 @@ export default function GeminiVideoPromptGenerator() {
     try {
       const data = await apiFetch("/api/tiktok-engine/gemini-prompt", {
         method: "POST",
-        body: JSON.stringify({ offer_id: selectedOfferId }),
+        body: JSON.stringify({
+          offer_id: selectedOfferId,
+          format: format || undefined,
+          lighting: lighting || undefined,
+          angle: angle || undefined,
+        }),
       });
       setPrompt(data.prompt ?? "");
       setProductName(data.productName ?? "");
@@ -80,7 +97,7 @@ export default function GeminiVideoPromptGenerator() {
     } finally {
       setGenerating(false);
     }
-  }, [selectedOfferId]);
+  }, [selectedOfferId, format, lighting, angle]);
 
   const copyPrompt = useCallback(async () => {
     if (!prompt) return;
@@ -142,6 +159,63 @@ export default function GeminiVideoPromptGenerator() {
         </div>
       </section>
 
+      <section className="rounded-2xl border border-white/10 bg-white/5 p-5">
+        <h2 className="mb-1 text-sm font-bold uppercase tracking-wide text-emerald-400">
+          2. Estilo do vídeo (opcional)
+        </h2>
+        <p className="mb-4 text-xs text-white/40">
+          A garota-propaganda da Radar Smart aparece em todo vídeo — escolhe a variação de formato,
+          iluminação e ângulo, ou deixa em &quot;Aleatório&quot; pra sortear e dar variedade entre os vídeos.
+        </p>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          <label>
+            <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-emerald-400/80">
+              Formato
+            </span>
+            <select
+              className="w-full rounded-xl border border-white/10 bg-[#0A0F1E] px-4 py-2.5 text-sm text-white outline-none transition focus:border-emerald-400/60"
+              value={format}
+              onChange={(e) => setFormat(e.target.value)}
+            >
+              <option value="">Aleatório</option>
+              {formatOptions.map((opt) => (
+                <option key={opt.slug} value={opt.slug}>{opt.label}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-emerald-400/80">
+              Iluminação
+            </span>
+            <select
+              className="w-full rounded-xl border border-white/10 bg-[#0A0F1E] px-4 py-2.5 text-sm text-white outline-none transition focus:border-emerald-400/60"
+              value={lighting}
+              onChange={(e) => setLighting(e.target.value)}
+            >
+              <option value="">Aleatório</option>
+              {lightingOptions.map((opt) => (
+                <option key={opt.slug} value={opt.slug}>{opt.label}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-emerald-400/80">
+              Ângulo
+            </span>
+            <select
+              className="w-full rounded-xl border border-white/10 bg-[#0A0F1E] px-4 py-2.5 text-sm text-white outline-none transition focus:border-emerald-400/60"
+              value={angle}
+              onChange={(e) => setAngle(e.target.value)}
+            >
+              <option value="">Aleatório</option>
+              {angleOptions.map((opt) => (
+                <option key={opt.slug} value={opt.slug}>{opt.label}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+      </section>
+
       {error ? (
         <div className="rounded-2xl border border-red-500/30 bg-red-500/10 px-5 py-4 text-sm text-red-300">
           {error}
@@ -152,7 +226,7 @@ export default function GeminiVideoPromptGenerator() {
         <section className="rounded-2xl border border-white/10 bg-white/5 p-5">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-sm font-bold uppercase tracking-wide text-emerald-400">
-              2. Prompt pronto — {productName}
+              3. Prompt pronto — {productName}
             </h2>
             <button
               type="button"

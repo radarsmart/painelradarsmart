@@ -2,7 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { requireAdmin } from "@/lib/admin-auth";
 import { listCandidateOffersForVideo } from "@/lib/tiktok-engine/from-offer";
-import { buildGeminiVideoPrompt } from "@/lib/tiktok-engine/gemini-prompt";
+import {
+  buildGeminiVideoPrompt,
+  GEMINI_ANGLE_OPTIONS,
+  GEMINI_FORMAT_OPTIONS,
+  GEMINI_LIGHTING_OPTIONS,
+} from "@/lib/tiktok-engine/gemini-prompt";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,7 +31,13 @@ export async function GET(req: NextRequest) {
 
   try {
     const offers = await listCandidateOffersForVideo(30);
-    return NextResponse.json({ success: true, offers });
+    return NextResponse.json({
+      success: true,
+      offers,
+      formatOptions: GEMINI_FORMAT_OPTIONS,
+      lightingOptions: GEMINI_LIGHTING_OPTIONS,
+      angleOptions: GEMINI_ANGLE_OPTIONS,
+    });
   } catch (error) {
     return NextResponse.json(
       { success: false, error: error instanceof Error ? error.message : "Falha ao listar ofertas." },
@@ -52,7 +63,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: "offer_id obrigatorio." }, { status: 400 });
     }
 
-    const result = await buildGeminiVideoPrompt(offerId);
+    const result = await buildGeminiVideoPrompt(offerId, {
+      format: String(body?.format ?? "").trim() || undefined,
+      lighting: String(body?.lighting ?? "").trim() || undefined,
+      angle: String(body?.angle ?? "").trim() || undefined,
+    });
     return NextResponse.json({ success: true, ...result });
   } catch (error) {
     return NextResponse.json(

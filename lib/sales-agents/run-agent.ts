@@ -4,7 +4,7 @@ import { generateAiProductImage } from "@/lib/ai/product-image";
 import { generateMlAffiliateLink, fetchMlSellerReputation } from "@/lib/scraping/ml-session-client";
 import { dispatchToSpecificTargets, todayLocalDate } from "@/lib/distribution/legacy-dispatch";
 import { buildSiteManualCopyOverride } from "@/lib/offers/site-visibility";
-import { assignProductGroup } from "@/lib/offers/product-matching";
+import { assignProductGroup, normalizeTitleTokens, titleSimilarity } from "@/lib/offers/product-matching";
 import { ensureOfferShortCode } from "@/lib/offers/short-link";
 import { trackAndComputeDiscount } from "./price-tracking";
 import { passesRadarSniperPreFilter, rankSniperCandidates } from "@/lib/radar-sniper";
@@ -56,26 +56,11 @@ type ExistingOfferInfo = {
   everDispatched: boolean;
 };
 
-async function findExistingOffer(candidate: DiscoveryCandidate): Promise<ExistingOfferInfo | null> {
-  if (!candidate.productUrl) return null;
-
-  const { data, error } = await supabaseAdmin
-    .from("offers")
-    .select("id, created_at, click_count")
-    .eq("product_url", candidate.productUrl)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (error) {
-    throw new Error(`Falha ao verificar duplicidade da oferta: ${error.message}`);
-  }
-  if (!data) return null;
-
+async function loadExistingOfferInfo(offerId: string, createdAt: string, clickCount: number): Promise<ExistingOfferInfo> {
   const { data: queueRow, error: queueError } = await supabaseAdmin
     .from("post_queue")
     .select("id")
-    .eq("offer_id", data.id)
+    .eq("offer_id", offerId)
     .limit(1)
     .maybeSingle();
   if (queueError) {
@@ -83,11 +68,88 @@ async function findExistingOffer(candidate: DiscoveryCandidate): Promise<Existin
   }
 
   return {
-    id: String(data.id),
-    createdAt: String(data.created_at),
-    clickCount: Number(data.click_count ?? 0),
+    id: offerId,
+    createdAt,
+    clickCount,
     everDispatched: Boolean(queueRow),
   };
+}
+
+// So considera ofertas recentes pro fallback por titulo — nao faz sentido
+// (e fica caro) comparar contra o catalogo inteiro, so contra o que pode
+// realmente ter sido postado de novo por engano.
+const TITLE_FALLBACK_LOOKBACK_HOURS = 96;
+const TITLE_FALLBACK_SIMILARITY_THRESHOLD = 0.82;
+const TITLE_FALLBACK_MAX_PRICE_RATIO = 1.2;
+
+// O Mercado Livre (e outras lojas) devolvem, pro MESMO anuncio, URLs
+// diferentes dependendo de onde o produto foi encontrado: link de busca com
+// querystring de rastreio, link "catalogo" (/p/MLB...) vs link "item"
+// (MLB-...) etc. O dedupe por URL exata (abaixo) pega a maioria dos casos,
+// mas quando a URL muda de formato ele nao reconhece e o agente republica o
+// mesmo produto como se fosse novidade. Esse fallback por titulo+preco (na
+// mesma loja, dentro da janela recente) e a rede de seguranca pro que a URL
+// exata deixa passar.
+async function findExistingOfferByTitle(
+  candidate: DiscoveryCandidate,
+  marketplace: string,
+): Promise<ExistingOfferInfo | null> {
+  if (!candidate.title || !(candidate.price > 0)) return null;
+
+  const since = new Date(Date.now() - TITLE_FALLBACK_LOOKBACK_HOURS * 3600000).toISOString();
+  const { data, error } = await supabaseAdmin
+    .from("offers")
+    .select("id, title, price, created_at, click_count")
+    .eq("marketplace", marketplace)
+    .gte("created_at", since)
+    .limit(200);
+
+  if (error) {
+    throw new Error(`Falha ao verificar duplicidade da oferta (fallback por titulo): ${error.message}`);
+  }
+
+  let best: { id: string; createdAt: string; clickCount: number; score: number } | null = null;
+  for (const row of data ?? []) {
+    const rowPrice = Number(row.price) || 0;
+    if (rowPrice <= 0) continue;
+    const ratio = candidate.price > rowPrice ? candidate.price / rowPrice : rowPrice / candidate.price;
+    if (ratio > TITLE_FALLBACK_MAX_PRICE_RATIO) continue;
+
+    const score = titleSimilarity(candidate.title, String(row.title ?? ""));
+    if (score < TITLE_FALLBACK_SIMILARITY_THRESHOLD) continue;
+    if (!best || score > best.score) {
+      best = {
+        id: String(row.id),
+        createdAt: String(row.created_at),
+        clickCount: Number(row.click_count ?? 0),
+        score,
+      };
+    }
+  }
+
+  if (!best) return null;
+  return loadExistingOfferInfo(best.id, best.createdAt, best.clickCount);
+}
+
+async function findExistingOffer(candidate: DiscoveryCandidate, marketplace: string): Promise<ExistingOfferInfo | null> {
+  if (candidate.productUrl) {
+    const { data, error } = await supabaseAdmin
+      .from("offers")
+      .select("id, created_at, click_count")
+      .eq("product_url", candidate.productUrl)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      throw new Error(`Falha ao verificar duplicidade da oferta: ${error.message}`);
+    }
+    if (data) {
+      return loadExistingOfferInfo(String(data.id), String(data.created_at), Number(data.click_count ?? 0));
+    }
+  }
+
+  return findExistingOfferByTitle(candidate, marketplace);
 }
 
 // O cliente pode ter visto e nao comprado na hora, mas se depois voltar a ver
@@ -134,6 +196,48 @@ async function countSentToday(agentId: string): Promise<number> {
 
   const distinctOfferIds = new Set((data ?? []).map((row) => row.offer_id));
   return distinctOfferIds.size;
+}
+
+// Tokens "significativos" (>=5 letras) pra flagrar "mesma linha de produto" —
+// ex.: "Perfume Rabanne 1 Million Eau De Toilette 200ml" e "1 Million Elixir
+// Rabanne Masc EDP 200ml" sao variantes DIFERENTES (nao e duplicata, o
+// titleSimilarity fica baixo por causa de abreviacao/formatacao), mas ainda
+// assim repetir a mesma marca+linha de perfume no mesmo dia no grupo passa a
+// sensacao de repeticao pro cliente. So compara tokens longos pra evitar falso
+// positivo com palavras genericas do nicho (perfume, feminino, ml, edp...).
+const SAME_LINE_TOKEN_MIN_LENGTH = 5;
+const SAME_LINE_MIN_SHARED_TOKENS = 2;
+
+function significantTokens(title: string): Set<string> {
+  return new Set(Array.from(normalizeTitleTokens(title)).filter((token) => token.length >= SAME_LINE_TOKEN_MIN_LENGTH));
+}
+
+// So evita repetir a mesma linha/marca de produto NO MESMO DIA e pelo MESMO
+// agente — variedade dentro do nicho, nao duplicidade tecnica (essa e trata
+// em findExistingOffer). Um agente diferente pode postar a mesma marca sem
+// problema (grupos/canais podem ser distintos).
+async function hasSameLineSentToday(agentId: string, candidateTitle: string): Promise<boolean> {
+  const candidateTokens = significantTokens(candidateTitle);
+  if (candidateTokens.size === 0) return false;
+
+  const { data, error } = await supabaseAdmin
+    .from("post_queue")
+    .select("offers(title)")
+    .eq("agent_id", agentId)
+    .eq("dedupe_bucket", todayLocalDate());
+
+  if (error) {
+    throw new Error(`Falha ao verificar variedade do dia do agente: ${error.message}`);
+  }
+
+  for (const row of data ?? []) {
+    const title = String((row as { offers?: { title?: string } }).offers?.title ?? "");
+    if (!title) continue;
+    const shared = Array.from(significantTokens(title)).filter((token) => candidateTokens.has(token));
+    if (shared.length >= SAME_LINE_MIN_SHARED_TOKENS) return true;
+  }
+
+  return false;
 }
 
 // Descontos acima disso quase sempre sao erro de extracao (ex.: valor de
@@ -264,7 +368,7 @@ export async function runSalesAgent(agentId: string): Promise<AgentRunResult> {
       consideredCount += 1;
 
       try {
-        const existing = await findExistingOffer(candidate);
+        const existing = await findExistingOffer(candidate, agent.source);
         let repostOfferId: string | null = null;
         if (existing) {
           if (!isEligibleForRepost(existing)) {
@@ -273,6 +377,12 @@ export async function runSalesAgent(agentId: string): Promise<AgentRunResult> {
             continue;
           }
           repostOfferId = existing.id;
+        }
+
+        if (!repostOfferId && (await hasSameLineSentToday(agent.id, candidate.title))) {
+          skipped += 1;
+          details.push({ title: candidate.title, action: "skipped", reason: "mesma_linha_ja_postada_hoje" });
+          continue;
         }
 
         if (agent.source === "mercadolivre") {

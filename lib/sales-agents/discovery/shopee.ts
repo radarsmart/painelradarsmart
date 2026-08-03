@@ -27,30 +27,37 @@ export async function discoverShopee(agent: SalesAgent): Promise<DiscoveryCandid
     if (typeof agent.priceMin === "number" && price < agent.priceMin) continue;
     if (typeof agent.priceMax === "number" && price > agent.priceMax) continue;
 
-    const rawLink = product.offerLink || product.productLink || "";
-    if (!rawLink) continue;
+    // offerLink e um link de rastreio curto (s.shopee.com.br/...) que a API
+    // gera DE NOVO a cada chamada mesmo pro mesmo produto — usa-lo como
+    // product_url quebra o dedupe e o rastreamento de preco (cada rodada vira
+    // um produto "novo" pro sistema, o historico nunca acumula os 3 dias
+    // exigidos por trackAndComputeDiscount). productLink e a pagina real do
+    // produto na Shopee e fica estavel entre chamadas — e essa quem deve
+    // identificar o produto; offerLink so serve como destino final do clique.
+    const stableProductUrl = product.productLink || product.offerLink || "";
+    if (!stableProductUrl) continue;
 
     let affiliateUrl = product.offerLink || "";
     let affiliateLinkVerified = Boolean(affiliateUrl);
     if (!affiliateUrl) {
       try {
-        affiliateUrl = await generateShopeeAffiliateShortLink(rawLink);
+        affiliateUrl = await generateShopeeAffiliateShortLink(stableProductUrl);
         affiliateLinkVerified = true;
       } catch {
-        affiliateUrl = rawLink;
+        affiliateUrl = stableProductUrl;
         affiliateLinkVerified = false;
       }
     }
 
     candidates.push({
-      externalId: `shopee:${product.itemId ?? rawLink}`,
+      externalId: `shopee:${product.itemId ?? stableProductUrl}`,
       title: String(product.productName ?? "").trim(),
       price,
       oldPrice: null,
       discountPct: null,
       imageUrl: product.imageUrl ?? null,
       affiliateUrl,
-      productUrl: rawLink,
+      productUrl: stableProductUrl,
       category: agent.category || null,
       rating: null,
       reviewCount: null,

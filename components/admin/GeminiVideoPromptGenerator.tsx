@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Check, Copy, Loader2, Sparkles } from "lucide-react";
+import Image from "next/image";
+import { Check, Copy, Download, Loader2, Sparkles } from "lucide-react";
 
 import { supabase } from "@/lib/supabase";
 
@@ -15,6 +16,12 @@ type CandidateOffer = {
 };
 
 type PromptOption = { slug: string; label: string; description: string };
+
+type VideoScene = {
+  label: string;
+  durationHint: string;
+  prompt: string;
+};
 
 async function getAccessToken() {
   const { data, error } = await supabase.auth.getSession();
@@ -42,10 +49,11 @@ export default function GeminiVideoPromptGenerator() {
   const [selectedOfferId, setSelectedOfferId] = useState("");
   const [loadingOffers, setLoadingOffers] = useState(false);
   const [generating, setGenerating] = useState(false);
-  const [prompt, setPrompt] = useState("");
+  const [scenes, setScenes] = useState<VideoScene[]>([]);
   const [productName, setProductName] = useState("");
+  const [productImageUrl, setProductImageUrl] = useState<string | null>(null);
   const [error, setError] = useState("");
-  const [copied, setCopied] = useState(false);
+  const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
 
   const [formatOptions, setFormatOptions] = useState<PromptOption[]>([]);
   const [lightingOptions, setLightingOptions] = useState<PromptOption[]>([]);
@@ -78,8 +86,8 @@ export default function GeminiVideoPromptGenerator() {
     if (!selectedOfferId) return;
     setGenerating(true);
     setError("");
-    setPrompt("");
-    setCopied(false);
+    setScenes([]);
+    setCopiedIndex(null);
     try {
       const data = await apiFetch("/api/tiktok-engine/gemini-prompt", {
         method: "POST",
@@ -90,8 +98,9 @@ export default function GeminiVideoPromptGenerator() {
           angle: angle || undefined,
         }),
       });
-      setPrompt(data.prompt ?? "");
+      setScenes(data.scenes ?? []);
       setProductName(data.productName ?? "");
+      setProductImageUrl(data.imageUrl ?? null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Falha ao gerar prompt.");
     } finally {
@@ -99,12 +108,11 @@ export default function GeminiVideoPromptGenerator() {
     }
   }, [selectedOfferId, format, lighting, angle]);
 
-  const copyPrompt = useCallback(async () => {
-    if (!prompt) return;
-    await navigator.clipboard.writeText(prompt);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  }, [prompt]);
+  const copyScene = useCallback(async (index: number, text: string) => {
+    await navigator.clipboard.writeText(text);
+    setCopiedIndex(index);
+    setTimeout(() => setCopiedIndex((current) => (current === index ? null : current)), 2000);
+  }, []);
 
   return (
     <div className="min-h-screen flex-1 space-y-6 bg-[#0A0F1E] p-8 pt-6 text-white">
@@ -114,8 +122,9 @@ export default function GeminiVideoPromptGenerator() {
           Gerador de Prompt para Video (Gemini)
         </h1>
         <p className="mt-2 max-w-2xl text-sm text-white/50">
-          Escolhe uma oferta real do catalogo, a IA escreve o prompt do video (cena, beneficios, preco,
-          CTA) pronto pra colar no Gemini/Veo. Voce gera o video la e posta manualmente no Instagram/TikTok.
+          Escolhe uma oferta real do catalogo, a IA escreve o roteiro em cenas curtas (o Gemini corta a
+          fala se o vídeo passar de ~10s) prontas pra colar uma de cada vez no Gemini. Depois é só juntar
+          os clipes em ordem no CapCut e postar manualmente no Instagram/TikTok.
         </p>
       </div>
 
@@ -153,7 +162,7 @@ export default function GeminiVideoPromptGenerator() {
                 <Loader2 className="h-4 w-4 animate-spin" /> Gerando...
               </span>
             ) : (
-              "Gerar prompt"
+              "Gerar roteiro em cenas"
             )}
           </button>
         </div>
@@ -222,31 +231,78 @@ export default function GeminiVideoPromptGenerator() {
         </div>
       ) : null}
 
-      {prompt ? (
-        <section className="rounded-2xl border border-white/10 bg-white/5 p-5">
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+      {scenes.length ? (
+        <>
+          {productImageUrl ? (
+            <section className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-5">
+              <h2 className="mb-1 text-sm font-bold uppercase tracking-wide text-amber-300">
+                Imagem real do produto — anexe no Gemini
+              </h2>
+              <p className="mb-3 text-xs text-amber-100/70">
+                O Gemini não sabe qual é o produto de verdade só pelo texto — baixe essa imagem e anexe
+                ela ao gerar cada cena (2 e 3, onde o produto aparece), senão a IA inventa um produto genérico.
+              </p>
+              <div className="flex items-center gap-4">
+                <Image
+                  src={productImageUrl}
+                  alt={productName}
+                  width={72}
+                  height={72}
+                  className="h-18 w-18 rounded-xl border border-white/10 object-cover"
+                  unoptimized
+                />
+                <a
+                  href={productImageUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  download
+                  className="inline-flex items-center gap-2 rounded-xl bg-amber-500/20 px-4 py-2 text-xs font-semibold text-amber-200 transition hover:bg-amber-500/30"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  Baixar imagem do produto
+                </a>
+              </div>
+            </section>
+          ) : null}
+
+          <section className="space-y-4">
             <h2 className="text-sm font-bold uppercase tracking-wide text-emerald-400">
-              3. Prompt pronto — {productName}
+              3. Cenas prontas — {productName}
             </h2>
-            <button
-              type="button"
-              onClick={copyPrompt}
-              className="inline-flex items-center gap-2 rounded-xl bg-white/10 px-4 py-2 text-xs font-semibold text-white transition hover:bg-white/20"
-            >
-              {copied ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
-              {copied ? "Copiado!" : "Copiar prompt"}
-            </button>
-          </div>
-          <textarea
-            readOnly
-            value={prompt}
-            rows={16}
-            className="w-full rounded-xl border border-white/10 bg-black/40 p-4 font-mono text-sm text-white/90 outline-none"
-          />
-          <p className="mt-3 text-xs text-white/40">
-            Cola esse texto no Gemini (gemini.google.com) ou no Google AI Studio, na opcao de gerar video.
-          </p>
-        </section>
+            {scenes.map((scene, index) => (
+              <div key={scene.label} className="rounded-2xl border border-white/10 bg-white/5 p-5">
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <p className="text-sm font-bold text-white">{scene.label}</p>
+                    <p className="text-xs text-white/40">Duração alvo: {scene.durationHint}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => copyScene(index, scene.prompt)}
+                    className="inline-flex items-center gap-2 rounded-xl bg-white/10 px-4 py-2 text-xs font-semibold text-white transition hover:bg-white/20"
+                  >
+                    {copiedIndex === index ? (
+                      <Check className="h-3.5 w-3.5 text-emerald-400" />
+                    ) : (
+                      <Copy className="h-3.5 w-3.5" />
+                    )}
+                    {copiedIndex === index ? "Copiado!" : "Copiar cena"}
+                  </button>
+                </div>
+                <textarea
+                  readOnly
+                  value={scene.prompt}
+                  rows={8}
+                  className="w-full rounded-xl border border-white/10 bg-black/40 p-4 font-mono text-sm text-white/90 outline-none"
+                />
+              </div>
+            ))}
+            <p className="text-xs text-white/40">
+              Cola cada cena separadamente na seção &quot;Vídeos&quot; do Gemini (não no chat geral), gera
+              um clipe por cena, e depois junta os clipes em ordem no CapCut.
+            </p>
+          </section>
+        </>
       ) : null}
     </div>
   );

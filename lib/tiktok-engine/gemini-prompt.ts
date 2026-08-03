@@ -7,16 +7,26 @@ function parseBenefitLines(benefits: string): string[] {
     .filter(Boolean);
 }
 
+// O Gemini so gera ~10s de video por vez e corta a fala no meio se o texto
+// nao couber nesse tempo. Fala natural em portugues fica em torno de 2,3-2,5
+// palavras/segundo — 18 palavras cabem com folga em 8s, evitando corte.
+const MAX_WORDS_PER_SCENE = 18;
+
+function capWords(text: string, maxWords = MAX_WORDS_PER_SCENE): string {
+  const words = text.trim().split(/\s+/).filter(Boolean);
+  if (words.length <= maxWords) return text.trim();
+  return `${words.slice(0, maxWords).join(" ")}...`;
+}
+
 // Descricao fixa da garota-propaganda da Radar Smart — repetir essa mesma
-// descricao em todo prompt e o que faz o Gemini/Veo gerar "a mesma pessoa"
-// de video pra video (ele nao tem memoria entre gerações, entao a
-// consistencia visual depende inteiramente do texto ser sempre igual aqui).
+// descricao em todo prompt e o que faz o Gemini/Veo gerar uma pessoa visualmente
+// consistente de cena pra cena (ele nao tem memoria entre gerações, entao a
+// consistencia depende do texto ser sempre igual aqui).
 // Evita linguagem tipo "sempre a mesma pessoa"/"recrie essa pessoa" — o
 // Gemini interpreta isso como pedido pra reproduzir uma pessoa REAL
 // especifica e recusa por politica de deepfake. Descrevendo como uma
-// personagem fictícia gerada por IA (sem pedir "a mesma" de novo), o
-// proprio texto identico em todo prompt ja garante a consistencia visual,
-// sem soar como recriacao de alguem real.
+// personagem fictícia gerada por IA, o proprio texto identico em toda cena
+// ja garante a consistencia visual, sem soar como recriacao de alguem real.
 const SPOKESPERSON_DESCRIPTION =
   "Personagem fictícia gerada por IA, uma apresentadora de vídeos de ofertas: " +
   "mulher brasileira, entre 28 e 33 anos, cabelo castanho caramelo longo e ondulado " +
@@ -30,11 +40,11 @@ const SPOKESPERSON_DESCRIPTION =
 // "RADAR SMART" no site (dourado #9e6a18 sobre grafite escuro #22223B),
 // pra fechar todo video com a mesma identidade visual.
 const OUTRO_BRAND_CARD =
-  "Ultimo 1-2 segundos: corte pra um card de encerramento com o logo da Radar Smart — " +
-  "um emblema circular com aneis dourados e, no centro, um icone de carrinho de compras " +
-  "combinado com mira de radar, tambem em dourado, sobre fundo verde-escuro/grafite. " +
-  "Abaixo do emblema, o nome \"RADAR SMART\" em letras maiusculas: \"RADAR\" em grafite " +
-  "escuro (#22223B) e \"SMART\" em dourado (#9e6a18), fundo limpo e neutro.";
+  "Card de encerramento (sem pessoa, so o logo) com o logo da Radar Smart — um emblema " +
+  "circular com aneis dourados e, no centro, um icone de carrinho de compras combinado " +
+  "com mira de radar, tambem em dourado, sobre fundo verde-escuro/grafite. Abaixo do " +
+  "emblema, o nome \"RADAR SMART\" em letras maiusculas: \"RADAR\" em grafite escuro " +
+  "(#22223B) e \"SMART\" em dourado (#9e6a18), fundo limpo e neutro.";
 
 type PromptOption = { slug: string; label: string; description: string };
 
@@ -121,15 +131,52 @@ export type GeminiPromptOptions = {
   angle?: string;
 };
 
-// Formata os dados ja derivados de uma oferta real (preco, desconto,
-// beneficios, dor do cliente) como um prompt descritivo pronto pra colar no
-// Gemini/Veo — texto corrido em portugues, com a garota-propaganda da Radar
-// Smart falando pra camera. O usuario cola isso direto no site/app do Gemini
-// e gera o video la, manual.
-export async function buildGeminiVideoPrompt(
+export type GeminiVideoScene = {
+  label: string;
+  durationHint: string;
+  prompt: string;
+};
+
+function sceneSetupBlock(args: {
+  index: number;
+  total: number;
+  format: PromptOption;
+  lighting: PromptOption;
+  angle: PromptOption;
+}): string[] {
+  const { index, total, format, lighting, angle } = args;
+  const lines = [
+    `Cena ${index} de ${total} de um vídeo publicitário gerado em partes — cada cena é um vídeo curto separado (~8 segundos) que depois será editado em sequência no CapCut.`,
+    `Vídeo vertical (9:16).`,
+  ];
+
+  if (index > 1) {
+    lines.push(
+      "Continuação direta da cena anterior: mesma personagem, mesma roupa, mesmo ambiente, mesma luz e mesmo ângulo — ela continua falando de onde parou, sem repetir introdução nem recomeçar o cumprimento.",
+    );
+  }
+
+  lines.push(
+    ``,
+    `Personagem: ${SPOKESPERSON_DESCRIPTION}`,
+    ``,
+    `Formato da cena: ${format.description}`,
+    `Iluminação: ${lighting.description}`,
+    `Ângulo de câmera: ${angle.description}`,
+  );
+
+  return lines;
+}
+
+// Gera o video em CENAS separadas (nao 1 prompt so) porque o Gemini limita
+// a geracao a uns 10s e corta a fala no meio se o roteiro for mais longo do
+// que isso — cada cena aqui fica dentro de ~8s de fala (com folga de
+// seguranca) pra sair inteira, sem cortar palavra. O usuario cola uma cena
+// de cada vez no Gemini e depois junta os clipes em ordem no CapCut.
+export async function buildGeminiVideoScenes(
   offerId: string,
   options: GeminiPromptOptions = {},
-): Promise<{ prompt: string; productName: string }> {
+): Promise<{ scenes: GeminiVideoScene[]; productName: string; imageUrl: string | null }> {
   const briefing = await buildBriefingFromOffer(offerId);
   const benefits = parseBenefitLines(briefing.product_benefits);
 
@@ -141,33 +188,86 @@ export async function buildGeminiVideoPrompt(
     ? `de R$ ${briefing.competitor_price ?? "?"} por R$ ${briefing.product_price} (${briefing.product_discount})`
     : `por R$ ${briefing.product_price}`;
 
-  const benefitsSpoken = benefits
-    .slice(0, 3)
-    .map((benefit) => benefit.replace(/\.+\s*$/, ""))
-    .join(". ");
+  const benefitsSpoken = capWords(
+    benefits
+      .slice(0, 2)
+      .map((benefit) => benefit.replace(/\.+\s*$/, ""))
+      .join(". "),
+  );
 
-  const promptLines = [
-    `Video vertical (9:16), estilo TikTok/Reels, 15-20 segundos, ritmo dinamico com cortes rapidos.`,
-    ``,
-    `Personagem: ${SPOKESPERSON_DESCRIPTION}`,
-    ``,
-    `Formato da cena: ${format.description}`,
-    `Iluminacao: ${lighting.description}`,
-    `Angulo de camera: ${angle.description}`,
-    ``,
-    `Produto: ${briefing.product_name}${briefing.product_category ? ` (categoria: ${briefing.product_category})` : ""}.`,
-    `Preco: ${priceLine}.`,
-    ``,
-    `Roteiro falado (ela fala isso em portugues, com naturalidade, nao lendo):`,
-    `Abertura (0-3s), tom de cumplicidade sobre a dor do cliente: "${briefing.product_pain}"`,
-    `Meio (3-14s), contando os beneficios como quem da uma dica: "${benefitsSpoken}."`,
-    `Fechamento (14-20s), preco em destaque e chamada pra acao: "Só R$ ${briefing.product_price}${briefing.product_discount ? `, ${briefing.product_discount}` : ""}! Corre no link da Radar Smart antes que acabe."`,
-    ``,
-    `Texto na tela: preco em destaque (${priceLine}) aparece sobreposto perto do fechamento.`,
-    `Estilo de audio: a propria fala dela como narracao, com musica de fundo leve e comercial por baixo.`,
-    ``,
-    OUTRO_BRAND_CARD,
-  ];
+  const painLine = capWords(briefing.product_pain);
+  const ctaLine = capWords(
+    `Só R$ ${briefing.product_price}${briefing.product_discount ? `, ${briefing.product_discount}` : ""}! Corre no link da Radar Smart antes que acabe.`,
+  );
 
-  return { prompt: promptLines.join("\n"), productName: briefing.product_name };
+  const imageUrl = briefing.product_image_urls?.[0] ?? null;
+
+  const productLine = [
+    `Produto: ${briefing.product_name}${briefing.product_category ? ` (categoria: ${briefing.product_category})` : ""}. Preço: ${priceLine}.`,
+    imageUrl
+      ? `IMPORTANTE: anexe a imagem de referência do produto (baixada em ${imageUrl}) ao gerar esta cena — o produto na cena precisa ser visualmente igual ao da imagem anexada, não um produto genérico inventado.`
+      : null,
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  const totalScenes = 4;
+
+  const scene1: GeminiVideoScene = {
+    label: "Cena 1 — Abertura (gancho)",
+    durationHint: "~7-8 segundos",
+    prompt: [
+      ...sceneSetupBlock({ index: 1, total: totalScenes, format, lighting, angle }),
+      ``,
+      productLine,
+      ``,
+      `Ela fala isso em português, com naturalidade (não parece estar lendo), em no máximo 7-8 segundos, terminando a frase dentro desse tempo, tom de cumplicidade sobre a dor do cliente:`,
+      `"${painLine}"`,
+    ].join("\n"),
+  };
+
+  const scene2: GeminiVideoScene = {
+    label: "Cena 2 — Benefícios",
+    durationHint: "~7-8 segundos",
+    prompt: [
+      ...sceneSetupBlock({ index: 2, total: totalScenes, format, lighting, angle }),
+      ``,
+      productLine,
+      ``,
+      `Ela fala isso em português, com naturalidade, em no máximo 7-8 segundos, contando os benefícios como quem dá uma dica pra amiga:`,
+      `"${benefitsSpoken}"`,
+    ].join("\n"),
+  };
+
+  const scene3: GeminiVideoScene = {
+    label: "Cena 3 — Preço e chamada para ação",
+    durationHint: "~7-8 segundos",
+    prompt: [
+      ...sceneSetupBlock({ index: 3, total: totalScenes, format, lighting, angle }),
+      ``,
+      productLine,
+      ``,
+      `Ela fala isso em português, com naturalidade, em no máximo 7-8 segundos, empolgada, com o preço em destaque:`,
+      `"${ctaLine}"`,
+      ``,
+      `Texto na tela: preço em destaque (${priceLine}) aparece sobreposto enquanto ela fala.`,
+    ].join("\n"),
+  };
+
+  const scene4: GeminiVideoScene = {
+    label: "Cena 4 — Encerramento (logo)",
+    durationHint: "~2-3 segundos",
+    prompt: [
+      `Cena ${totalScenes} de ${totalScenes} de um vídeo publicitário gerado em partes — a cena final, só o card de encerramento (sem pessoa).`,
+      `Vídeo vertical (9:16), ~2-3 segundos, sem fala, sem música com letra (instrumental leve ou silêncio).`,
+      ``,
+      OUTRO_BRAND_CARD,
+    ].join("\n"),
+  };
+
+  return {
+    scenes: [scene1, scene2, scene3, scene4],
+    productName: briefing.product_name,
+    imageUrl,
+  };
 }

@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/admin-auth";
 import { listCandidateOffersForVideo } from "@/lib/tiktok-engine/from-offer";
 import {
-  buildGeminiVideoPrompt,
+  buildGeminiVideoScenes,
   GEMINI_ANGLE_OPTIONS,
   GEMINI_FORMAT_OPTIONS,
   GEMINI_LIGHTING_OPTIONS,
@@ -63,7 +63,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: "offer_id obrigatorio." }, { status: 400 });
     }
 
-    const result = await buildGeminiVideoPrompt(offerId, {
+    const result = await buildGeminiVideoScenes(offerId, {
       format: String(body?.format ?? "").trim() || undefined,
       lighting: String(body?.lighting ?? "").trim() || undefined,
       angle: String(body?.angle ?? "").trim() || undefined,

@@ -6,10 +6,6 @@
   "fluid": true,
   "crons": [
     {
-      "path": "/api/admin/distribution/elite-flush",
-      "schedule": "0 8 * * *"
-    },
-    {
       "path": "/api/admin/offers/expire",
       "schedule": "0 4 * * *"
     },
@@ -24,14 +20,6 @@
     {
       "path": "/api/cron/public-offers-refresh?limit=40&mode=staleFirst",
       "schedule": "0 21 * * *"
-    },
-    {
-      "path": "/api/awin/automation/run",
-      "schedule": "0 14 * * *"
-    },
-    {
-      "path": "/api/lomadee/automation/run",
-      "schedule": "0 15 * * *"
     },
     {
       "path": "/api/cron/comparator-refresh?mode=top50",

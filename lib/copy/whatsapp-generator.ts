@@ -5,6 +5,10 @@ export interface OfferCopyInput {
   discount_pct?: number;
   coupon_code?: string;
   coupon_discount?: number;
+  coupon_description?: string;
+  installment_count?: number;
+  installment_amount?: number;
+  installment_interest_free?: boolean;
   affiliate_url: string;
   image_url?: string;
   category?: string;
@@ -199,17 +203,31 @@ function buildPriceBlock(
   price: number,
   originalPrice: number | null,
   discountPct: number | null,
+  offer: OfferCopyInput,
 ): string {
+  const lines: string[] = [];
+
   if (originalPrice && originalPrice > price) {
     const pct = discountPct ?? Math.round(((originalPrice - price) / originalPrice) * 100);
-    return [
+    lines.push(
       `💰 De: ~${formatMoney(originalPrice)}~`,
       `✅ Por: *${formatMoney(price)}*`,
       `🔥 Desconto: ${formatPercent(pct)}`,
-    ].join("\n");
+    );
+  } else {
+    lines.push(`✅ Por: *${formatMoney(price)}*`);
   }
 
-  return `✅ Por: *${formatMoney(price)}*`;
+  if (offer.installment_count && offer.installment_amount) {
+    const suffix = offer.installment_interest_free ? " sem juros" : "";
+    lines.push(`💳 ou ${offer.installment_count}x de ${formatMoney(offer.installment_amount)}${suffix}`);
+  }
+
+  if (offer.coupon_code) {
+    lines.push(`🏷️ Cupom: *${offer.coupon_code}*`);
+  }
+
+  return lines.join("\n");
 }
 
 function buildCtaLinkBlock(link: string): string {
@@ -263,7 +281,7 @@ function buildSystemPrompt(): string {
     "",
     "Antes de escrever, analise o produto, o publico provavel e o contexto de uso, e decida qual abordagem de abertura vai gerar mais desejo de compra PARA ESSE produto especifico. Voce tem liberdade total para escolher a estrategia: chamada direta ao publico (ex: \"Atenção, [publico]!\"), pergunta provocativa, urgencia, curiosidade, beneficio direto, prova social, entre outras. Nao repita sempre a mesma formula de abertura entre ofertas diferentes — varie conforme o que funciona melhor para cada caso, como um profissional de marketing faria ao analisar cada produto individualmente.",
     "",
-    "Voce NUNCA escreve preco, valor em R$, percentual de desconto, cupom ou a URL/link — esses blocos sao montados automaticamente pelo sistema com base nos dados reais da oferta, logo apos as linhas que voce gerar. Use os dados de preco apenas para calibrar o tom (produto caro vs. barato), nunca como texto literal.",
+    "Voce NUNCA escreve preco, valor em R$, percentual de desconto, cupom, parcelamento ou a URL/link — esses blocos sao montados automaticamente pelo sistema com base nos dados reais da oferta, logo apos as linhas que voce gerar. Use os dados de preco apenas para calibrar o tom (produto caro vs. barato), nunca como texto literal.",
     "",
     "Retorne APENAS JSON valido, sem markdown e sem blocos de codigo, no formato:",
     "{",
@@ -280,7 +298,7 @@ function buildSystemPrompt(): string {
     "- Cada campo (e cada item de benefit_bullets) e uma unica linha (sem quebras internas), comecando com exatamente 1 emoji relevante ao conteudo daquela linha.",
     "- benefit_bullets deve ter 1 ou 2 itens, nunca mais que isso.",
     "- Varie os emojis entre os campos — nunca repita o mesmo emoji em campos diferentes da mesma resposta.",
-    "- NUNCA escreva preco, R$, %, desconto, cupom, \"economia\" ou a URL/link no texto.",
+    "- NUNCA escreva preco, R$, %, desconto, cupom, parcelamento, \"economia\" ou a URL/link no texto.",
     "- Personalize a chamada com base no produto, na categoria e no contexto de uso — nunca use um template generico igual para qualquer produto.",
     "- Nao invente dados: frete, estoque, avaliacoes ou garantias so se estiverem no input.",
     "- Se houver rating e reviews_count, pode citar como prova social qualitativa (ex: \"aprovado por quem ja comprou\") sem inventar numeros que nao foram informados.",
@@ -439,7 +457,7 @@ function normalizeCopyOutput(
 
   const originalPrice = computeOriginalPrice(offer);
   const discountPct = computeDiscountPct(offer, originalPrice);
-  const priceBlock = buildPriceBlock(offer.price, originalPrice, discountPct);
+  const priceBlock = buildPriceBlock(offer.price, originalPrice, discountPct, offer);
   const ctaLinkBlock = buildCtaLinkBlock(offer.affiliate_url);
 
   const hook = fields.headline;

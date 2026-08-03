@@ -471,6 +471,11 @@ export async function runSalesAgent(agentId: string): Promise<AgentRunResult> {
             category: candidate.category ?? undefined,
             marketplace: agent.source,
             extra_instructions: agent.aiInstructions ?? undefined,
+            installment_count: candidate.installmentCount ?? undefined,
+            installment_amount: candidate.installmentAmount ?? undefined,
+            installment_interest_free: candidate.installmentInterestFree ?? undefined,
+            coupon_code: candidate.couponCode ?? undefined,
+            coupon_description: candidate.couponDescription ?? undefined,
           });
           telegramText = copy.long;
           whatsappText = copy.medium;

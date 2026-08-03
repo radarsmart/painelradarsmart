@@ -484,7 +484,7 @@ export default function HomePage() {
           className="space-y-4"
         >
           <h2 className="font-display text-2xl font-bold text-navy">Categorias</h2>
-          <div className="-mx-1 flex gap-3 overflow-x-auto px-1 pb-1 sm:grid sm:grid-cols-6 sm:gap-4 sm:overflow-visible">
+          <div className="-mx-1 flex gap-3 overflow-x-auto px-1 pb-1 sm:grid sm:grid-cols-7 sm:gap-4 sm:overflow-visible">
             {CATEGORY_MENU.filter((cat) => cat.slug !== "outros").map((cat) => (
               <Link
                 key={cat.slug}

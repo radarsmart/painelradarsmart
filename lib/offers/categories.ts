@@ -17,7 +17,9 @@ const CATEGORY_RULES: CategoryRule[] = [
   { slug: "casa", label: "Casa & Utilidades", icon: "🏠", keywords: ["casa", "cozinha", "utilidades", "domestic", "eletrodomestic"] },
   { slug: "beleza", label: "Beleza & Cuidados", icon: "💄", keywords: ["beleza", "cuidado", "perfum", "cosmetic"] },
   { slug: "moda", label: "Moda & Calçados", icon: "👕", keywords: ["moda", "calcado", "roupa", "vestuario"] },
-  { slug: "fitness", label: "Fitness & Bem-estar", icon: "🏋️", keywords: ["fitness", "bem-estar", "bem estar", "esporte", "suplement"] },
+  { slug: "esportes", label: "Esportes", icon: "⚽", keywords: ["esporte", "futebol", "ciclismo", "bicicleta", "bike", "natacao", "basquete", "volei"] },
+  { slug: "supermercado", label: "Supermercado", icon: "🛒", keywords: ["supermercado", "mercearia", "alimento", "bebida", "limpeza", "higiene", "cesta basica"] },
+  { slug: "fitness", label: "Fitness & Bem-estar", icon: "🏋️", keywords: ["fitness", "bem-estar", "bem estar", "suplement", "academia", "musculacao"] },
 ];
 
 const FALLBACK_CATEGORY: CategoryInfo = { slug: "outros", label: "Outros", icon: "🛍️" };

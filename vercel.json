@@ -6,10 +6,6 @@
   "fluid": true,
   "crons": [
     {
-      "path": "/api/admin/blog/sync-elite",
-      "schedule": "0 6 * * *"
-    },
-    {
       "path": "/api/admin/distribution/elite-flush",
       "schedule": "0 8 * * *"
     },

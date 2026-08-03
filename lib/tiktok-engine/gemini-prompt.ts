@@ -19,6 +19,16 @@ const SPOKESPERSON_DESCRIPTION =
   "e credibilidade, como uma amiga que entende de compras e da dicas boas. Fala direto pra " +
   "camera, em portugues do Brasil, com entonacao natural e animada (nao robotica).";
 
+// Card final fixo com o logo/marca — mesma paleta de cor usada no nome
+// "RADAR SMART" no site (dourado #9e6a18 sobre grafite escuro #22223B),
+// pra fechar todo video com a mesma identidade visual.
+const OUTRO_BRAND_CARD =
+  "Ultimo 1-2 segundos: corte pra um card de encerramento com o logo da Radar Smart — " +
+  "um emblema circular com aneis dourados e, no centro, um icone de carrinho de compras " +
+  "combinado com mira de radar, tambem em dourado, sobre fundo verde-escuro/grafite. " +
+  "Abaixo do emblema, o nome \"RADAR SMART\" em letras maiusculas: \"RADAR\" em grafite " +
+  "escuro (#22223B) e \"SMART\" em dourado (#9e6a18), fundo limpo e neutro.";
+
 type PromptOption = { slug: string; label: string; description: string };
 
 export const GEMINI_FORMAT_OPTIONS: PromptOption[] = [
@@ -148,6 +158,8 @@ export async function buildGeminiVideoPrompt(
     ``,
     `Texto na tela: preco em destaque (${priceLine}) aparece sobreposto perto do fechamento.`,
     `Estilo de audio: a propria fala dela como narracao, com musica de fundo leve e comercial por baixo.`,
+    ``,
+    OUTRO_BRAND_CARD,
   ];
 
   return { prompt: promptLines.join("\n"), productName: briefing.product_name };

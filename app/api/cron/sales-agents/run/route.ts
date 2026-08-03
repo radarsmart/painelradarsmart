@@ -56,6 +56,56 @@ async function resumeAutoPausedAgents(): Promise<
   return summary;
 }
 
+// Distribuicao alvo do grupo por categoria, baseada em como grandes perfis de
+// ofertas (Pelando, Promobit) organizam o mix do dia — nao e um horario fixo
+// por categoria (isso quebraria a resiliencia da cascata acima), so garante
+// que ao longo do dia o grupo nao fique enviesado pra uma unica categoria.
+const CONTENT_CATEGORY_QUOTA: Record<string, number> = {
+  eletronicos: 30,
+  moda: 20,
+  casa: 15,
+  beleza: 10,
+  esportes: 10,
+  supermercado: 10,
+  outros: 5,
+};
+
+// Brasil nao observa horario de verao desde 2019, entao UTC-3 e fixo.
+const BRASILIA_OFFSET_HOURS = 3;
+
+function getStartOfTodayInBrasiliaAsUtc(): Date {
+  const now = new Date();
+  const shifted = new Date(now.getTime() - BRASILIA_OFFSET_HOURS * 60 * 60 * 1000);
+  const startOfDayShifted = Date.UTC(
+    shifted.getUTCFullYear(),
+    shifted.getUTCMonth(),
+    shifted.getUTCDate(),
+    0,
+    0,
+    0,
+    0,
+  );
+  return new Date(startOfDayShifted + BRASILIA_OFFSET_HOURS * 60 * 60 * 1000);
+}
+
+async function getTodayDispatchCountByCategory(
+  agentCategoryById: Map<string, string>,
+): Promise<Map<string, number>> {
+  const startOfDay = getStartOfTodayInBrasiliaAsUtc();
+
+  const { data } = await supabaseAdmin
+    .from("post_queue")
+    .select("agent_id")
+    .gte("created_at", startOfDay.toISOString());
+
+  const counts = new Map<string, number>();
+  for (const row of (data ?? []) as Array<{ agent_id: string | null }>) {
+    const category = (row.agent_id && agentCategoryById.get(row.agent_id)) || "outros";
+    counts.set(category, (counts.get(category) ?? 0) + 1);
+  }
+  return counts;
+}
+
 function isValidCronSecret(req: NextRequest): boolean {
   const expected = String(process.env.CRON_SECRET ?? "").trim();
   if (!expected) return false;
@@ -83,9 +133,37 @@ export async function GET(req: NextRequest) {
     // agentes ativos, cada um so respeitando o proprio intervalo, dava pra
     // varios ficarem elegiveis no mesmo tick e disparar juntos — o grupo
     // recebia varias mensagens em sequencia rapida. Como o cron ja roda a
-    // cada 15min, processar so o mais "atrasado" (menor last_run_at) garante
-    // 1 envio a cada 15min no total, revezando de forma justa entre agentes.
+    // cada 15min, processar so o mais "atrasado" garante 1 envio a cada
+    // 15min no total.
+    //
+    // Dentro disso, prioriza a categoria mais "devendo" em relacao a cota do
+    // dia (CONTENT_CATEGORY_QUOTA) — ex.: se eletronicos ja passou de 30% do
+    // enviado hoje, um agente de moda parado ha menos tempo passa na frente
+    // de um agente de eletronicos parado ha mais tempo. Empate (mesmo deficit
+    // de cota, ex.: dia comecando do zero) usa o mais atrasado como criterio.
+    const agentCategoryById = new Map(
+      agents.map((agent) => [agent.id, agent.contentCategory || "outros"]),
+    );
+    const dispatchedTodayByCategory = await getTodayDispatchCountByCategory(agentCategoryById);
+    const totalDispatchedToday = [...dispatchedTodayByCategory.values()].reduce(
+      (sum, n) => sum + n,
+      0,
+    );
+
+    function categoryDeficit(category: string): number {
+      const targetShare = (CONTENT_CATEGORY_QUOTA[category] ?? CONTENT_CATEGORY_QUOTA.outros) / 100;
+      const currentShare = totalDispatchedToday > 0
+        ? (dispatchedTodayByCategory.get(category) ?? 0) / totalDispatchedToday
+        : 0;
+      return targetShare - currentShare;
+    }
+
     const sortedByOldest = [...eligible].sort((a, b) => {
+      const deficitDiff =
+        categoryDeficit(a.contentCategory || "outros") -
+        categoryDeficit(b.contentCategory || "outros");
+      if (Math.abs(deficitDiff) > 0.001) return -deficitDiff; // maior deficit primeiro
+
       const aTime = a.lastRunAt ? new Date(a.lastRunAt).getTime() : 0;
       const bTime = b.lastRunAt ? new Date(b.lastRunAt).getTime() : 0;
       return aTime - bTime;
@@ -130,6 +208,11 @@ export async function GET(req: NextRequest) {
       resumedAutoPaused: resumed,
       activeAgents: agents.length,
       eligibleAgents: eligible.length,
+      categoryQuota: {
+        target: CONTENT_CATEGORY_QUOTA,
+        dispatchedToday: Object.fromEntries(dispatchedTodayByCategory),
+        totalDispatchedToday,
+      },
       runs,
       executedAt: now.toISOString(),
     });

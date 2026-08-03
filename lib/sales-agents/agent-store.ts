@@ -13,7 +13,7 @@ import {
 // automatico que o fluxo de migration do Supabase dispara). Lista explicita
 // de colunas evita depender desse cache.
 const SALES_AGENT_COLUMNS =
-  "id,name,source,advertiser_id,search_query,category,price_min,price_max,min_discount_pct,aav_filter_enabled,ai_image_enabled,ai_instructions,send_window_start_hour,send_window_end_hour,timezone,max_sends_per_day,min_interval_minutes,active,last_run_at,last_run_result,created_at,updated_at,text_mode,custom_text_template,ai_image_prompt,send_window_start_minute,send_window_end_minute,publish_to_site,site_slot_type";
+  "id,name,source,advertiser_id,search_query,category,price_min,price_max,min_discount_pct,aav_filter_enabled,ai_image_enabled,ai_instructions,send_window_start_hour,send_window_end_hour,timezone,max_sends_per_day,min_interval_minutes,active,last_run_at,last_run_result,created_at,updated_at,text_mode,custom_text_template,ai_image_prompt,send_window_start_minute,send_window_end_minute,publish_to_site,site_slot_type,content_category";
 
 type SalesAgentRow = {
   id: string;
@@ -45,6 +45,7 @@ type SalesAgentRow = {
   last_run_result: unknown | null;
   created_at: string;
   updated_at: string;
+  content_category: string | null;
 };
 
 export type SalesAgentInput = Partial<{
@@ -162,6 +163,7 @@ function mapRowToAgent(row: SalesAgentRow, targetIds: string[]): SalesAgent {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     targetIds,
+    contentCategory: toOptionalText(row.content_category),
   };
 }
 

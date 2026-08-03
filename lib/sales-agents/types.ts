@@ -45,6 +45,12 @@ export type SalesAgent = {
   createdAt: string;
   updatedAt: string;
   targetIds: string[];
+  /**
+   * Balde de categoria pra cota de distribuicao do cron (ver
+   * CONTENT_CATEGORY_QUOTA em app/api/cron/sales-agents/run/route.ts) —
+   * nao tem relacao com o campo "category" (usado na busca/discovery).
+   */
+  contentCategory: string | null;
 };
 
 export type DiscoveryCandidate = {

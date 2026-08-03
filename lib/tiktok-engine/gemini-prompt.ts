@@ -11,8 +11,15 @@ function parseBenefitLines(benefits: string): string[] {
 // descricao em todo prompt e o que faz o Gemini/Veo gerar "a mesma pessoa"
 // de video pra video (ele nao tem memoria entre gerações, entao a
 // consistencia visual depende inteiramente do texto ser sempre igual aqui).
+// Evita linguagem tipo "sempre a mesma pessoa"/"recrie essa pessoa" — o
+// Gemini interpreta isso como pedido pra reproduzir uma pessoa REAL
+// especifica e recusa por politica de deepfake. Descrevendo como uma
+// personagem fictícia gerada por IA (sem pedir "a mesma" de novo), o
+// proprio texto identico em todo prompt ja garante a consistencia visual,
+// sem soar como recriacao de alguem real.
 const SPOKESPERSON_DESCRIPTION =
-  "Mulher brasileira, entre 28 e 33 anos, cabelo castanho caramelo longo e ondulado " +
+  "Personagem fictícia gerada por IA, uma apresentadora de vídeos de ofertas: " +
+  "mulher brasileira, entre 28 e 33 anos, cabelo castanho caramelo longo e ondulado " +
   "(efeito balayage), pele morena clara, sorriso largo e caloroso, maquiagem natural, " +
   "brincos de argola dourados pequenos. Veste blazer (verde esmeralda ou azul-marinho) " +
   "sobre camisa/blusa branca — visual profissional-casual. Transmite confiança, simpatia " +
@@ -142,7 +149,7 @@ export async function buildGeminiVideoPrompt(
   const promptLines = [
     `Video vertical (9:16), estilo TikTok/Reels, 15-20 segundos, ritmo dinamico com cortes rapidos.`,
     ``,
-    `Personagem (sempre a mesma, garota-propaganda da Radar Smart): ${SPOKESPERSON_DESCRIPTION}`,
+    `Personagem: ${SPOKESPERSON_DESCRIPTION}`,
     ``,
     `Formato da cena: ${format.description}`,
     `Iluminacao: ${lighting.description}`,

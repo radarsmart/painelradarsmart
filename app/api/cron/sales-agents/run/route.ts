@@ -173,9 +173,22 @@ export async function GET(req: NextRequest) {
     // erro, sem candidato novo), tenta o proximo mais atrasado dentro do MESMO
     // tick, em vez de so tentar 1 e deixar o cronometro do grupo parado ate o
     // proximo ciclo. So para quando um agente realmente enfileira algo (queued
-    // > 0) ou quando a lista de elegiveis acaba. Teto de seguranca pra nao
-    // estourar o tempo maximo da funcao se muitas fontes caírem juntas.
-    const MAX_ATTEMPTS_PER_TICK = 8;
+    // > 0) ou quando a lista de elegiveis acaba.
+    //
+    // Teto dinamico (nao um numero fixo baixo): com cota por categoria, uma
+    // categoria "devendo" cota (ex.: eletronicos zerado no dia) sempre ordena
+    // primeiro mesmo quando esta com o pool de produtos esgotado (todo
+    // candidato vira duplicate/sem novidade) — um teto fixo baixo (ex.: 8)
+    // deixava esses agentes travados consumirem TODAS as tentativas da rodada
+    // todo tick, nunca chegando nos agentes de outras categorias que
+    // realmente tinham produto novo pra mandar (foi exatamente isso que
+    // travou o grupo por horas: eletronicos+moda+casa esgotados na frente da
+    // fila, beleza/supermercado/outros com produto novo nunca tentados).
+    // Cada tentativa que falha e rapida (so consulta banco), so a que
+    // realmente despacha faz trabalho pesado (IA/imagem) — e o loop para no
+    // primeiro sucesso — entao dá pra tentar todos os elegiveis com folga de
+    // sobra dentro do limite de tempo da funcao.
+    const MAX_ATTEMPTS_PER_TICK = Math.min(eligible.length, 30);
 
     const runs: Array<{
       agentId: string;

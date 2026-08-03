@@ -1537,6 +1537,75 @@ export async function fetchAwinOffers(params: {
   return rawOffers.map((item) => normalizeOffer(item as AwinOffer)).filter(Boolean) as NormalizedAwinOffer[];
 }
 
+export type AwinAdvertiserPerformance = {
+  advertiserId: string;
+  advertiserName: string;
+  clicks: number;
+  pendingCount: number;
+  pendingValue: number;
+  pendingCommission: number;
+  confirmedCount: number;
+  confirmedValue: number;
+  confirmedCommission: number;
+  declinedCount: number;
+  declinedValue: number;
+  declinedCommission: number;
+  totalCommission: number;
+};
+
+type AwinAdvertiserPerformanceRaw = {
+  advertiserId?: number | string | null;
+  advertiserName?: string | null;
+  clicks?: number | null;
+  pendingNo?: number | null;
+  pendingValue?: number | null;
+  pendingComm?: number | null;
+  confirmedNo?: number | null;
+  confirmedValue?: number | null;
+  confirmedComm?: number | null;
+  declinedNo?: number | null;
+  declinedValue?: number | null;
+  declinedComm?: number | null;
+  totalComm?: number | null;
+};
+
+/**
+ * Comissao e venda de verdade (nao so clique) via API de relatorios da AWIN —
+ * `/reports/advertiser` precisa do parametro region (mercado que operamos:
+ * BR) e so aceita ate 31 dias de intervalo por chamada.
+ */
+export async function fetchAwinAdvertiserPerformance(params: {
+  startDate: string; // YYYY-MM-DD
+  endDate: string; // YYYY-MM-DD
+  region?: string;
+}): Promise<AwinAdvertiserPerformance[]> {
+  const publisherId = getAwinPublisherId();
+  const payload = await awinFetch(`/publishers/${publisherId}/reports/advertiser`, undefined, {
+    startDate: params.startDate,
+    endDate: params.endDate,
+    timezone: "UTC",
+    region: params.region ?? "BR",
+  });
+
+  const rows = Array.isArray(payload) ? (payload as AwinAdvertiserPerformanceRaw[]) : [];
+
+  return rows.map((row) => ({
+    advertiserId: toText(row.advertiserId),
+    advertiserName: toText(row.advertiserName) || "Anunciante AWIN",
+    clicks: Number(row.clicks) || 0,
+    pendingCount: Number(row.pendingNo) || 0,
+    pendingValue: Number(row.pendingValue) || 0,
+    pendingCommission: Number(row.pendingComm) || 0,
+    confirmedCount: Number(row.confirmedNo) || 0,
+    confirmedValue: Number(row.confirmedValue) || 0,
+    confirmedCommission: Number(row.confirmedComm) || 0,
+    declinedCount: Number(row.declinedNo) || 0,
+    declinedValue: Number(row.declinedValue) || 0,
+    declinedCommission: Number(row.declinedComm) || 0,
+    totalCommission: Number(row.totalComm) || 0,
+  }));
+}
+
 export async function generateAwinLink(params: {
   advertiserId: string;
   destinationUrl: string;

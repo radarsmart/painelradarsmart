@@ -37,6 +37,33 @@ type AwinAnalytics = {
     source: string;
     created_at: string;
   }>;
+  commission: {
+    available: boolean;
+    periodStart: string;
+    periodEnd: string;
+    advertisers: Array<{
+      advertiserId: string;
+      advertiserName: string;
+      clicks: number;
+      pendingCount: number;
+      pendingValue: number;
+      pendingCommission: number;
+      confirmedCount: number;
+      confirmedValue: number;
+      confirmedCommission: number;
+      declinedCount: number;
+      declinedValue: number;
+      declinedCommission: number;
+      totalCommission: number;
+    }>;
+    totals: {
+      clicks: number;
+      pendingCommission: number;
+      confirmedCommission: number;
+      declinedCommission: number;
+    };
+    error: string | null;
+  };
   notes: string[];
   error?: string;
 };
@@ -119,7 +146,7 @@ export default function AwinAnalyticsPage() {
           AWIN Analytics
         </h1>
         <p className="mt-1 text-sm font-medium text-muted-foreground">
-          Mede cliques e ofertas AWIN registrados pelo Radar Smart. Vendas e comissoes continuam no painel AWIN/wecantrack.
+          Cliques e ofertas medidos pelo Radar Smart. Comissao e venda vem direto da API de relatorios da AWIN.
         </p>
       </div>
 
@@ -145,6 +172,79 @@ export default function AwinAnalyticsPage() {
             <MetricCard label="Cliques hoje" value={summary.clicksToday} />
             <MetricCard label="Cliques 7 dias" value={summary.clicks7d} />
             <MetricCard label="Origem lider" value={summary.topSource} />
+          </section>
+
+          <section className="rounded-3xl bg-white p-6 shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 className="text-xl font-black text-[#1A1A1A]">Comissao real (AWIN)</h2>
+              {data.commission.available ? (
+                <span className="text-xs font-semibold text-slate-500">
+                  {formatDate(data.commission.periodStart)} - {formatDate(data.commission.periodEnd)}
+                </span>
+              ) : null}
+            </div>
+
+            {!data.commission.available ? (
+              <p className="mt-4 rounded-2xl bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                Nao foi possivel consultar a comissao agora: {data.commission.error}
+              </p>
+            ) : (
+              <>
+                <div className="mt-4 grid gap-4 sm:grid-cols-3">
+                  <MetricCard label="Cliques (AWIN)" value={data.commission.totals.clicks} />
+                  <MetricCard
+                    label="Comissao confirmada"
+                    value={formatBRL(data.commission.totals.confirmedCommission)}
+                  />
+                  <MetricCard
+                    label="Comissao pendente"
+                    value={formatBRL(data.commission.totals.pendingCommission)}
+                  />
+                </div>
+
+                <div className="mt-5 overflow-x-auto rounded-2xl border border-slate-100">
+                  <table className="w-full min-w-[640px] text-left text-sm">
+                    <thead className="bg-slate-50 text-[10px] font-black uppercase tracking-widest text-slate-500">
+                      <tr>
+                        <th className="px-4 py-3">Loja</th>
+                        <th className="px-4 py-3">Cliques</th>
+                        <th className="px-4 py-3">Pendente</th>
+                        <th className="px-4 py-3">Confirmado</th>
+                        <th className="px-4 py-3">Recusado</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {data.commission.advertisers.length ? (
+                        data.commission.advertisers.map((row) => (
+                          <tr key={row.advertiserId}>
+                            <td className="px-4 py-3 font-bold text-slate-900">{row.advertiserName}</td>
+                            <td className="px-4 py-3">{row.clicks}</td>
+                            <td className="px-4 py-3 text-amber-700">
+                              {row.pendingCount > 0 ? `${formatBRL(row.pendingCommission)} (${row.pendingCount})` : "-"}
+                            </td>
+                            <td className="px-4 py-3 font-semibold text-emerald-700">
+                              {row.confirmedCount > 0 ? `${formatBRL(row.confirmedCommission)} (${row.confirmedCount})` : "-"}
+                            </td>
+                            <td className="px-4 py-3 text-red-600">
+                              {row.declinedCount > 0 ? `${formatBRL(row.declinedCommission)} (${row.declinedCount})` : "-"}
+                            </td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td colSpan={5} className="px-4 py-8 text-center text-sm text-slate-500">
+                            Nenhuma loja AWIN com clique registrado nesse periodo.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+                <p className="mt-3 text-xs text-slate-500">
+                  &quot;Pendente&quot; ainda pode ser recusado pela loja de origem — so &quot;confirmado&quot; e comissao garantida.
+                </p>
+              </>
+            )}
           </section>
 
           <section className="grid gap-6 xl:grid-cols-[1.5fr_1fr]">

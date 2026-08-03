@@ -1,7 +1,50 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { requireAdmin } from "@/lib/admin-auth";
+import { fetchAwinAdvertiserPerformance } from "@/lib/awin/client";
 import { supabaseAdmin } from "@/lib/supabase";
+
+function formatDateOnly(date: Date): string {
+  return date.toISOString().slice(0, 10);
+}
+
+async function getAwinCommissionSummary() {
+  const end = new Date();
+  const start = new Date(end.getTime() - 29 * 24 * 60 * 60 * 1000); // 30 dias (limite da API e 31)
+
+  try {
+    const rows = await fetchAwinAdvertiserPerformance({
+      startDate: formatDateOnly(start),
+      endDate: formatDateOnly(end),
+    });
+
+    return {
+      available: true,
+      periodStart: formatDateOnly(start),
+      periodEnd: formatDateOnly(end),
+      advertisers: rows,
+      totals: rows.reduce(
+        (acc, row) => ({
+          clicks: acc.clicks + row.clicks,
+          pendingCommission: acc.pendingCommission + row.pendingCommission,
+          confirmedCommission: acc.confirmedCommission + row.confirmedCommission,
+          declinedCommission: acc.declinedCommission + row.declinedCommission,
+        }),
+        { clicks: 0, pendingCommission: 0, confirmedCommission: 0, declinedCommission: 0 },
+      ),
+      error: null as string | null,
+    };
+  } catch (error) {
+    return {
+      available: false,
+      periodStart: formatDateOnly(start),
+      periodEnd: formatDateOnly(end),
+      advertisers: [] as Awaited<ReturnType<typeof fetchAwinAdvertiserPerformance>>,
+      totals: { clicks: 0, pendingCommission: 0, confirmedCommission: 0, declinedCommission: 0 },
+      error: error instanceof Error ? error.message : "Falha ao consultar comissao AWIN.",
+    };
+  }
+}
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -61,6 +104,8 @@ export async function GET(req: NextRequest) {
   }
 
   try {
+    const commission = await getAwinCommissionSummary();
+
     const { data: offersData, error: offersError } = await supabaseAdmin
       .from("offers")
       .select(
@@ -147,10 +192,16 @@ export async function GET(req: NextRequest) {
           source: toText(click.source) || "-",
           created_at: toText(click.created_at),
         })),
-        notes: [
-          "Este painel mede cliques e ofertas AWIN registrados pelo Radar Smart.",
-          "Comissoes, vendas e dados especificos dos plugins continuam no painel AWIN/wecantrack.",
-        ],
+        commission,
+        notes: commission.available
+          ? [
+              "Cliques e ofertas medidos pelo Radar Smart. Comissao e venda vem direto da API de relatorios da AWIN (ultimos 30 dias).",
+              "Comissao \"pendente\" ainda pode ser recusada pela loja; so \"confirmada\" e garantida.",
+            ]
+          : [
+              "Este painel mede cliques e ofertas AWIN registrados pelo Radar Smart.",
+              `Nao foi possivel consultar a comissao real da AWIN agora: ${commission.error}`,
+            ],
       },
       {
         headers: {

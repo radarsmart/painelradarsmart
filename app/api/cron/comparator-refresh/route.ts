@@ -21,24 +21,31 @@ function priceTrend(oldPrice: number, newPrice: number): "up" | "down" | "stable
   return "stable";
 }
 
+// "checked" distingue "confirmamos de verdade que o produto sumiu" de
+// "nao conseguimos checar" (API fora do ar, bloqueada, sem chave configurada
+// etc.) — so o primeiro caso deve derrubar a oferta. Antes os dois casos
+// voltavam como "available: false" e a oferta era desativada mesmo quando o
+// problema era so a chamada ter falhado (ex.: API oficial do ML passou a
+// exigir OAuth de app registrado e comecou a bloquear TODAS as chamadas).
 async function fetchCurrentPrice(offer: Record<string, unknown>): Promise<{
   price: number | null;
   available: boolean;
+  checked: boolean;
 }> {
   const marketplace = toText(offer.marketplace).toLowerCase();
   const productUrl = toText(offer.product_url || offer.affiliate_url);
 
   if (!productUrl) {
-    return { price: null, available: false };
+    return { price: null, available: false, checked: false };
   }
 
   try {
     if (marketplace === "amazon") {
       const rainforestKey = process.env.RAINFOREST_API_KEY;
-      if (!rainforestKey) return { price: null, available: false };
+      if (!rainforestKey) return { price: null, available: false, checked: false };
 
       const asinMatch = productUrl.match(/\/dp\/([A-Z0-9]{10})/i);
-      if (!asinMatch) return { price: null, available: false };
+      if (!asinMatch) return { price: null, available: false, checked: false };
 
       const endpoint = new URL("https://api.rainforestapi.com/request");
       endpoint.searchParams.set("api_key", rainforestKey);
@@ -47,7 +54,7 @@ async function fetchCurrentPrice(offer: Record<string, unknown>): Promise<{
       endpoint.searchParams.set("amazon_domain", "amazon.com.br");
 
       const res = await fetch(endpoint, { cache: "no-store" });
-      if (!res.ok) return { price: null, available: false };
+      if (!res.ok) return { price: null, available: false, checked: false };
 
       const data = (await res.json()) as Record<string, unknown>;
       const product = (data.product as Record<string, unknown> | null) ?? null;
@@ -55,29 +62,32 @@ async function fetchCurrentPrice(offer: Record<string, unknown>): Promise<{
       const priceData = (buybox?.price as Record<string, unknown> | null) ?? null;
       const price = toNumber(priceData?.value);
 
-      return { price: price > 0 ? price : null, available: price > 0 };
+      return { price: price > 0 ? price : null, available: price > 0, checked: true };
     }
 
     if (marketplace === "mercadolivre") {
       const itemIdMatch = productUrl.match(/MLB-?(\d+)/i);
-      if (!itemIdMatch) return { price: null, available: false };
+      if (!itemIdMatch) return { price: null, available: false, checked: false };
 
       const itemId = `MLB${itemIdMatch[1]}`;
       const res = await fetch(`https://api.mercadolibre.com/items/${itemId}`, {
         cache: "no-store",
       });
-      if (!res.ok) return { price: null, available: false };
+      // API oficial do ML hoje exige OAuth de app registrado pra maioria das
+      // chamadas e responde 401/403 — isso NAO significa que o produto saiu
+      // do ar, so que nao conseguimos confirmar por essa via.
+      if (!res.ok) return { price: null, available: false, checked: false };
 
       const data = (await res.json()) as Record<string, unknown>;
       const price = toNumber(data.price);
       const available = toText(data.status) === "active" && price > 0;
 
-      return { price: price > 0 ? price : null, available };
+      return { price: price > 0 ? price : null, available, checked: true };
     }
 
-    return { price: null, available: true };
+    return { price: null, available: true, checked: false };
   } catch {
-    return { price: null, available: false };
+    return { price: null, available: false, checked: false };
   }
 }
 
@@ -112,16 +122,21 @@ export async function GET(req: NextRequest) {
 
   for (const offer of offers ?? []) {
     try {
-      const { price: newPrice, available } = await fetchCurrentPrice(
+      const { price: newPrice, available, checked } = await fetchCurrentPrice(
         offer as Record<string, unknown>,
       );
 
-      if (!available) {
+      if (checked && !available) {
         await supabaseAdmin
           .from("offers")
           .update({ status: "inactive", updated_at: new Date().toISOString() })
           .eq("id", offer.id);
         results.removed++;
+        continue;
+      }
+
+      if (!checked) {
+        results.unchanged++;
         continue;
       }
 

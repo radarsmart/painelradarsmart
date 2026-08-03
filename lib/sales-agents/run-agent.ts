@@ -473,9 +473,15 @@ export async function runSalesAgent(agentId: string): Promise<AgentRunResult> {
           // aprovado a oferta. O manual_copy com site_override e o mesmo mecanismo
           // que a Central de Oferta usa pra aprovacao manual — isOfferVisibleOnSite()
           // aceita esse override independente do que o trigger fizer com curations_status.
+          // {} (nao null) — a coluna e NOT NULL no banco; parseManualCopy() ja
+          // trata objeto vazio exatamente como "sem override", entao e
+          // equivalente pra quem le, mas evita o insert falhar com
+          // "null value in column manual_copy violates not-null constraint"
+          // sempre que a oferta nao vai direto pro site (ex.: link de
+          // afiliado do ML falhou e ficou pendente de aprovacao manual).
           manual_copy: publishToSiteNow
             ? buildSiteManualCopyOverride(null, agent.siteSlotType, new Date().toISOString())
-            : null,
+            : {},
           raw_data: {
             source: "sales_agent",
             agent_id: agent.id,

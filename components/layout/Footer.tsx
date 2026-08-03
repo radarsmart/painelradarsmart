@@ -5,9 +5,12 @@ import Link from "next/link";
 import { Instagram } from "lucide-react";
 import BrandWordmark from "@/components/layout/BrandWordmark";
 
-const GROUP_URL =
-  process.env.NEXT_PUBLIC_WHATSAPP_GROUP_URL ??
-  "https://chat.whatsapp.com/G5fdVL51Zr94XDoqOexP9d";
+const SUPPORT_WHATSAPP_NUMBER = (
+  process.env.NEXT_PUBLIC_SUPPORT_WHATSAPP ?? "5547992890613"
+).replace(/\D/g, "");
+const SUPPORT_WHATSAPP_URL = `https://wa.me/${SUPPORT_WHATSAPP_NUMBER}?text=${encodeURIComponent(
+  "Olá! Vim pelo site Radar Smart e tenho uma dúvida.",
+)}`;
 
 const INSTAGRAM_URL =
   process.env.NEXT_PUBLIC_INSTAGRAM_URL ?? "https://www.instagram.com/radarsmart.oficial/";
@@ -65,7 +68,7 @@ export default function Footer() {
             </h3>
             <div className="flex flex-wrap gap-3">
               <a
-                href={GROUP_URL}
+                href={SUPPORT_WHATSAPP_URL}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="rounded-full bg-[#25D366] p-2.5 shadow-lg shadow-green-900/20 transition-all hover:scale-110"

@@ -89,7 +89,7 @@ export default function ParceriasPage() {
               <Handshake className="h-3.5 w-3.5 text-[#D39B32]" />
               Parcerias Radar Smart
             </span>
-            <h1 className="mx-auto mt-6 max-w-3xl font-display text-4xl font-extrabold leading-[1.05] tracking-tight sm:text-5xl md:text-6xl">
+            <h1 className="mx-auto mt-6 max-w-3xl font-hero text-4xl font-extrabold leading-[1.05] tracking-tight sm:text-5xl md:text-6xl">
               Sua marca na frente de quem já está{" "}
               <span className="text-[#D39B32]">pronto para comprar</span>
             </h1>

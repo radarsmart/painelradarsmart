@@ -4,6 +4,7 @@ import { generateAiProductImage } from "@/lib/ai/product-image";
 import { generateMlAffiliateLink, fetchMlSellerReputation } from "@/lib/scraping/ml-session-client";
 import { dispatchToSpecificTargets, todayLocalDate } from "@/lib/distribution/legacy-dispatch";
 import { buildSiteManualCopyOverride } from "@/lib/offers/site-visibility";
+import { assignProductGroup } from "@/lib/offers/product-matching";
 import { ensureOfferShortCode } from "@/lib/offers/short-link";
 import { trackAndComputeDiscount } from "./price-tracking";
 import { passesRadarSniperPreFilter, rankSniperCandidates } from "@/lib/radar-sniper";
@@ -407,6 +408,17 @@ export async function runSalesAgent(agentId: string): Promise<AgentRunResult> {
         if (!offerId) {
           throw new Error("Oferta criada sem id valido.");
         }
+
+        // Tenta achar o mesmo produto em outra loja pra alimentar a
+        // comparacao real entre marketplaces na pagina da oferta — best
+        // effort (nunca lanca erro), mas espera terminar pra nao ser
+        // cortado pelo fim da funcao serverless.
+        await assignProductGroup(supabaseAdmin, offerId, {
+          title: candidate.title,
+          price: candidate.price,
+          marketplace: agent.source,
+          category: candidate.category,
+        });
 
         if (needsManualAffiliate) {
           staged += 1;

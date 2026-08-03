@@ -49,6 +49,7 @@ type OfferRow = {
   created_at?: string | null;
   slot_type?: string | null;
   manual_copy?: unknown;
+  product_group_id?: string | null;
 };
 
 type OfferSummary = {
@@ -267,6 +268,7 @@ async function getOfferById(id: string): Promise<OfferRow | null> {
         "published_at",
         "updated_at",
         "created_at",
+        "product_group_id",
       ].join(","),
     )
     .eq("id", id)
@@ -298,6 +300,26 @@ async function getRelatedOffers(source: OfferRow): Promise<OfferSummary[]> {
     .map(toSummary)
     .filter((offer): offer is OfferSummary => Boolean(offer));
   return normalized.slice(0, 4);
+}
+
+async function getCrossStoreMatches(source: OfferRow): Promise<OfferSummary[]> {
+  if (!source.product_group_id) return [];
+
+  const { data } = await supabaseAdmin
+    .from("offers")
+    .select(
+      "id,title,image_url,affiliate_url,product_url,price,old_price,original_price,price_old,discount_pct,discount_percent,marketplace,status,curations_status,expires_at,published_at,updated_at,created_at,slot_type,manual_copy",
+    )
+    .eq("status", "active")
+    .eq("product_group_id", source.product_group_id)
+    .neq("id", source.id);
+
+  const normalized = ((data ?? []) as OfferRow[])
+    .filter((row) => isOfferVisibleOnSite(row))
+    .map(toSummary)
+    .filter((offer): offer is OfferSummary => Boolean(offer));
+
+  return normalized.sort((a, b) => a.price - b.price);
 }
 
 function buildOfferPageUrl(id: string): string {
@@ -423,6 +445,8 @@ async function OfferDetailContent({ id }: { id: string }) {
   }
 
   const relatedOffers = await getRelatedOffers(offer);
+  const crossStoreMatches = await getCrossStoreMatches(offer);
+  const cheaperElsewhere = crossStoreMatches.filter((match) => match.price < summary.price);
   const specs = extractSpecs(offer);
   const aiAnalysis = buildAiAnalysis(summary, offer);
   const structuredData = buildStructuredData(summary, offer);
@@ -516,6 +540,46 @@ async function OfferDetailContent({ id }: { id: string }) {
           </div>
         </div>
       </section>
+
+      {crossStoreMatches.length > 0 ? (
+        <section className="mt-8 rounded-2xl border border-slate-200 bg-white p-5 shadow-card">
+          <h2 className="mb-1 font-display text-xl font-bold text-[#22223B]">
+            Também disponível em outras lojas
+          </h2>
+          <p className="mb-4 text-sm text-slate-500">
+            {cheaperElsewhere.length > 0
+              ? "Encontramos este mesmo produto por um preço menor em outro marketplace."
+              : "Este é o menor preço que encontramos para este produto entre as lojas monitoradas."}
+          </p>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="rounded-xl border-2 border-[#9e6a18] bg-[#9e6a18]/5 p-4">
+              <p className="text-[11px] font-bold uppercase tracking-wide text-[#9e6a18]">
+                {summary.marketplace} (esta oferta)
+              </p>
+              <p className="mt-1 font-mono text-xl font-extrabold text-[#22223B]">
+                {formatBRL(summary.price)}
+              </p>
+            </div>
+            {crossStoreMatches.map((match) => (
+              <div key={match.id} className="rounded-xl border border-slate-200 p-4">
+                <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                  {match.marketplace}
+                </p>
+                <p className="mt-1 font-mono text-xl font-extrabold text-[#22223B]">
+                  {formatBRL(match.price)}
+                </p>
+                <BotaoAfiliado
+                  offerId={match.id}
+                  href={match.affiliateUrl}
+                  source="oferta_detalhe_comparador_lojas"
+                  label="Ver oferta"
+                  className="mt-2 inline-flex w-full items-center justify-center rounded-lg border border-[#9e6a18] px-3 py-1.5 text-xs font-semibold text-[#9e6a18] hover:bg-[#9e6a18] hover:text-white"
+                />
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       <section className="mt-8 grid gap-6 md:grid-cols-3">
         <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-card md:col-span-2">

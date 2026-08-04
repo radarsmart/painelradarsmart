@@ -172,8 +172,35 @@ const MARKETPLACE_LABEL: Record<Marketplace, string> = {
   awin: "AWIN",
 };
 
-const DEFAULT_AWIN_ADVERTISER_ID = "18879";
+const DEFAULT_AWIN_ADVERTISER_ID = "18879"; // Aliexpress BR & LATAM (fallback quando a loja nao e reconhecida)
 const DEFAULT_AWIN_PUBLISHER_ID = "2843910";
+
+// IDs reais dos anunciantes AWIN que ja sao afiliados (mesmos usados pelos
+// agentes automaticos — ver sales_agents.advertiser_id). Sem isso, qualquer
+// link colado aqui gerava awinmid=18879 (Aliexpress) mesmo sendo de outra
+// loja, o que faz a AWIN rejeitar a atribuicao de comissao (o merchant ID
+// nao bate com o dominio de destino).
+const AWIN_STORE_ADVERTISER_IDS: Record<string, string> = {
+  "cea.com.br": "17648",
+  "natura.com.br": "17658",
+  "rede.natura.net": "17658",
+  "centauro.com.br": "17806",
+  "kabum.com.br": "17729",
+};
+
+function detectAwinAdvertiserId(url: string): string {
+  try {
+    const hostname = new URL(url).hostname.toLowerCase().replace(/^www\./, "");
+    for (const [domain, advertiserId] of Object.entries(AWIN_STORE_ADVERTISER_IDS)) {
+      if (hostname === domain || hostname.endsWith(`.${domain}`)) {
+        return advertiserId;
+      }
+    }
+  } catch {
+    // URL invalida — cai no default abaixo.
+  }
+  return DEFAULT_AWIN_ADVERTISER_ID;
+}
 const DEFAULT_DESTINATIONS: PublishDestinations = {
   site: true,
   telegram: false,
@@ -278,7 +305,7 @@ function buildManualAwinAffiliateUrl(destinationUrl: string): string {
   if (!normalizedUrl) return "";
 
   return `https://www.awin1.com/cread.php?awinmid=${encodeURIComponent(
-    DEFAULT_AWIN_ADVERTISER_ID,
+    detectAwinAdvertiserId(normalizedUrl),
   )}&awinaffid=${encodeURIComponent(DEFAULT_AWIN_PUBLISHER_ID)}&ued=${encodeURIComponent(normalizedUrl)}`;
 }
 
@@ -1053,8 +1080,9 @@ export default function AdminNovaOfertaPage() {
 
     try {
       const accessToken = await getAccessToken();
+      const advertiserId = detectAwinAdvertiserId(query);
       const response = await fetch(
-        `/api/awin/feed/${DEFAULT_AWIN_ADVERTISER_ID}?search=${encodeURIComponent(query)}&page=1`,
+        `/api/awin/feed/${advertiserId}?search=${encodeURIComponent(query)}&page=1`,
         {
           headers: {
             Authorization: `Bearer ${accessToken}`,

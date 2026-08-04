@@ -292,8 +292,17 @@ function passesBasicFilters(agent: SalesAgent, candidate: DiscoveryCandidate): b
 
 // Fontes que nao trazem desconto/avaliacao/comissao real por produto (ex.: a
 // maioria dos anunciantes da AWIN) usam rastreamento de preco proprio —
-// grava o preco de hoje e so libera o candidato quando ja da pra confirmar
-// uma queda real vs a media historica (ver lib/sales-agents/price-tracking.ts).
+// grava o preco de hoje pra ir formando historico (ver
+// lib/sales-agents/price-tracking.ts), mas NAO trava o candidato enquanto o
+// historico ainda esta imaturo (< MIN_HISTORY_DAYS): decisao do negocio foi
+// priorizar o grupo ter fluxo de oferta desde ja, mesmo sem desconto
+// confirmado, em vez de ficar mudo por dias esperando 3 dias de historico.
+// O rastreamento continua rodando em paralelo a cada candidato visto — assim
+// que amadurecer (queda real >= MIN_TRACKED_DISCOUNT_PCT), a oferta passa a
+// sair com desconto confirmado (ver uso de tracked.ready abaixo). Sem
+// discountPct/oldPrice o texto da oferta so mostra o preco, sem alegar
+// desconto que ainda nao foi confirmado (ver buildPriceBlock no gerador de
+// copy — so mostra "De: / Desconto:" quando ha originalPrice real).
 async function enrichWithPriceTracking(
   agent: SalesAgent,
   candidates: DiscoveryCandidate[],
@@ -317,10 +326,13 @@ async function enrichWithPriceTracking(
           discountPct: tracked.discountPct,
           oldPrice: tracked.avgPrice !== null ? Math.round(tracked.avgPrice * 100) / 100 : null,
         });
+      } else {
+        enriched.push(candidate);
       }
     } catch {
-      // Falha no rastreamento nao deve travar o agente inteiro — so deixa de
-      // considerar esse candidato nesta rodada.
+      // Falha no rastreamento nao deve travar o agente inteiro — deixa
+      // seguir sem desconto confirmado em vez de descartar o candidato.
+      enriched.push(candidate);
     }
   }
 
@@ -455,7 +467,14 @@ export async function runSalesAgent(agentId: string): Promise<AgentRunResult> {
 
         if (agent.source === "mercadolivre" && !candidate.affiliateLinkVerified) {
           try {
-            candidate.affiliateUrl = await generateMlAffiliateLink(candidate.productUrl);
+            // candidate.productUrl e a forma CANONICA/encurtada (so pra dedupe -
+            // ver canonicalizeMlProductUrl em discovery/mercadolivre.ts). O
+            // gerador de link de afiliado do ML rejeita esse formato curto
+            // ("Este URL nao e permitido pelo Programa") — precisa da URL
+            // original completa, que fica em affiliateUrl ate esse ponto
+            // (ainda nao foi sobrescrita pela linha abaixo).
+            const rawProductUrl = candidate.affiliateUrl || candidate.productUrl;
+            candidate.affiliateUrl = await generateMlAffiliateLink(rawProductUrl);
             candidate.affiliateLinkVerified = true;
           } catch (affiliateError) {
             if (isMlAffiliateRateLimitError(affiliateError)) {

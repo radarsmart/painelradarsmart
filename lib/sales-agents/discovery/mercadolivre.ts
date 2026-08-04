@@ -25,6 +25,11 @@ export async function discoverMercadoLivre(agent: SalesAgent): Promise<Discovery
 
   for (const item of items) {
     if (!item.link || !item.price || item.price <= 0) continue;
+    // Slots patrocinados/brand ads misturados nos resultados de busca vem com
+    // link de rastreio de clique (ex.: click1.mercadolivre.com.br/.../clicks/...)
+    // em vez de link de produto de verdade — nunca geram link de afiliado
+    // valido, entao descarta aqui em vez de deixar virar oferta travada.
+    if (/click1\.mercadolivre\.com\.br|\/clicks\//i.test(item.link)) continue;
     if (typeof agent.priceMin === "number" && item.price < agent.priceMin) continue;
     if (typeof agent.priceMax === "number" && item.price > agent.priceMax) continue;
 

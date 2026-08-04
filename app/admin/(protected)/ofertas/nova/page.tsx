@@ -1077,32 +1077,71 @@ export default function AdminNovaOfertaPage() {
         const itemId = extractAliExpressItemId(query);
 
         if (normalizedUrl && affiliate) {
+          // O feed da AWIN nao cobre a AliExpress (catalogo dinamico, nao
+          // datafeed baixavel) — antes disso caia direto no placeholder
+          // generico "Produto AliExpress {id}" sem titulo/imagem reais. A
+          // pagina ja tem um extrator de verdade (waterfall + Zyte) usado
+          // pelos outros marketplaces em handleExtract — so nao era chamado
+          // nesse ramo. Tenta raspar a pagina real do produto antes de cair
+          // no placeholder, pra preencher titulo/imagem/preco de verdade.
+          let realTitle = "";
+          let realImage = "";
+          let realPrice = 0;
+          let realOldPrice = 0;
+          let extractLayer = "";
+          try {
+            const extractResponse = await fetch("/api/admin/extract", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ url: normalizedUrl, affiliate_url: affiliate }),
+            });
+            const extractData = (await extractResponse.json().catch(() => ({}))) as ExtractResponse;
+            if (extractResponse.ok) {
+              realTitle = toCleanText(extractData.title || extractData.product?.title);
+              realImage = toCleanText(extractData.image_url || extractData.product?.image_url);
+              realPrice = toNumber(extractData.price ?? extractData.product?.price);
+              realOldPrice = toNumber(extractData.old_price ?? extractData.product?.original_price);
+              extractLayer = extractData.debug_info?.layer_used || extractData.extraction_layer || "";
+            }
+          } catch {
+            // Extracao real falhou — segue pro placeholder abaixo, igual antes.
+          }
+
+          const finalTitle =
+            realTitle || (itemId ? `Produto AliExpress ${itemId}` : "Produto AliExpress");
+          const finalPrice = realPrice > 0 ? realPrice : fallbackPrice;
+          const hasPreviewData = finalPrice > 0;
+
           setMarketplace("awin");
           setSourceUrl(normalizedUrl);
           setAffiliateUrl(affiliate);
-          setManualTitle(itemId ? `Produto AliExpress ${itemId}` : "");
-          setManualPrice(fallbackPrice > 0 ? String(fallbackPrice) : "");
-          setManualOldPrice("");
+          setManualTitle(realTitle ? "" : finalTitle);
+          setManualPrice(hasPreviewData ? String(finalPrice) : "");
+          setManualOldPrice(realOldPrice > 0 ? String(realOldPrice) : "");
+          if (realImage) setImageUrl(realImage);
           setPreview(
-            fallbackPrice > 0
+            hasPreviewData
               ? {
-                  title: itemId ? `Produto AliExpress ${itemId}` : "Produto AliExpress",
-                  price: fallbackPrice,
-                  old_price: 0,
-                  original_price: 0,
-                  image_url: imageUrl.trim(),
+                  title: finalTitle,
+                  price: finalPrice,
+                  old_price: realOldPrice,
+                  original_price: realOldPrice,
+                  image_url: realImage || imageUrl.trim(),
                   product_url: normalizedUrl,
                   affiliate_url: affiliate,
                 }
               : null,
           );
           setExtractDebug(
-            `Engine: awin-linkbuilder | Camada: direct_cread | Item: ${itemId || "n/a"} | Feed: nao encontrado`,
+            realTitle
+              ? `Engine: awin-linkbuilder | Camada: direct_cread+${extractLayer || "extract"} | Item: ${itemId || "n/a"} | Feed: nao encontrado (recuperado via extracao real)`
+              : `Engine: awin-linkbuilder | Camada: direct_cread | Item: ${itemId || "n/a"} | Feed: nao encontrado`,
           );
           setFeedback({
-            type: "info",
-            text:
-              fallbackPrice > 0
+            type: realTitle ? "success" : "info",
+            text: realTitle
+              ? "Produto nao encontrado no feed AWIN, mas consegui raspar titulo/imagem/preco reais da pagina. Revise antes de publicar."
+              : fallbackPrice > 0
                 ? "Produto nao encontrado no feed AWIN, mas gerei o link afiliado direto e preenchi o preco encontrado na URL. Revise titulo e imagem."
                 : "Produto nao encontrado no feed AWIN, mas gerei o link afiliado direto. Preencha titulo, preco e imagem para criar o preview.",
           });

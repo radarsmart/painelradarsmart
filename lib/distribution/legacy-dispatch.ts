@@ -40,7 +40,7 @@ export type LegacyDispatchResult = {
 
 const DEFAULT_CHANNELS: DistributionChannel[] = ["telegram", "whatsapp"];
 const DIRECT_QUEUE_OFFER_SELECT =
-  "id,title,brand,category,marketplace,seller_name,price,original_price,discount_pct,currency,image_url,best_image_url,affiliate_url,product_url,manual_copy,raw";
+  "id,title,brand,category,marketplace,seller_name,price,original_price,discount_pct,currency,image_url,best_image_url,affiliate_url,product_url,manual_copy,raw,coupon_code,coupon_description";
 const DEFAULT_SEND_WINDOW_START_HOUR = 8;
 const DEFAULT_SEND_WINDOW_END_HOUR = 22;
 const DEFAULT_SEND_INTERVAL_MINUTES = 20;
@@ -529,6 +529,8 @@ async function queueDirectlyOnPostQueue(input: {
         image_url: offer.best_image_url ?? offer.image_url ?? null,
         video_url: null,
         link,
+        coupon_code: offer.coupon_code ?? null,
+        coupon_description: offer.coupon_description ?? null,
         raw: offer.raw ?? null,
       },
       analysis: null,
@@ -770,6 +772,8 @@ export async function dispatchToSpecificTargets(
         image_url: offer.best_image_url ?? offer.image_url ?? null,
         video_url: null,
         link,
+        coupon_code: offer.coupon_code ?? null,
+        coupon_description: offer.coupon_description ?? null,
         raw: offer.raw ?? null,
       },
       analysis: null,

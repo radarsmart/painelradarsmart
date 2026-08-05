@@ -96,6 +96,7 @@ export async function POST(req: NextRequest) {
       channels?: unknown;
       hub_offer_id?: unknown;
       publish_to_site?: unknown;
+      schedule_now?: unknown;
     };
 
     const title = toText(body.title);
@@ -120,6 +121,7 @@ export async function POST(req: NextRequest) {
     const hubOfferId = toText(body.hub_offer_id);
     const publishToSite = Boolean(body.publish_to_site);
     const isSiteApproval = publishToSite;
+    const scheduleNow = Boolean(body.schedule_now);
 
     if (!marketplace) {
       return NextResponse.json(
@@ -342,6 +344,7 @@ export async function POST(req: NextRequest) {
         channels: requestedChannels,
         copyByChannel,
         allowRequeueSameDay: true,
+        scheduleNow,
       });
     } catch (dispatchError) {
       const message =

@@ -607,6 +607,7 @@ export default function AdminNovaOfertaPage() {
   const [publishing, setPublishing] = useState<DispatchAction | null>(null);
   const [selectedDestinations, setSelectedDestinations] =
     useState<PublishDestinations>(DEFAULT_DESTINATIONS);
+  const [sendImmediately, setSendImmediately] = useState(false);
   const [preview, setPreview] = useState<ExtractPreview | null>(null);
   const [copyText, setCopyText] = useState("");
   const [selectedTemplate, setSelectedTemplate] = useState<CopyVariantKey>("medium");
@@ -1593,6 +1594,7 @@ export default function AdminNovaOfertaPage() {
               : action === "telegram"
                 ? ["telegram"]
                 : ["whatsapp"],
+          schedule_now: sendImmediately,
         }),
       });
 
@@ -1706,6 +1708,7 @@ export default function AdminNovaOfertaPage() {
           copy_text: copyText,
           channels,
           publish_to_site: selectedDestinations.site,
+          schedule_now: sendImmediately,
         }),
       });
 
@@ -2281,6 +2284,20 @@ export default function AdminNovaOfertaPage() {
                   WhatsApp
                 </button>
               </div>
+
+              <label className="mt-4 flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={sendImmediately}
+                  onChange={(event) => setSendImmediately(event.target.checked)}
+                  className="h-4 w-4"
+                />
+                Envio imediato (pula a fila espacada de 20 em 20 minutos)
+              </label>
+              <p className="mb-1 text-xs text-slate-500">
+                Padrao e enviar pela fila espacada. Marque isso so quando precisar postar
+                agora mesmo (ex: cliente esperando), sem esperar o proximo horario.
+              </p>
 
               <div className="mt-4 flex flex-wrap items-center gap-3">
                 <button

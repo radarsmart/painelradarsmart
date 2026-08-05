@@ -275,7 +275,15 @@ export const getDestaques = async (limit = 5) =>
   [];
 
 export const getOfertas = async (limit = 20, categoria?: string) => {
-  let query = supabaseAdmin.from("radar_smart_rank").select("*").limit(limit);
+  // So ofertas com slot_type (flash/best/comparator) aparecem nas prateleiras
+  // da home (ver lib/home/get-home-page-data.ts) — sem esse filtro, ofertas
+  // aprovadas sem slot_type (ex: importacoes em massa sem curadoria manual)
+  // ocupam o limite antes do filtro por secao e as prateleiras ficam vazias.
+  let query = supabaseAdmin
+    .from("radar_smart_rank")
+    .select("*")
+    .not("slot_type", "is", null)
+    .limit(limit);
   if (categoria) query = query.eq("category_slug", categoria);
   return (await query).data ?? [];
 };

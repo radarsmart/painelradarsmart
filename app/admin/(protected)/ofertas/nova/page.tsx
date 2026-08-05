@@ -1,6 +1,7 @@
 ﻿"use client";
 
 import StoryGeneratorButton from "@/components/admin/StoryGeneratorButton";
+import TikTokShopCreativeButton from "@/components/admin/TikTokShopCreativeButton";
 import { useEffect, useMemo, useState } from "react";
 import {
   CheckCircle2,
@@ -17,7 +18,7 @@ import { formatBRL } from "@/lib/formatters";
 import { supabase } from "@/lib/supabase";
 import { useRouter, useSearchParams } from "next/navigation";
 
-type Marketplace = "mercadolivre" | "amazon" | "awin";
+type Marketplace = "mercadolivre" | "amazon" | "awin" | "tiktokshop";
 type OfferSlot = "flash" | "best" | "comparator";
 
 type ExtractPreview = {
@@ -170,6 +171,7 @@ const MARKETPLACE_LABEL: Record<Marketplace, string> = {
   mercadolivre: "Mercado Livre",
   amazon: "Amazon",
   awin: "AWIN",
+  tiktokshop: "TikTok Shop",
 };
 
 const DEFAULT_AWIN_ADVERTISER_ID = "18879"; // Aliexpress BR & LATAM (fallback quando a loja nao e reconhecida)
@@ -244,6 +246,15 @@ function detectMarketplaceFromUrl(url: string): Marketplace | null {
     normalized.includes("pt.aliexpress.com")
   ) {
     return "awin";
+  }
+
+  if (
+    normalized.includes("shop.tiktok.com") ||
+    normalized.includes("tiktok.com/shop") ||
+    normalized.includes("tiktok.com/view/product") ||
+    normalized.includes("vt.tiktok.com")
+  ) {
+    return "tiktokshop";
   }
 
   return null;
@@ -713,7 +724,9 @@ export default function AdminNovaOfertaPage() {
             ? "amazon"
             : String(offer.marketplace ?? "").toLowerCase().includes("awin")
               ? "awin"
-              : "mercadolivre");
+              : String(offer.marketplace ?? "").toLowerCase().includes("tiktok")
+                ? "tiktokshop"
+                : "mercadolivre");
 
         setMarketplace(nextMarketplace);
         setSelectedSlot(
@@ -931,10 +944,7 @@ export default function AdminNovaOfertaPage() {
     if (!url) {
       setFeedback({
         type: "error",
-        text:
-          marketplace === "amazon"
-            ? "Informe a URL completa do produto Amazon."
-            : "Informe a URL completa do produto Mercado Livre.",
+        text: `Informe a URL completa do produto ${MARKETPLACE_LABEL[marketplace]}.`,
       });
       return;
     }
@@ -1243,7 +1253,7 @@ export default function AdminNovaOfertaPage() {
     if (!detectedMarketplace) {
       setFeedback({
         type: "error",
-        text: "URL invalida. Use um link valido de Amazon, Mercado Livre ou AWIN.",
+        text: "URL invalida. Use um link valido de Amazon, Mercado Livre, AWIN ou TikTok Shop.",
       });
       return;
     }
@@ -1694,7 +1704,7 @@ export default function AdminNovaOfertaPage() {
           </div>
 
           <div className="flex flex-wrap gap-2">
-            {(["mercadolivre", "amazon", "awin"] as Marketplace[]).map((item) => (
+            {(["mercadolivre", "amazon", "awin", "tiktokshop"] as Marketplace[]).map((item) => (
               <button
                 key={item}
                 type="button"
@@ -1722,6 +1732,8 @@ export default function AdminNovaOfertaPage() {
                   ? "URL Amazon (https://www.amazon.com.br/dp/ASIN...)"
                   : marketplace === "awin"
                     ? "URL completa do produto ou link AWIN (https://www.awin1.com/cread.php?... ou https://pt.aliexpress.com/...)"
+                    : marketplace === "tiktokshop"
+                      ? "URL do produto no TikTok Shop (https://shop.tiktok.com/view/product/...)"
                   : "URL Mercado Livre (https://www.mercadolivre.com.br/.../p/MLB... ou .../up/MLBU...)"
               }
               className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm outline-none focus:border-orange"
@@ -1752,6 +1764,8 @@ export default function AdminNovaOfertaPage() {
                   ? "Cole aqui seu link afiliado da Amazon"
                   : marketplace === "awin"
                     ? "A API AWIN preenche este campo; se for manual, cole aqui o link awin1.com"
+                    : marketplace === "tiktokshop"
+                      ? "Cole aqui o link de afiliado gerado no app/Creator Center do TikTok Shop"
                     : "Deixe em branco para gerar automaticamente, ou cole aqui o link meli.la"
               }
               className="h-11 w-full rounded-lg border-2 border-amber-300 bg-amber-50 px-3 text-sm outline-none focus:border-orange"
@@ -1813,7 +1827,23 @@ export default function AdminNovaOfertaPage() {
                   Fluxo manual
                 </p>
                 <p className="rounded-lg bg-white px-3 py-2 text-xs leading-5 text-slate-600">
-                  Primeiro tente <strong>Buscar na API AWIN</strong>. Use estes campos manuais apenas se o produto nao for encontrado no feed.
+                  {marketplace === "awin"
+                    ? (
+                      <>
+                        Primeiro tente <strong>Buscar na API AWIN</strong>. Use estes campos manuais apenas se o produto nao for encontrado no feed.
+                      </>
+                    )
+                    : marketplace === "tiktokshop"
+                      ? (
+                        <>
+                          Cole o link de afiliado do TikTok Shop acima, preencha nome, preco e imagem, e clique em <strong>Gerar preview manual</strong>.
+                        </>
+                      )
+                      : (
+                        <>
+                          Use estes campos se a extracao automatica falhar, e clique em <strong>Gerar preview manual</strong>.
+                        </>
+                      )}
                 </p>
               </div>
             </div>
@@ -2213,12 +2243,22 @@ export default function AdminNovaOfertaPage() {
                 </span>
               </div>
 
-              <StoryGeneratorButton
-                title={preview.title}
-                imageUrl={toCleanText(imageUrl) || preview.image_url || null}
-                price={toNumber(preview.price)}
-                oldPrice={toNumber(preview.original_price ?? preview.old_price ?? 0) || null}
-              />
+              {marketplace === "tiktokshop" ? (
+                <TikTokShopCreativeButton
+                  title={preview.title}
+                  imageUrl={toCleanText(imageUrl) || preview.image_url || null}
+                  price={toNumber(preview.price)}
+                  oldPrice={toNumber(preview.original_price ?? preview.old_price ?? 0) || null}
+                  onGenerated={(generatedUrl) => setImageUrl(generatedUrl)}
+                />
+              ) : (
+                <StoryGeneratorButton
+                  title={preview.title}
+                  imageUrl={toCleanText(imageUrl) || preview.image_url || null}
+                  price={toNumber(preview.price)}
+                  oldPrice={toNumber(preview.original_price ?? preview.old_price ?? 0) || null}
+                />
+              )}
             </div>
           </div>
         )}

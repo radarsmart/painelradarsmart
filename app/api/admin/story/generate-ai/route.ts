@@ -25,6 +25,7 @@ type StoryTemplate = {
   file: string;
   ctaFixed: string | null;
   includeLogo: boolean;
+  hidden?: boolean;
   buildPrompt: (input: PriceInfo, cta: string) => string;
 };
 
@@ -121,6 +122,23 @@ const TEMPLATES: StoryTemplate[] = [
         "Nao altere o rosto, pose ou fundo da modelo do template, nem o logo/wordmark existente. Nao duplique o produto nem o preco em mais de um lugar da arte. Mantenha o formato vertical.",
       ].join(" "),
   },
+  {
+    id: "tiktokshop",
+    file: "story-template-tiktokshop.jpeg",
+    ctaFixed: "Assista e compre",
+    includeLogo: false,
+    hidden: true,
+    buildPrompt: (input, cta) =>
+      [
+        "A primeira imagem enviada e um TEMPLATE fixo de anuncio para TikTok Shop: fundo preto com efeito neon ciano/vermelho, o logo da marca Radar Smart no canto superior esquerdo, um icone grande de play dentro de um anel neon ciano/vermelho, o texto 'TIKTOK SHOP' em destaque abaixo do icone, e um cartao branco arredondado VAZIO na parte inferior da arte.",
+        "A segunda imagem enviada e a FOTO REAL do produto que deve ser divulgado.",
+        "Gere uma nova imagem final MANTENDO EXATAMENTE IGUAIS o fundo, o logo Radar Smart, o icone de play e o texto 'TIKTOK SHOP' do template (nao altere, mova, redimensione ou remova nenhum desses elementos existentes).",
+        "Dentro do cartao branco vazio do template, insira a foto real do produto (imagem 2), recortada e centralizada de forma realista, ocupando a parte de cima do cartao.",
+        `Logo abaixo da foto do produto, ainda dentro do MESMO cartao branco, escreva em fontes bold e legiveis, em cor escura: ${priceLines(input)}.`,
+        `Na parte de baixo do cartao, adicione UM UNICO botao grande e chamativo (fundo preto solido ou gradiente ciano/vermelho, texto branco bold) escrito "${cta}". Nao crie nenhum outro botao fora do cartao.`,
+        "Use apenas o UNICO cartao branco do template. Nao duplique o produto, o preco ou o botao em mais de um lugar da arte. Mantenha o formato vertical e todos os elementos fixos do template inalterados.",
+      ].join(" "),
+  },
 ];
 
 async function fetchProductImageBuffer(
@@ -171,6 +189,7 @@ export async function POST(req: NextRequest) {
     old_price?: unknown;
     discount_pct?: unknown;
     image_url?: unknown;
+    template_id?: unknown;
   };
 
   const title = toText(body.title) || "Oferta especial";
@@ -194,7 +213,14 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const template = TEMPLATES[Math.floor(Math.random() * TEMPLATES.length)];
+    const requestedTemplateId = toText(body.template_id);
+    const requestedTemplate = requestedTemplateId
+      ? TEMPLATES.find((item) => item.id === requestedTemplateId)
+      : undefined;
+    const selectableTemplates = TEMPLATES.filter((item) => !item.hidden);
+    const template =
+      requestedTemplate ??
+      selectableTemplates[Math.floor(Math.random() * selectableTemplates.length)];
     const cta = template.ctaFixed ?? CTA_OPTIONS[Math.floor(Math.random() * CTA_OPTIONS.length)];
 
     const templatePath = path.join(process.cwd(), "public", "criativos", template.file);

@@ -190,7 +190,7 @@ function resolveOfficialAffiliateUrl(offer: OfferRow): string {
  */
 function requiresManualAffiliateUrl(marketplace: string | null): boolean {
   const mp = String(marketplace ?? "").toLowerCase().trim();
-  return mp.includes("amazon") || mp.includes("mercado");
+  return mp.includes("amazon") || mp.includes("mercado") || mp.includes("tiktok");
 }
 
 function hasValidTrackedAffiliateUrl(offer: OfferRow): boolean {

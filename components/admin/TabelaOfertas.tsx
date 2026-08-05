@@ -126,6 +126,12 @@ export default function TabelaOfertas({ initialOffers }: { initialOffers: Offer[
         className: "bg-red-50 text-red-700 ring-1 ring-red-200",
       };
     }
+    if (key.includes("tiktok")) {
+      return {
+        label: "TikTok Shop",
+        className: "bg-slate-900 text-white ring-1 ring-slate-700",
+      };
+    }
     return {
       label: marketplace || "-",
       className: "bg-slate-100 text-slate-700 ring-1 ring-slate-200",

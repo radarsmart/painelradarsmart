@@ -19,7 +19,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-type Marketplace = "amazon" | "mercadolivre" | "shopee" | "lomadee" | "awin";
+type Marketplace = "amazon" | "mercadolivre" | "shopee" | "lomadee" | "awin" | "tiktokshop";
 const DEFAULT_OFFER_TTL_HOURS = 48;
 
 function toText(value: unknown): string {
@@ -38,7 +38,8 @@ function normalizeMarketplace(value: unknown): Marketplace | null {
     normalized === "mercadolivre" ||
     normalized === "shopee" ||
     normalized === "lomadee" ||
-    normalized === "awin"
+    normalized === "awin" ||
+    normalized === "tiktokshop"
   ) {
     return normalized;
   }
@@ -104,7 +105,7 @@ export async function POST(req: NextRequest) {
     const productUrl = toText(body.product_url);
     const manualAffiliateUrl = toText(body.affiliate_url);
     const affiliateUrl =
-      marketplace === "shopee"
+      marketplace === "shopee" || marketplace === "tiktokshop"
         ? manualAffiliateUrl || productUrl
         : manualAffiliateUrl ||
           sanitizeMarketplaceUrl(
@@ -122,7 +123,7 @@ export async function POST(req: NextRequest) {
 
     if (!marketplace) {
       return NextResponse.json(
-        { error: "marketplace invalido. Use amazon, mercadolivre, shopee, lomadee ou awin." },
+        { error: "marketplace invalido. Use amazon, mercadolivre, shopee, lomadee, awin ou tiktokshop." },
         { status: 400 },
       );
     }

@@ -10,7 +10,7 @@ import { formatBRL } from "@/lib/formatters";
 export const dynamic = "force-dynamic";
 
 type OfferSlot = "flash" | "best" | "comparator";
-type MarketplaceFilter = "all" | "amazon" | "mercadolivre" | "shopee" | "awin";
+type MarketplaceFilter = "all" | "amazon" | "mercadolivre" | "shopee" | "awin" | "tiktokshop";
 
 type OfferRow = {
   id: string;
@@ -81,6 +81,7 @@ function normalizeMarketplaceFilter(value: string | string[] | undefined): Marke
   if (normalized === "mercadolivre") return "mercadolivre";
   if (normalized === "shopee") return "shopee";
   if (normalized === "awin") return "awin";
+  if (normalized === "tiktokshop") return "tiktokshop";
   return "all";
 }
 
@@ -101,6 +102,7 @@ function marketplaceFilterOptions() {
     { value: "mercadolivre", label: "Mercado Livre" },
     { value: "shopee", label: "Shopee" },
     { value: "awin", label: "AWIN" },
+    { value: "tiktokshop", label: "TikTok Shop" },
   ] as const;
 }
 
@@ -117,6 +119,9 @@ function getMarketplaceBadge(marketplace: string | null) {
   }
   if (value.includes("awin")) {
     return { label: "AWIN", className: "bg-violet-50 text-violet-700" };
+  }
+  if (value.includes("tiktok")) {
+    return { label: "TikTok Shop", className: "bg-slate-900 text-white" };
   }
   return { label: marketplace || "Marketplace", className: "bg-slate-100 text-slate-700" };
 }
@@ -335,7 +340,7 @@ async function sendOfferToTelegram(
 
     const marketplace = toText(offer.marketplace).toLowerCase();
     const requiresManual =
-      marketplace.includes("amazon") || marketplace.includes("mercado");
+      marketplace.includes("amazon") || marketplace.includes("mercado") || marketplace.includes("tiktok");
     const currentAffiliate = toText(offer.affiliate_url);
     const productUrl = toText(offer.product_url);
     const resolvedAffiliate = affiliateUrl || currentAffiliate;
@@ -344,7 +349,7 @@ async function sendOfferToTelegram(
       return {
         ok: false,
         message:
-          "Cole o link de afiliado oficial antes de enviar Amazon ou Mercado Livre para o Telegram.",
+          "Cole o link de afiliado oficial antes de enviar Amazon, Mercado Livre ou TikTok Shop para o Telegram.",
       };
     }
 

@@ -25,6 +25,7 @@ function getMarketplaceBadgeLabel(marketplace?: string): string {
   if (normalized.includes("amazon")) return "Amazon Brasil";
   if (normalized.includes("mercado")) return "Mercado Livre";
   if (normalized.includes("shopee")) return "Shopee";
+  if (normalized.includes("tiktok")) return "TikTok Shop";
   return "Marketplace";
 }
 
@@ -33,6 +34,7 @@ function getMarketplaceBadgeTone(marketplace?: string): string {
   if (normalized.includes("amazon")) return "bg-orange-50 text-orange-700";
   if (normalized.includes("mercado")) return "bg-yellow-50 text-yellow-700";
   if (normalized.includes("shopee")) return "bg-red-50 text-red-700";
+  if (normalized.includes("tiktok")) return "bg-slate-900 text-white";
   return "bg-slate-100 text-slate-600";
 }
 

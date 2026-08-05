@@ -3,6 +3,29 @@ import {
   getDistributionFlags,
   type DistributionFlags,
 } from "@/lib/distribution/feature-flags";
+import { ensureOfferShortCode } from "@/lib/offers/short-link";
+
+function resolveSiteBaseUrl(): string {
+  const configured = process.env.NEXT_PUBLIC_SITE_URL?.trim();
+  return (configured || "https://radarsmart.com.br").replace(/\/$/, "");
+}
+
+// Link rastreado (radarsmart.com.br/go/{codigo}) em vez do link de afiliado
+// cru, pra cliques vindos dos grupos de WhatsApp/Telegram contarem como sinal
+// de interesse no site (mesmo tracking usado pelos agentes automaticos).
+async function buildTrackedLink(offerId: string, fallback: string): Promise<string> {
+  try {
+    const shortCode = await ensureOfferShortCode(supabaseAdmin, offerId);
+    return shortCode ? `${resolveSiteBaseUrl()}/go/${shortCode}` : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function replaceLinkInCopy(copy: string, rawLink: string, trackedLink: string): string {
+  if (!copy || !rawLink || rawLink === trackedLink) return copy;
+  return copy.split(rawLink).join(trackedLink);
+}
 
 export type DistributionChannel = "telegram" | "whatsapp";
 
@@ -472,10 +495,12 @@ async function queueDirectlyOnPostQueue(input: {
   const details: Array<Record<string, unknown>> = [];
   let queued = 0;
   let skipped = 0;
-  const link =
+  const rawLink =
     toText(input.affiliateUrl) ??
     toText(offer.affiliate_url) ??
-    toText(offer.product_url);
+    toText(offer.product_url) ??
+    "";
+  const link = await buildTrackedLink(input.offerId, rawLink);
 
   for (const target of activeTargets) {
     const channel = target.channel as DistributionChannel;
@@ -513,8 +538,14 @@ async function queueDirectlyOnPostQueue(input: {
       }
     }
 
+    const ad_text = replaceLinkInCopy(
+      resolveChannelCopy(offer as Record<string, unknown>, channel, input.copyByChannel),
+      rawLink,
+      link,
+    );
+
     const payload = {
-      ad_text: resolveChannelCopy(offer as Record<string, unknown>, channel, input.copyByChannel),
+      ad_text,
       offer: {
         id: offer.id,
         title: offer.title ?? null,
@@ -708,8 +739,9 @@ export async function dispatchToSpecificTargets(
     throw new Error("Nenhum destino ativo encontrado para os grupos selecionados no agente.");
   }
 
-  const link =
-    toText(input.affiliateUrl) ?? toText(offer.affiliate_url) ?? toText(offer.product_url);
+  const rawLink =
+    toText(input.affiliateUrl) ?? toText(offer.affiliate_url) ?? toText(offer.product_url) ?? "";
+  const link = await buildTrackedLink(input.offerId, rawLink);
   const dedupeBucket = todayLocalDate();
   const nowIso = new Date().toISOString();
 

@@ -125,7 +125,7 @@ const TEMPLATES: StoryTemplate[] = [
   {
     id: "tiktokshop",
     file: "story-template-tiktokshop.jpeg",
-    ctaFixed: "Assista e compre",
+    ctaFixed: "Comprar agora",
     includeLogo: false,
     hidden: true,
     buildPrompt: (input, cta) =>

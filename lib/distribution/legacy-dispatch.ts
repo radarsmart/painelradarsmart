@@ -152,12 +152,6 @@ function toPositiveNumber(value: unknown): number | null {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
-function resolveBuyButtonLabel(marketplace: unknown): string {
-  return String(marketplace ?? "").toLowerCase().includes("tiktok")
-    ? "Assista e compre"
-    : "Comprar agora";
-}
-
 function buildFallbackAdText(offer: Record<string, unknown>, channel: DistributionChannel): string {
   const title = toText(offer.title) ?? "Oferta do dia";
   const price = toPositiveNumber(offer.price);
@@ -171,10 +165,8 @@ function buildFallbackAdText(offer: Record<string, unknown>, channel: Distributi
         : `Hoje por R$ ${formatBRL(price)}`
       : "Condicao especial por tempo limitado";
 
-  const isTikTokShop = String(offer.marketplace ?? "").toLowerCase().includes("tiktok");
-  const actionLine = isTikTokShop
-    ? "Assista o video e toque no produto marcado para comprar."
-    : channel === "whatsapp"
+  const actionLine =
+    channel === "whatsapp"
       ? "Toque no link de compra e garanta agora."
       : "Toque em Comprar agora antes que acabe.";
 
@@ -542,7 +534,7 @@ async function queueDirectlyOnPostQueue(input: {
         raw: offer.raw ?? null,
       },
       analysis: null,
-      buttons: link ? [{ text: resolveBuyButtonLabel(offer.marketplace), url: link }] : [],
+      buttons: link ? [{ text: "Comprar agora", url: link }] : [],
       target: {
         id: target.id,
         name: target.name ?? null,
@@ -785,7 +777,7 @@ export async function dispatchToSpecificTargets(
         raw: offer.raw ?? null,
       },
       analysis: null,
-      buttons: link ? [{ text: resolveBuyButtonLabel(offer.marketplace), url: link }] : [],
+      buttons: link ? [{ text: "Comprar agora", url: link }] : [],
       target: {
         id: target.id,
         name: target.name ?? null,

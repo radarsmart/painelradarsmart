@@ -125,12 +125,12 @@ export default function TikTokShopCreativeButton({
                 Criativo para grupos (TikTok Shop)
               </p>
               <h3 className="mt-3 text-2xl font-black text-slate-900">
-                Imagem com preco e botao &quot;Assista e compre&quot;
+                Imagem com preco e botao &quot;Comprar agora&quot;
               </h3>
               <p className="mt-1 text-sm text-slate-500">
-                Como o link do TikTok Shop abre um video (nao uma pagina de compra direta), essa
-                imagem substitui o preview do video no grupo: produto, preco e a chamada para
-                assistir e comprar, tudo na mesma arte.
+                Como o link do TikTok Shop nao gera uma previa automatica no Telegram/WhatsApp,
+                essa imagem mostra o produto, o preco e o botao de compra numa arte so, com a
+                identidade do TikTok Shop.
               </p>
             </div>
 

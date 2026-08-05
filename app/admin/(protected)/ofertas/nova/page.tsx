@@ -1263,6 +1263,62 @@ export default function AdminNovaOfertaPage() {
       return;
     }
 
+    if (detectedMarketplace === "tiktokshop") {
+      setMarketplace("tiktokshop");
+      setExtracting(true);
+      setFeedback(null);
+      setCopyFeedback(null);
+      setExtractDebug("");
+
+      try {
+        const accessToken = await getAccessToken();
+        const response = await fetch("/api/admin/tiktokshop/extract", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({ url }),
+        });
+        const data = (await response.json().catch(() => ({}))) as {
+          success?: boolean;
+          title?: string;
+          image_url?: string;
+          error?: string;
+        };
+
+        if (!manualAffiliate) {
+          setAffiliateUrl(url);
+        }
+
+        if (!response.ok || !data.success) {
+          setExtractDebug("Engine: tiktokshop | Camada: og_info | Titulo/imagem: nao encontrados");
+          setFeedback({
+            type: "info",
+            text:
+              "Nao foi possivel extrair titulo/imagem automaticamente (normalmente isso funciona quando voce compartilha o produto marcado, nao o video). Preencha os campos manuais e clique em Gerar preview manual.",
+          });
+          return;
+        }
+
+        if (data.title) setManualTitle(data.title);
+        if (data.image_url) setImageUrl(data.image_url);
+        setExtractDebug("Engine: tiktokshop | Camada: og_info | Titulo/imagem: extraidos");
+        setFeedback({
+          type: "success",
+          text: "Titulo e imagem extraidos do link do TikTok Shop. Preencha o preco e clique em Gerar preview manual.",
+        });
+      } catch (error) {
+        setFeedback({
+          type: "error",
+          text: error instanceof Error ? error.message : "Falha ao extrair dados do TikTok Shop.",
+        });
+      } finally {
+        setExtracting(false);
+      }
+      return;
+    }
+
     if (!manualAffiliate && detectedMarketplace !== "mercadolivre") {
       setFeedback({
         type: "error",
@@ -1733,7 +1789,7 @@ export default function AdminNovaOfertaPage() {
                   : marketplace === "awin"
                     ? "URL completa do produto ou link AWIN (https://www.awin1.com/cread.php?... ou https://pt.aliexpress.com/...)"
                     : marketplace === "tiktokshop"
-                      ? "URL do produto no TikTok Shop (https://shop.tiktok.com/view/product/...)"
+                      ? "Link do produto compartilhado no TikTok Shop (vt.tiktok.com/... ou tiktok.com/view/product/...)"
                   : "URL Mercado Livre (https://www.mercadolivre.com.br/.../p/MLB... ou .../up/MLBU...)"
               }
               className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm outline-none focus:border-orange"
@@ -1741,7 +1797,9 @@ export default function AdminNovaOfertaPage() {
             <p className="text-xs text-slate-500">
               {marketplace === "awin"
                 ? "Na AWIN, esta URL e usada como referencia do produto; o link de afiliado abaixo sera usado no card e na copy."
-                : "Usada apenas para extrair titulo, imagem e preco do produto."}
+                : marketplace === "tiktokshop"
+                  ? "Ao clicar em Extrair URL, titulo e imagem sao preenchidos automaticamente quando o link for de um produto compartilhado (nao funciona em link de video). O preco precisa ser preenchido manualmente."
+                  : "Usada apenas para extrair titulo, imagem e preco do produto."}
             </p>
           </div>
 

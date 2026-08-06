@@ -65,8 +65,8 @@ const DEFAULT_CHANNELS: DistributionChannel[] = ["telegram", "whatsapp"];
 const DIRECT_QUEUE_OFFER_SELECT =
   "id,title,brand,category,marketplace,seller_name,price,original_price,discount_pct,currency,image_url,best_image_url,affiliate_url,product_url,manual_copy,raw,coupon_code,coupon_description";
 const DEFAULT_SEND_WINDOW_START_HOUR = 8;
-const DEFAULT_SEND_WINDOW_END_HOUR = 22;
-const DEFAULT_SEND_INTERVAL_MINUTES = 20;
+const DEFAULT_SEND_WINDOW_END_HOUR = 23;
+const DEFAULT_SEND_INTERVAL_MINUTES = 15;
 const DEFAULT_SEND_TIMEZONE = "America/Sao_Paulo";
 
 function normalizeChannels(

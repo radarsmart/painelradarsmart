@@ -36,9 +36,9 @@ const DEFAULT_FLAGS: DistributionFlags = {
     instagram: { enabled: false, post_as_reel: true },
   },
   scheduling: {
-    delay_between_posts_minutes: 30,
-    max_posts_per_day: 5,
-    best_hours: [9, 12, 15, 18, 21],
+    delay_between_posts_minutes: 15,
+    max_posts_per_day: 60,
+    best_hours: [8, 22],
     timezone: "America/Sao_Paulo",
   },
 };
@@ -96,9 +96,9 @@ function sanitizeFlags(input: Partial<DistributionFlags>): DistributionFlags {
     },
     scheduling: {
       delay_between_posts_minutes:
-        Number.isFinite(delay) && delay >= 1 ? Math.round(delay) : 30,
+        Number.isFinite(delay) && delay >= 1 ? Math.round(delay) : 15,
       max_posts_per_day:
-        Number.isFinite(maxPosts) && maxPosts >= 1 ? Math.round(maxPosts) : 5,
+        Number.isFinite(maxPosts) && maxPosts >= 1 ? Math.round(maxPosts) : 60,
       best_hours: sanitizeBestHours(merged.scheduling.best_hours),
       timezone:
         String(merged.scheduling.timezone ?? "").trim() ||

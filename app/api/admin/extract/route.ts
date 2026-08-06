@@ -1,9 +1,9 @@
-import type { NextRequest } from "next/server";
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
 import { requireAdmin } from "@/lib/admin-auth";
 import { extractProduct } from "@/lib/scraper/waterfall-extractor";
 import { extractWithZyteProduct, type ZyteProductExtraction } from "@/lib/scraping/zyte-product";
+import { generateShopeeAffiliateShortLink } from "@/lib/shopee/client";
 import { POST as scraperPOST } from "../scraper/route";
 
 export const runtime = "nodejs";
@@ -126,17 +126,77 @@ async function tryZyteProduct(input: {
   }
 }
 
-export async function POST(req: NextRequest) {
-  const adminGuard = await requireAdmin(req, { allowRoles: ["admin", "central_oferta"] });
-  if (!adminGuard.ok) {
-    return NextResponse.json({ error: adminGuard.error }, { status: adminGuard.status });
+function isShopeeUrl(url: string): boolean {
+  const normalized = url.toLowerCase();
+  return (
+    normalized.includes("shopee.com.br") ||
+    normalized.includes("shopee.com") ||
+    normalized.includes("shope.ee")
+  );
+}
+
+// A Shopee bloqueia scraping da pagina do produto com bastante frequencia
+// (deteccao de bot), o que faz titulo/preco/imagem falharem em cascata por
+// todas as camadas do waterfall — mas o link de afiliado NAO depende de
+// scraping nenhum, e uma chamada direta a API oficial de afiliados (GraphQL),
+// que continua funcionando normalmente mesmo quando a pagina do produto
+// bloqueia o scraper. Por isso isso roda como uma camada extra, por fora do
+// waterfall: sempre que a URL e da Shopee e o cliente nao mandou um
+// affiliate_url manual, tenta gerar o link de verdade e substitui o
+// affiliate_url da resposta (mesmo em respostas de erro/fallback), em vez de
+// deixar o campo cair pro link puro do produto.
+async function patchShopeeAffiliateUrl(
+  response: NextResponse,
+  sourceUrl: string,
+  clientAffiliateUrl: string,
+): Promise<NextResponse> {
+  if (clientAffiliateUrl || !isShopeeUrl(sourceUrl)) return response;
+
+  let shortLink: string;
+  try {
+    shortLink = await generateShopeeAffiliateShortLink(sourceUrl);
+  } catch {
+    return response;
+  }
+  if (!shortLink) return response;
+
+  const payload = await response.json().catch(() => null);
+  if (!payload || typeof payload !== "object") return response;
+
+  const patched = { ...(payload as Record<string, unknown>) };
+  patched.affiliate_url = shortLink;
+  if (patched.preview && typeof patched.preview === "object") {
+    patched.preview = { ...(patched.preview as Record<string, unknown>), affiliate_url: shortLink };
+  }
+  if (patched.extracted && typeof patched.extracted === "object") {
+    patched.extracted = { ...(patched.extracted as Record<string, unknown>), affiliate_url: shortLink };
   }
 
+  return NextResponse.json(patched, { status: response.status });
+}
+
+export async function POST(req: NextRequest) {
   const body = (await req.json().catch(() => ({}))) as {
     url?: unknown;
     affiliate_url?: unknown;
     persist?: unknown;
   };
+
+  const response = await handleExtractRequest(req, body);
+
+  const sourceUrl = toText(body.url);
+  const clientAffiliateUrl = toText(body.affiliate_url);
+  return patchShopeeAffiliateUrl(response, sourceUrl, clientAffiliateUrl);
+}
+
+async function handleExtractRequest(
+  req: NextRequest,
+  body: { url?: unknown; affiliate_url?: unknown; persist?: unknown },
+) {
+  const adminGuard = await requireAdmin(req, { allowRoles: ["admin", "central_oferta"] });
+  if (!adminGuard.ok) {
+    return NextResponse.json({ error: adminGuard.error }, { status: adminGuard.status });
+  }
 
   // persist=true salva a oferta direto (podendo ate auto-aprovar) via
   // /api/admin/scraper — central_oferta so pode extrair preview, nunca
@@ -144,7 +204,14 @@ export async function POST(req: NextRequest) {
   // mesmo que o corpo da requisicao peca persist=true.
   const persist = adminGuard.role === "admin" && Boolean(body.persist);
   if (persist) {
-    return scraperPOST(req);
+    // req.json() ja foi consumido no wrapper POST() acima — reconstroi a
+    // requisicao com o mesmo corpo pra encaminhar pro /api/admin/scraper.
+    const forwardedReq = new NextRequest(req.url, {
+      method: "POST",
+      headers: req.headers,
+      body: JSON.stringify(body),
+    });
+    return scraperPOST(forwardedReq);
   }
 
   const sourceUrl = toText(body.url);

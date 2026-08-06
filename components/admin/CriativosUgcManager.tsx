@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AudioLines,
+  AlertTriangle,
   Bot,
   Clapperboard,
   Copy,
@@ -164,6 +165,33 @@ type WhatsAppCopyVariants = {
   long: string;
 };
 
+type ProductClassification = {
+  angleType: string | null;
+  audienceDescriptor: string;
+  recommendedPersonaSlug: string | null;
+  recommendedTemplateSlug: string | null;
+  recommendedAngleSlug: string | null;
+  reasoning: string;
+  confidence: "low" | "medium" | "high";
+};
+
+type VideoJobSceneRow = {
+  id: string;
+  scene_index: number;
+  scene_type: string;
+  status: string;
+  attempts: number;
+  fallback_reason: string | null;
+  result_url: string | null;
+};
+
+type VideoJobRow = {
+  id: string;
+  status: string;
+  error: string | null;
+  output_url: string | null;
+};
+
 function asText(value: unknown): string {
   return String(value ?? "").trim();
 }
@@ -187,6 +215,23 @@ function formatDate(value: string | null | undefined): string {
     timeStyle: "short",
   }).format(new Date(value));
 }
+
+const VIDEO_JOB_STATUS_LABELS: Record<string, string> = {
+  queued: "Na fila",
+  running: "Gerando cenas",
+  composing: "Montando vídeo final",
+  completed: "Concluído",
+  failed: "Falhou",
+  cancelled: "Cancelado",
+};
+
+const VIDEO_SCENE_STATUS_LABELS: Record<string, string> = {
+  pending: "Aguardando",
+  submitted: "Enviada",
+  polling: "Gerando",
+  ready: "Pronta",
+  failed: "Falhou",
+};
 
 async function getAccessToken() {
   const { data, error } = await supabase.auth.getSession();
@@ -357,6 +402,11 @@ export default function CriativosUgcManager() {
   const [generatingAudio, setGeneratingAudio] = useState(false);
   const [generatingVideo, setGeneratingVideo] = useState(false);
   const [copyBadge, setCopyBadge] = useState<string | null>(null);
+  const [classifying, setClassifying] = useState(false);
+  const [classification, setClassification] = useState<ProductClassification | null>(null);
+  const [videoJob, setVideoJob] = useState<VideoJobRow | null>(null);
+  const [videoJobScenes, setVideoJobScenes] = useState<VideoJobSceneRow[]>([]);
+  const videoPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const copyBadgeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const selectedPersona = useMemo(
@@ -410,10 +460,17 @@ export default function CriativosUgcManager() {
       if (copyBadgeTimerRef.current) {
         clearTimeout(copyBadgeTimerRef.current);
       }
+      if (videoPollRef.current) {
+        clearInterval(videoPollRef.current);
+      }
     };
   }, []);
 
   useEffect(() => {
+    stopVideoPolling();
+    setVideoJob(null);
+    setVideoJobScenes([]);
+    setGeneratingVideo(false);
     if (!selectedProjectId) {
       setAssets([]);
       return;
@@ -820,16 +877,53 @@ export default function CriativosUgcManager() {
     }
   }
 
+  function stopVideoPolling() {
+    if (videoPollRef.current) {
+      clearInterval(videoPollRef.current);
+      videoPollRef.current = null;
+    }
+  }
+
+  async function pollVideoJob(jobId: string) {
+    try {
+      const res = await adminFetch(`/api/admin/criativos/video/status?jobId=${jobId}`);
+      const json = await res.json();
+      if (!res.ok) throw new Error(asText(json.error) || "Erro ao consultar status do vídeo.");
+
+      const job = json.job as VideoJobRow;
+      setVideoJob(job);
+      setVideoJobScenes((json.scenes ?? []) as VideoJobSceneRow[]);
+
+      if (["completed", "failed", "cancelled"].includes(job.status)) {
+        stopVideoPolling();
+        setGeneratingVideo(false);
+        if (job.status === "completed") {
+          setMessage("Vídeo gerado com sucesso.");
+          await loadAssets(selectedProjectId);
+        } else if (job.status === "failed") {
+          setError(job.error || "Falha ao gerar vídeo.");
+        }
+      }
+    } catch (pollError) {
+      stopVideoPolling();
+      setGeneratingVideo(false);
+      setError(pollError instanceof Error ? pollError.message : "Erro ao consultar status do vídeo.");
+    }
+  }
+
   async function handleGenerateVideo() {
     if (!selectedProjectId) {
         setError("Salve o projeto antes de gerar vídeo.");
         return;
     }
 
+    stopVideoPolling();
     setGeneratingVideo(true);
     setError(null);
     setMessage(null);
-    
+    setVideoJob(null);
+    setVideoJobScenes([]);
+
     try {
         const res = await adminFetch("/api/admin/criativos/video", {
             method: "POST",
@@ -837,17 +931,64 @@ export default function CriativosUgcManager() {
             body: JSON.stringify({ projectId: selectedProjectId })
         });
         const json = await res.json();
-        
+
         if (!res.ok) {
             throw new Error(asText(json.error) || "Erro ao gerar vídeo.");
         }
-        
-        setMessage("Renderização de vídeo iniciada/concluída com sucesso.");
-        await loadAssets(selectedProjectId);
+
+        setMessage("Vídeo entrou na fila — acompanhe o progresso das cenas abaixo.");
+        void pollVideoJob(json.jobId);
+        videoPollRef.current = setInterval(() => void pollVideoJob(json.jobId), 5000);
     } catch (videoError) {
         setError(videoError instanceof Error ? videoError.message : "Erro ao gerar vídeo.");
-    } finally {
         setGeneratingVideo(false);
+    }
+  }
+
+  async function handleClassifyProduct() {
+    if (!title || !price) {
+      setError("Preencha título e preço antes de pedir a sugestão da IA.");
+      return;
+    }
+
+    setClassifying(true);
+    setError(null);
+    try {
+      const res = await adminFetch("/api/admin/criativos/classify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title,
+          price: Number(String(price).replace(/[^\d,.-]/g, "").replace(",", ".")),
+          category: category || undefined,
+          marketplace: marketplace || undefined,
+          discount_pct:
+            price && originalPrice
+              ? Math.round(
+                  ((Number(String(originalPrice).replace(",", ".")) -
+                    Number(String(price).replace(",", "."))) /
+                    Number(String(originalPrice).replace(",", "."))) *
+                    100,
+                )
+              : undefined,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(asText(json.error) || "Erro ao classificar produto.");
+
+      const result = json.classification as ProductClassification;
+      setClassification(result);
+
+      const persona = personas.find((item) => item.slug === result.recommendedPersonaSlug);
+      const template = templates.find((item) => item.slug === result.recommendedTemplateSlug);
+      const angle = angles.find((item) => item.slug === result.recommendedAngleSlug);
+      if (persona) setSelectedPersonaId(persona.id);
+      if (template) setSelectedTemplateId(template.id);
+      if (angle) setSelectedAngleId(angle.id);
+    } catch (classifyError) {
+      setError(classifyError instanceof Error ? classifyError.message : "Erro ao classificar produto.");
+    } finally {
+      setClassifying(false);
     }
   }
 
@@ -1285,10 +1426,31 @@ export default function CriativosUgcManager() {
           </section>
 
           <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-slate-900">
-              <UserRound className="h-4 w-4 text-orange-500" />
-              Persona e briefing
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+                <UserRound className="h-4 w-4 text-orange-500" />
+                Persona e briefing
+              </div>
+              <button
+                type="button"
+                onClick={handleClassifyProduct}
+                disabled={classifying || !title || !price}
+                className="inline-flex items-center gap-2 rounded-2xl border border-orange-200 bg-orange-50 px-3 py-2 text-xs font-semibold text-orange-700 transition hover:bg-orange-100 disabled:opacity-60"
+              >
+                {classifying ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                Sugerir com IA
+              </button>
             </div>
+
+            {classification ? (
+              <div className="mb-4 rounded-2xl border border-orange-100 bg-orange-50/60 p-4 text-xs text-slate-700">
+                <div className="font-semibold text-orange-800">
+                  Público-alvo sugerido: {classification.audienceDescriptor || "-"}
+                </div>
+                <p className="mt-1 text-slate-600">{classification.reasoning}</p>
+              </div>
+            ) : null}
+
             <div className="grid gap-4 md:grid-cols-2">
               <label className="space-y-2 text-sm text-slate-700">
                 <span>Persona</span>
@@ -1827,6 +1989,48 @@ export default function CriativosUgcManager() {
                   )}
                   Renderizar Vídeo Final UGC
                 </button>
+
+                {videoJob ? (
+                  <div className="rounded-2xl border border-slate-200 p-4 text-sm">
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold text-slate-900">
+                        Status do vídeo: {VIDEO_JOB_STATUS_LABELS[videoJob.status] || videoJob.status}
+                      </span>
+                    </div>
+                    {videoJob.error ? (
+                      <p className="mt-2 text-xs text-red-600">{videoJob.error}</p>
+                    ) : null}
+                    {videoJobScenes.length > 0 ? (
+                      <ul className="mt-3 space-y-2">
+                        {videoJobScenes.map((scene) => (
+                          <li
+                            key={scene.id}
+                            className="flex items-center justify-between gap-2 rounded-xl border border-slate-100 bg-slate-50/70 px-3 py-2 text-xs"
+                          >
+                            <span className="text-slate-600">
+                              Cena {scene.scene_index + 1} · {scene.scene_type}
+                            </span>
+                            <span className="flex items-center gap-2">
+                              {scene.status === "stock_fallback" ? (
+                                <span
+                                  title={scene.fallback_reason || "Caiu para vídeo de banco de imagens"}
+                                  className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-1 font-semibold text-amber-800"
+                                >
+                                  <AlertTriangle className="h-3 w-3" />
+                                  Fallback estoque
+                                </span>
+                              ) : (
+                                <span className="rounded-full bg-slate-200 px-2 py-1 font-semibold text-slate-700">
+                                  {VIDEO_SCENE_STATUS_LABELS[scene.status] || scene.status}
+                                </span>
+                              )}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                  </div>
+                ) : null}
               </div>
             ) : (
               <p className="text-sm text-slate-500">Gere um roteiro para visualizar o resultado aqui.</p>

@@ -53,7 +53,7 @@ const FFMPEG_PATH = findFfmpegPath();
 ffmpeg.setFfmpegPath(FFMPEG_PATH);
 
 export interface VideoScene {
-  type: "freepik-animate" | "freepik-text2video" | "pexels-stock" | "ffmpeg-text";
+  type: "freepik-animate" | "freepik-text2video" | "pexels-stock" | "ffmpeg-text" | "heygen-avatar";
   duration: number;
   prompt?: string;
   imageUrl?: string;
@@ -61,6 +61,18 @@ export interface VideoScene {
   subtext?: string;
   searchQuery?: string;
   backgroundColor?: string;
+  // So usado por cenas heygen-avatar: audio (hook ou cta) que o OmniHuman
+  // usa como referencia pra sincronizar os labios — o video resultante ja
+  // sai com esse audio "embutido" (mas normalizeClip tira o audio de toda
+  // cena por simplicidade; a faixa final e remontada concatenando os
+  // arquivos de audio originais na mesma ordem das cenas, ver
+  // video-jobs/compose/route.ts).
+  audioUrl?: string;
+  // Preenchido pela fila assincrona (worker-ugc-video) depois que a cena ja
+  // foi resolvida no provedor (Freepik/Pexels/OmniHuman) — quando presente,
+  // composeVideoFromResolvedScenes usa isso direto, sem chamar nenhuma API
+  // de geracao aqui.
+  resolvedUrl?: string;
 }
 
 interface PexelsVideoFile {
@@ -191,8 +203,13 @@ async function generateTextClip(
   await page.screenshot({ path: pngPath });
   await browser.close();
 
-  // Usar o FFMPEG_PATH localizado
-  const command = `"${FFMPEG_PATH}" -loop 1 -i "${pngPath}" -t ${duration} -c:v mpeg4 -r 30 -pix_fmt yuv420p "${outputPath}" -y`;
+  // Pedido do prompt mestre: "texto com animacoes rapidas", nao um slide
+  // parado. zoompan da um punch-in continuo e fade da uma entrada rapida —
+  // simples de fazer em cima da mesma screenshot estatica, sem precisar de
+  // gravacao de video no Playwright.
+  const totalFrames = Math.round(duration * 30);
+  const filter = `zoompan=z='min(zoom+0.0015,1.12)':d=${totalFrames}:s=1080x1920:fps=30,fade=t=in:st=0:d=0.25`;
+  const command = `"${FFMPEG_PATH}" -loop 1 -i "${pngPath}" -t ${duration} -vf "${filter}" -c:v mpeg4 -r 30 -pix_fmt yuv420p "${outputPath}" -y`;
 
   execSync(command, { stdio: "ignore" });
 }
@@ -389,4 +406,144 @@ export async function composeVideo(
 
   console.log("Finalizado com sucesso.");
   return outputPath;
+}
+
+/**
+ * Mesma montagem final de composeVideo (baixar/normalizar clipe, concatenar,
+ * sobrepor logo, mixar audio) mas SEM chamar Freepik/Pexels — espera que
+ * cada cena ja tenha `resolvedUrl` (freepik-animate/freepik-text2video/
+ * pexels-stock) ou os campos de texto (ffmpeg-text) prontos. A resolucao
+ * das cenas nos provedores de IA agora acontece antes, passo a passo, na
+ * Edge Function worker-ugc-video — nao cabe mais dentro de uma unica
+ * chamada sincrona (era exatamente isso que fazia o pipeline antigo travar
+ * em timeout e cair silenciosamente pra estoque generico numa falha).
+ */
+export async function composeVideoFromResolvedScenes(
+  scenes: VideoScene[],
+  audioPath: string,
+  outputPath: string,
+): Promise<string> {
+  const tempDir = path.join(process.cwd(), "temp", "composer");
+  if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
+
+  const normalizedClips: string[] = [];
+
+  console.log(`Montagem final (cenas ja resolvidas): ${scenes.length} cenas`);
+
+  for (let i = 0; i < scenes.length; i += 1) {
+    const scene = scenes[i];
+    const rawScenePath = path.join(tempDir, `resolved_scene_${i}_raw.mp4`);
+    const normScenePath = path.join(tempDir, `resolved_scene_${i}_norm.mp4`);
+
+    if (scene.type === "ffmpeg-text") {
+      if (!scene.text) throw new Error(`Cena ${i + 1} ffmpeg-text exige text`);
+      await generateTextClip(
+        normScenePath,
+        scene.duration,
+        scene.text,
+        scene.backgroundColor,
+        scene.subtext,
+      );
+      normalizedClips.push(normScenePath);
+      continue;
+    }
+
+    if (!scene.resolvedUrl) {
+      throw new Error(
+        `Cena ${i + 1} (${scene.type}) sem resolvedUrl — precisa ser resolvida antes de chamar a montagem final.`,
+      );
+    }
+
+    console.log(`Baixando midia ja resolvida da cena ${i + 1}...`);
+    const downloadResponse = await fetch(scene.resolvedUrl);
+    if (!downloadResponse.ok) {
+      throw new Error(`Falha ao baixar midia da cena ${i + 1}: ${downloadResponse.status}`);
+    }
+    fs.writeFileSync(rawScenePath, Buffer.from(await downloadResponse.arrayBuffer()));
+
+    await normalizeClip(rawScenePath, normScenePath, scene.duration);
+    normalizedClips.push(normScenePath);
+  }
+
+  const listPath = path.join(tempDir, "concat_list_resolved.txt");
+  const listContent = normalizedClips
+    .map((clipPath) => `file '${clipPath.replace(/\\/g, "/")}'`)
+    .join("\n");
+  fs.writeFileSync(listPath, listContent);
+
+  const concatTempPath = path.join(tempDir, "concat_muted_resolved.mp4");
+
+  await new Promise((resolve, reject) => {
+    ffmpeg()
+      .input(listPath)
+      .inputOptions(["-f concat", "-safe 0"])
+      .outputOptions(["-c copy"])
+      .on("end", () => resolve(true))
+      .on("error", (error) => reject(error))
+      .save(concatTempPath);
+  });
+
+  await new Promise((resolve, reject) => {
+    let command = ffmpeg().input(concatTempPath).input(audioPath);
+    const logoPath = path.join(process.cwd(), "public", "logo-radar-smart.png");
+
+    if (fs.existsSync(logoPath)) {
+      command = command
+        .input(logoPath)
+        .complexFilter([
+          "[2:v]scale=120:-1[logo]",
+          "[0:v][logo]overlay=W-w-20:H-h-20[outv]",
+        ])
+        .outputOptions([
+          "-map [outv]",
+          "-map 1:a:0",
+          "-c:v mpeg4",
+          "-c:a aac",
+          "-shortest",
+        ]);
+    } else {
+      command = command.outputOptions([
+        "-map 0:v:0",
+        "-map 1:a:0",
+        "-c:v copy",
+        "-c:a aac",
+        "-shortest",
+      ]);
+    }
+
+    command
+      .on("end", () => resolve(true))
+      .on("error", (error) => reject(error))
+      .save(outputPath);
+  });
+
+  console.log("Montagem final concluida.");
+  return outputPath;
+}
+
+/**
+ * Concatena os 3 arquivos de audio (hook/body/cta, gerados separados desde
+ * a fase de avatar — ver app/api/admin/criativos/audio/route.ts) numa unica
+ * faixa, na mesma ordem das cenas do video. Mesma tecnica de concat list
+ * ja usada pra video em composeVideo/composeVideoFromResolvedScenes; como
+ * os 3 arquivos vem do mesmo provedor (ElevenLabs, mesmo codec), da pra
+ * concatenar com "-c copy" sem re-codificar.
+ */
+export async function concatAudioFiles(inputPaths: string[], outputPath: string): Promise<void> {
+  const tempDir = path.join(process.cwd(), "temp", "composer");
+  if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
+
+  const listPath = path.join(tempDir, `audio_concat_${Date.now()}.txt`);
+  const listContent = inputPaths.map((p) => `file '${p.replace(/\\/g, "/")}'`).join("\n");
+  fs.writeFileSync(listPath, listContent);
+
+  await new Promise((resolve, reject) => {
+    ffmpeg()
+      .input(listPath)
+      .inputOptions(["-f concat", "-safe 0"])
+      .outputOptions(["-c copy"])
+      .on("end", () => resolve(true))
+      .on("error", (error) => reject(error))
+      .save(outputPath);
+  });
 }

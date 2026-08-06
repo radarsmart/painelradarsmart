@@ -115,7 +115,7 @@ async function loadPersona(personaId: string): Promise<UGCPersonaProfile | null>
   const { data, error } = await supabaseAdmin
     .from("ugc_personas")
     .select(
-      "id,slug,name,archetype,gender_presentation,age_range,visual_style,tone,energy,accent,primary_use_cases,provider,provider_avatar_id,provider_voice_id,behavior_profile,camera_profile,is_default",
+      "id,slug,name,archetype,gender_presentation,age_range,visual_style,tone,energy,accent,primary_use_cases,provider,provider_avatar_id,provider_voice_id,avatar_image_url,behavior_profile,camera_profile,is_default",
     )
     .eq("id", personaId)
     .eq("is_active", true)
@@ -144,6 +144,7 @@ async function loadPersona(personaId: string): Promise<UGCPersonaProfile | null>
     provider: data.provider,
     providerAvatarId: data.provider_avatar_id,
     providerVoiceId: data.provider_voice_id,
+    avatarImageUrl: data.avatar_image_url,
     behaviorProfile:
       data.behavior_profile && typeof data.behavior_profile === "object"
         ? (data.behavior_profile as Record<string, unknown>)

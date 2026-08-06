@@ -51,6 +51,7 @@ export type UGCPersonaProfile = {
   provider?: string | null;
   providerAvatarId?: string | null;
   providerVoiceId?: string | null;
+  avatarImageUrl?: string | null;
   behaviorProfile?: Record<string, unknown>;
   cameraProfile?: Record<string, unknown>;
   isDefault?: boolean;

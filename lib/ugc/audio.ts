@@ -1,5 +1,23 @@
 import type { UGCBehaviorDirection, UGCVoiceDirection } from "./types";
 
+// eval("require") evita o webpack do Next.js tentar empacotar estaticamente
+// o @remotion/media-utils (pesado, so usado em rota server) — mesmo truque
+// ja usado em lib/tiktok-engine/remotion/render.ts.
+function runtimeRequire<T = unknown>(moduleName: string): T {
+  const req = eval("require") as NodeRequire;
+  return req(moduleName) as T;
+}
+
+// Usado pra medir a duracao real de cada segmento de audio (hook/body/cta)
+// depois de subir pro storage — a cena de avatar (OmniHuman) e as cenas de
+// produto (Kling) do worker-ugc-video precisam saber quanto tempo cada
+// trecho da narracao dura pra dimensionar a cena corretamente.
+export async function measureAudioDurationSeconds(audioUrl: string): Promise<number> {
+  const { getAudioDurationInSeconds } =
+    runtimeRequire<typeof import("@remotion/media-utils")>("@remotion/media-utils");
+  return getAudioDurationInSeconds(audioUrl);
+}
+
 type ElevenLabsVoiceSettings = {
   stability: number;
   similarity_boost: number;

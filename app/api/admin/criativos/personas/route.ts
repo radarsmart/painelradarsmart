@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
     const { data, error } = await supabaseAdmin
       .from("ugc_personas")
       .select(
-        "id,slug,name,archetype,gender_presentation,age_range,visual_style,tone,energy,accent,primary_use_cases,provider,provider_avatar_id,provider_voice_id,behavior_profile,camera_profile,is_active,is_default,sort_order,updated_at",
+        "id,slug,name,archetype,gender_presentation,age_range,visual_style,tone,energy,accent,primary_use_cases,provider,provider_avatar_id,provider_voice_id,avatar_image_url,behavior_profile,camera_profile,is_active,is_default,sort_order,updated_at",
       )
       .eq("is_active", true)
       .order("sort_order", { ascending: true })

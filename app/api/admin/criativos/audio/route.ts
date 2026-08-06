@@ -4,9 +4,18 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { requireAdmin } from "@/lib/admin-auth";
 import { supabaseAdmin } from "@/lib/supabase";
-import { generateElevenLabsAudio } from "@/lib/ugc/audio";
+import { generateElevenLabsAudio, measureAudioDurationSeconds } from "@/lib/ugc/audio";
 import type { UGCBehaviorDirection, UGCScript, UGCVoiceDirection } from "@/lib/ugc/types";
 import { UGC_VOICES, type VoiceKey } from "@/lib/ugc/voices";
+
+// Gera 3 arquivos de audio separados (hook/body/cta) em vez de um so —
+// necessario pro fluxo com avatar (OmniHuman): a cena de abertura/
+// fechamento com a garota propaganda falando precisa do audio exato
+// daquele trecho pra sincronizar os labios, e as cenas de produto no meio
+// (Kling) precisam saber a duracao do body pra dimensionar quantas cenas
+// gerar. Ver worker-ugc-video e video-jobs/compose.
+const SCRIPT_SEGMENTS = ["hook", "body", "cta"] as const;
+type ScriptSegment = (typeof SCRIPT_SEGMENTS)[number];
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -121,9 +130,9 @@ export async function POST(req: NextRequest) {
         : "mateus";
 
     const script = normalizeScript(body.script) ?? normalizeScript(project.current_script);
-    if (!script?.full_text) {
+    if (!script?.hook || !script?.body || !script?.cta) {
       return NextResponse.json(
-        { error: "Salve ou gere um roteiro completo antes de gerar o áudio." },
+        { error: "O roteiro precisa ter hook, body e cta preenchidos antes de gerar o áudio." },
         { status: 400 },
       );
     }
@@ -136,29 +145,65 @@ export async function POST(req: NextRequest) {
     );
 
     const voice = UGC_VOICES[voiceKey];
-    const audio = await generateElevenLabsAudio({
-      text: script.full_text,
-      voiceId: voice.id,
-      voiceDirection,
-      behaviorDirection,
-    });
-
-    const fileId = randomUUID();
-    const storagePath = `projects/${projectId}/audio/${fileId}.mp3`;
     const bucket = "ugc-assets";
+    const assets = [];
 
-    const uploadResult = await supabaseAdmin.storage
-      .from(bucket)
-      .upload(storagePath, audio.buffer, {
-        contentType: audio.mimeType,
-        upsert: true,
+    for (const segment of SCRIPT_SEGMENTS) {
+      const audio = await generateElevenLabsAudio({
+        text: script[segment as ScriptSegment],
+        voiceId: voice.id,
+        voiceDirection,
+        behaviorDirection,
       });
 
-    if (uploadResult.error) {
-      throw new Error(uploadResult.error.message);
-    }
+      const fileId = randomUUID();
+      const storagePath = `projects/${projectId}/audio/${fileId}_${segment}.mp3`;
 
-    const { data: publicUrlData } = supabaseAdmin.storage.from(bucket).getPublicUrl(storagePath);
+      const uploadResult = await supabaseAdmin.storage
+        .from(bucket)
+        .upload(storagePath, audio.buffer, {
+          contentType: audio.mimeType,
+          upsert: true,
+        });
+      if (uploadResult.error) throw new Error(uploadResult.error.message);
+
+      const { data: publicUrlData } = supabaseAdmin.storage.from(bucket).getPublicUrl(storagePath);
+      const durationSeconds = await measureAudioDurationSeconds(publicUrlData.publicUrl);
+
+      const { data: asset, error: assetError } = await supabaseAdmin
+        .from("ugc_project_assets")
+        .insert({
+          project_id: projectId,
+          asset_type: "audio",
+          provider: "elevenlabs",
+          bucket_name: bucket,
+          storage_path: storagePath,
+          public_url: publicUrlData.publicUrl,
+          mime_type: audio.mimeType,
+          size_bytes: audio.buffer.byteLength,
+          status: "ready",
+          metadata: {
+            segment,
+            durationSeconds,
+            voiceKey,
+            voiceName: voice.name,
+            voiceStyle: voice.style,
+            voiceSettings: audio.settings,
+            scriptLength: script[segment as ScriptSegment].length,
+            projectTitle: project.title,
+          },
+          created_by_user_id: adminGuard.userId,
+          created_by_email: adminGuard.email,
+          updated_at: new Date().toISOString(),
+        })
+        .select(
+          "id,project_id,asset_type,provider,bucket_name,storage_path,public_url,mime_type,size_bytes,status,metadata,created_at,updated_at",
+        )
+        .single();
+
+      if (assetError) throw new Error(assetError.message);
+      assets.push(asset);
+    }
 
     await supabaseAdmin
       .from("ugc_projects")
@@ -171,40 +216,7 @@ export async function POST(req: NextRequest) {
       })
       .eq("id", projectId);
 
-    const { data: asset, error: assetError } = await supabaseAdmin
-      .from("ugc_project_assets")
-      .insert({
-        project_id: projectId,
-        asset_type: "audio",
-        provider: "elevenlabs",
-        bucket_name: bucket,
-        storage_path: storagePath,
-        public_url: publicUrlData.publicUrl,
-        mime_type: audio.mimeType,
-        size_bytes: audio.buffer.byteLength,
-        status: "ready",
-        metadata: {
-          voiceKey,
-          voiceName: voice.name,
-          voiceStyle: voice.style,
-          voiceSettings: audio.settings,
-          scriptLength: script.full_text.length,
-          projectTitle: project.title,
-        },
-        created_by_user_id: adminGuard.userId,
-        created_by_email: adminGuard.email,
-        updated_at: new Date().toISOString(),
-      })
-      .select(
-        "id,project_id,asset_type,provider,bucket_name,storage_path,public_url,mime_type,size_bytes,status,metadata,created_at,updated_at",
-      )
-      .single();
-
-    if (assetError) {
-      throw new Error(assetError.message);
-    }
-
-    return NextResponse.json({ success: true, asset });
+    return NextResponse.json({ success: true, assets, asset: assets[assets.length - 1] });
   } catch (error) {
     return NextResponse.json(
       {

@@ -31,7 +31,8 @@ type ExtractionLayer =
   | "open_graph"
   | "dom"
   | "mixed"
-  | "none";
+  | "none"
+  | "affiliate_api";
 
 type DebugLayer =
   | "rainforest"

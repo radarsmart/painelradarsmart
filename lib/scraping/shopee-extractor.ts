@@ -1,8 +1,12 @@
 import { load } from "cheerio";
 import { fetchHtmlWithRotation } from "@/lib/scraping/http-fetch-rotator";
-import { generateShopeeAffiliateShortLink } from "@/lib/shopee/client";
+import {
+  fetchShopeeProductByIds,
+  generateShopeeAffiliateShortLink,
+  parseShopeeProductId,
+} from "@/lib/shopee/client";
 
-type ExtractionLayer = "json_ld" | "open_graph" | "dom" | "mixed" | "none";
+type ExtractionLayer = "json_ld" | "open_graph" | "dom" | "mixed" | "none" | "affiliate_api";
 
 export type ShopeeOfferPreview = {
   marketplace: "shopee";
@@ -15,7 +19,7 @@ export type ShopeeOfferPreview = {
   oldPrice: number | null;
   discountPct: number | null;
   currency: string;
-  extractionMethod: "shopee_html" | "shopee_url";
+  extractionMethod: "shopee_html" | "shopee_url" | "shopee_api";
   extractionLayer: ExtractionLayer;
   raw: Record<string, unknown>;
 };
@@ -141,12 +145,54 @@ function parseDom($: ReturnType<typeof load>) {
   return { title, imageUrl, price, oldPrice };
 }
 
+/**
+ * Tenta resolver o produto direto pela API oficial de afiliados (shopId +
+ * itemId extraidos da propria URL) — sem nenhum scraping. A Shopee bloqueia
+ * o fetch da pagina do produto com frequencia (deteccao de bot), e essa via
+ * nao depende disso: e uma chamada autenticada normal, tao confiavel quanto
+ * a geracao do link de afiliado (que ja usava essa mesma API). So retorna
+ * null quando a URL nao tem o padrao "i.<shopId>.<itemId>"/"/product/.../..."
+ * ou quando a API nao encontra o item.
+ */
+async function tryExtractShopeeViaApi(sourceUrl: string): Promise<ShopeeOfferPreview | null> {
+  const ids = parseShopeeProductId(sourceUrl);
+  if (!ids) return null;
+
+  const node = await fetchShopeeProductByIds(ids.shopId, ids.itemId).catch(() => null);
+  if (!node?.productName) return null;
+
+  const price = toNumber(node.price);
+  const productUrl = toText(node.productLink) || sourceUrl;
+  const affiliateUrl = toText(node.offerLink) || productUrl;
+
+  return {
+    marketplace: "shopee",
+    sourceUrl,
+    productUrl,
+    affiliateUrl,
+    title: toText(node.productName) || null,
+    imageUrl: toAbsoluteHttpUrl(node.imageUrl),
+    price,
+    oldPrice: null,
+    discountPct: null,
+    currency: "BRL",
+    extractionMethod: "shopee_api",
+    extractionLayer: "affiliate_api",
+    raw: { node },
+  };
+}
+
 export async function extractShopeeOffer(input: {
   url: string;
   affiliateUrl?: string | null;
 }): Promise<ShopeeOfferPreview> {
   const sourceUrl = toText(input.url);
   if (!sourceUrl) throw new Error("URL da Shopee obrigatoria.");
+
+  const viaApi = await tryExtractShopeeViaApi(sourceUrl);
+  if (viaApi) {
+    return input.affiliateUrl ? { ...viaApi, affiliateUrl: toText(input.affiliateUrl) } : viaApi;
+  }
 
   const { html, finalUrl, profile, status } = await fetchHtmlWithRotation({
     url: sourceUrl,

@@ -74,6 +74,58 @@ export async function fetchShopeeTopProducts(limit = 10, keyword?: string, page 
   };
 }
 
+// Extrai shopId/itemId de uma URL de produto Shopee, nos dois formatos que
+// a Shopee usa: "...-i.<shopId>.<itemId>" (link normal compartilhado) e
+// "/product/<shopId>/<itemId>" (formato que a propria API devolve em
+// productLink). Com esses dois numeros, productOfferV2 busca o produto
+// exato direto na API oficial — sem depender de raspar a pagina, que a
+// Shopee bloqueia com frequencia (deteccao de bot).
+export function parseShopeeProductId(url: string): { shopId: string; itemId: string } | null {
+  const value = String(url ?? "");
+
+  const dashFormat = value.match(/-i\.(\d+)\.(\d+)/);
+  if (dashFormat) return { shopId: dashFormat[1], itemId: dashFormat[2] };
+
+  const pathFormat = value.match(/\/product\/(\d+)\/(\d+)/);
+  if (pathFormat) return { shopId: pathFormat[1], itemId: pathFormat[2] };
+
+  return null;
+}
+
+/**
+ * Busca um produto especifico pela API oficial de afiliados, via shopId +
+ * itemId (em vez de busca por palavra-chave) — devolve titulo, preco,
+ * imagem e link de afiliado numa unica chamada, sem scraping.
+ */
+export async function fetchShopeeProductByIds(
+  shopId: string,
+  itemId: string,
+): Promise<ShopeeProductNode | null> {
+  const query = `{ productOfferV2(shopId: ${Number(shopId)}, itemId: ${Number(itemId)}) { nodes { productName commissionRate price priceMax itemId shopId shopName imageUrl productLink offerLink } } }`;
+  const payload = JSON.stringify({ query });
+  const { authorization } = buildShopeeAffiliateAuthHeader(payload);
+
+  const response = await fetch("https://open-api.affiliate.shopee.com.br/graphql", {
+    method: "POST",
+    headers: {
+      Authorization: authorization,
+      "Content-Type": "application/json",
+    },
+    body: payload,
+    cache: "no-store",
+  });
+
+  const raw = await response.json().catch(async () => ({
+    text: await response.text().catch(() => ""),
+  }));
+
+  const nodes =
+    ((raw as { data?: { productOfferV2?: { nodes?: ShopeeProductNode[] } } })?.data
+      ?.productOfferV2?.nodes ?? []) as ShopeeProductNode[];
+
+  return nodes[0] ?? null;
+}
+
 export async function generateShopeeAffiliateShortLink(originUrl: string): Promise<string> {
   const sanitizedOriginUrl = String(originUrl ?? "").trim();
   if (!sanitizedOriginUrl) return "";

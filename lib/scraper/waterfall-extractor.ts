@@ -27,6 +27,11 @@ export interface ExtractedProduct {
   brand: string | null;
   model: string | null;
   url: string;
+  // Preenchido apenas quando a propria camada de extracao ja gera um link
+  // de afiliado de verdade (hoje so a Shopee, via extractShopeeOffer/API
+  // oficial de afiliados) — nos demais marketplaces continua null e o
+  // afiliado e resolvido em outro lugar (input manual, sessao ML, etc).
+  affiliate_url: string | null;
   marketplace: Marketplace;
   extraction_method: string;
   extracted_at: string;
@@ -493,6 +498,12 @@ async function extractViaShopeeApi(url: string): Promise<Partial<PartialProduct>
     rating_count: null,
     seller: null,
     category: null,
+    // extractShopeeOffer ja gera o link curto (shope.ee/...) via API oficial
+    // de afiliados da Shopee — antes esse campo nao existia em PartialProduct
+    // e o valor era descartado aqui, entao a extracao por URL avulsa nunca
+    // devolvia o link de afiliado (so o fluxo de sincronizacao em massa do
+    // Shopee Hub usava esse link corretamente).
+    affiliate_url: preview.affiliateUrl || null,
   };
 }
 
@@ -590,6 +601,7 @@ function completeProduct(
     brand: null,
     model: null,
     url,
+    affiliate_url: toText(partial.affiliate_url) || null,
     marketplace,
     extraction_method: extractionMethod,
     extracted_at: new Date().toISOString(),

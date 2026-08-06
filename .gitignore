@@ -51,3 +51,8 @@ test-rainforest*.js
 temp/
 supabase/.temp/
 docs/apostila-radar-smart-painel-admin.pdf
+
+# runtime logs / browser session data (local automation, never commit — tokens/userDataDir hold live session cookies)
+log/
+tokens/
+userDataDir/

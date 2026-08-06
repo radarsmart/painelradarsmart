@@ -19,7 +19,7 @@ import { formatBRL } from "@/lib/formatters";
 import { supabase } from "@/lib/supabase";
 import { useRouter, useSearchParams } from "next/navigation";
 
-type Marketplace = "mercadolivre" | "amazon" | "awin" | "tiktokshop";
+type Marketplace = "mercadolivre" | "amazon" | "awin" | "tiktokshop" | "shopee";
 type OfferSlot = "flash" | "best" | "comparator";
 
 type ExtractPreview = {
@@ -173,6 +173,7 @@ const MARKETPLACE_LABEL: Record<Marketplace, string> = {
   amazon: "Amazon",
   awin: "AWIN",
   tiktokshop: "TikTok Shop",
+  shopee: "Shopee",
 };
 
 const DEFAULT_AWIN_ADVERTISER_ID = "18879"; // Aliexpress BR & LATAM (fallback quando a loja nao e reconhecida)
@@ -256,6 +257,10 @@ function detectMarketplaceFromUrl(url: string): Marketplace | null {
     normalized.includes("vt.tiktok.com")
   ) {
     return "tiktokshop";
+  }
+
+  if (normalized.includes("shopee.com.br") || normalized.includes("shopee.com") || normalized.includes("shope.ee")) {
+    return "shopee";
   }
 
   return null;
@@ -1260,7 +1265,7 @@ export default function AdminNovaOfertaPage() {
     if (!detectedMarketplace) {
       setFeedback({
         type: "error",
-        text: "URL invalida. Use um link valido de Amazon, Mercado Livre, AWIN ou TikTok Shop.",
+        text: "URL invalida. Use um link valido de Amazon, Mercado Livre, AWIN, TikTok Shop ou Shopee.",
       });
       return;
     }
@@ -1326,7 +1331,7 @@ export default function AdminNovaOfertaPage() {
       return;
     }
 
-    if (!manualAffiliate && detectedMarketplace !== "mercadolivre") {
+    if (!manualAffiliate && detectedMarketplace !== "mercadolivre" && detectedMarketplace !== "shopee") {
       setFeedback({
         type: "error",
         text: "Informe o seu Link de Afiliado antes de extrair.",
@@ -1446,6 +1451,13 @@ export default function AdminNovaOfertaPage() {
         effectiveAffiliate,
         img,
       );
+
+      // Shopee gera o link de afiliado dentro da propria extracao (API
+      // oficial), sem pre-etapa separada como o Mercado Livre — reflete o
+      // link gerado de volta no campo pra ficar visivel/copiavel.
+      if (!effectiveAffiliate && detectedMarketplace === "shopee" && nextPreview.affiliate_url) {
+        setAffiliateUrl(nextPreview.affiliate_url);
+      }
 
       const layerUsed = toCleanText(result.debug_info?.layer_used) || toCleanText(result.extraction_layer) || "n/a";
       const engineUsed = toCleanText(result.engine) || "waterfall";
@@ -1840,7 +1852,7 @@ export default function AdminNovaOfertaPage() {
           </div>
 
           <div className="flex flex-wrap gap-2">
-            {(["mercadolivre", "amazon", "awin", "tiktokshop"] as Marketplace[]).map((item) => (
+            {(["mercadolivre", "amazon", "awin", "tiktokshop", "shopee"] as Marketplace[]).map((item) => (
               <button
                 key={item}
                 type="button"
@@ -1870,6 +1882,8 @@ export default function AdminNovaOfertaPage() {
                     ? "URL completa do produto ou link AWIN (https://www.awin1.com/cread.php?... ou https://pt.aliexpress.com/...)"
                     : marketplace === "tiktokshop"
                       ? "Link do produto compartilhado no TikTok Shop (vt.tiktok.com/... ou tiktok.com/view/product/...)"
+                      : marketplace === "shopee"
+                        ? "URL Shopee (https://shopee.com.br/produto-i.NNN.NNN)"
                   : "URL Mercado Livre (https://www.mercadolivre.com.br/.../p/MLB... ou .../up/MLBU...)"
               }
               className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm outline-none focus:border-orange"
@@ -1879,17 +1893,25 @@ export default function AdminNovaOfertaPage() {
                 ? "Na AWIN, esta URL e usada como referencia do produto; o link de afiliado abaixo sera usado no card e na copy."
                 : marketplace === "tiktokshop"
                   ? "Ao clicar em Extrair URL, titulo e imagem sao preenchidos automaticamente quando o link for de um produto compartilhado (nao funciona em link de video). O preco precisa ser preenchido manualmente."
-                  : "Usada apenas para extrair titulo, imagem e preco do produto."}
+                  : marketplace === "shopee"
+                    ? "Ao clicar em Extrair URL, titulo, imagem, preco e o link de afiliado (shope.ee) sao gerados automaticamente pela API oficial da Shopee."
+                    : "Usada apenas para extrair titulo, imagem e preco do produto."}
             </p>
           </div>
 
           <div className="space-y-1">
             <label className="text-xs font-semibold uppercase tracking-wide text-slate-600">
               Link de afiliado{" "}
-              <span className={marketplace === "mercadolivre" ? "text-emerald-600" : "text-red-600"}>
+              <span
+                className={
+                  marketplace === "mercadolivre" || marketplace === "shopee"
+                    ? "text-emerald-600"
+                    : "text-red-600"
+                }
+              >
                 {marketplace === "awin"
                   ? "(gerado pela API ou obrigatorio no manual)"
-                  : marketplace === "mercadolivre"
+                  : marketplace === "mercadolivre" || marketplace === "shopee"
                     ? "(gerado automaticamente ao extrair)"
                     : "(obrigatorio)"}
               </span>
@@ -1904,6 +1926,8 @@ export default function AdminNovaOfertaPage() {
                     ? "A API AWIN preenche este campo; se for manual, cole aqui o link awin1.com"
                     : marketplace === "tiktokshop"
                       ? "Cole aqui o link de afiliado gerado no app/Creator Center do TikTok Shop"
+                      : marketplace === "shopee"
+                        ? "Deixe em branco para gerar automaticamente, ou cole aqui o link shope.ee"
                     : "Deixe em branco para gerar automaticamente, ou cole aqui o link meli.la"
               }
               className="h-11 w-full rounded-lg border-2 border-amber-300 bg-amber-50 px-3 text-sm outline-none focus:border-orange"
@@ -1911,7 +1935,9 @@ export default function AdminNovaOfertaPage() {
             <p className="text-xs text-slate-500">
               {marketplace === "mercadolivre"
                 ? "Deixe em branco e clique em Extrair URL — o link oficial e gerado automaticamente pela sessao de Afiliados do Mercado Livre."
-                : "Esse e o link final usado no card, na copy e nas paginas publicas."}
+                : marketplace === "shopee"
+                  ? "Deixe em branco e clique em Extrair URL — o link oficial e gerado automaticamente pela API de Afiliados da Shopee."
+                  : "Esse e o link final usado no card, na copy e nas paginas publicas."}
             </p>
           </div>
 

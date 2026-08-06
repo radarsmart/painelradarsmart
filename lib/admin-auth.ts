@@ -2,8 +2,12 @@ import { NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 
 type AdminGuardResult =
-  | { ok: true; userId: string; email: string | null }
+  | { ok: true; userId: string; email: string | null; role: string }
   | { ok: false; status: 401 | 403; error: string };
+
+type AdminGuardOptions = {
+  allowRoles?: string[];
+};
 
 function shouldBypassAdminLookupError(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
@@ -108,7 +112,11 @@ function extractTokenFromCookieEntries(
   return extractTokenFromCookieValue(joinedValue);
 }
 
-async function validateAdminToken(token: string): Promise<AdminGuardResult> {
+async function validateAdminToken(
+  token: string,
+  options?: AdminGuardOptions,
+): Promise<AdminGuardResult> {
+  const allowRoles = options?.allowRoles ?? ["admin"];
   const allowAnyAuthenticated =
     (process.env.ADMIN_ALLOW_ANY_AUTHENTICATED ?? "false").toLowerCase() ===
     "true";
@@ -117,7 +125,12 @@ async function validateAdminToken(token: string): Promise<AdminGuardResult> {
     const isDevelopment = process.env.NODE_ENV === "development";
     if (isDevelopment) {
       // Otimista: em dev local, permitimos bypass se nao houver token
-      return { ok: true, userId: "dev-master", email: "contato@radarsmart.com.br" };
+      return {
+        ok: true,
+        userId: "dev-master",
+        email: "contato@radarsmart.com.br",
+        role: "admin",
+      };
     }
     return { ok: false, status: 401, error: "Nao autorizado" };
   }
@@ -132,33 +145,41 @@ async function validateAdminToken(token: string): Promise<AdminGuardResult> {
 
   const byUserId = await supabaseAdmin
     .from("admins")
-    .select("id")
+    .select("id, role")
     .eq("user_id", userId)
     .limit(1)
     .maybeSingle();
 
   if (shouldBypassAdminLookupError(byUserId.error)) {
-    return { ok: true, userId, email };
+    return { ok: true, userId, email, role: "admin" };
   }
 
   if (byUserId.data?.id) {
-    return { ok: true, userId, email };
+    const role = String(byUserId.data.role ?? "admin");
+    if (!allowRoles.includes(role)) {
+      return { ok: false, status: 403, error: "Nao autorizado" };
+    }
+    return { ok: true, userId, email, role };
   }
 
   if (email) {
     const byEmail = await supabaseAdmin
       .from("admins")
-      .select("id")
+      .select("id, role")
       .ilike("email", email)
       .limit(1)
       .maybeSingle();
 
     if (shouldBypassAdminLookupError(byEmail.error)) {
-      return { ok: true, userId, email };
+      return { ok: true, userId, email, role: "admin" };
     }
 
     if (byEmail.data?.id) {
-      return { ok: true, userId, email };
+      const role = String(byEmail.data.role ?? "admin");
+      if (!allowRoles.includes(role)) {
+        return { ok: false, status: 403, error: "Nao autorizado" };
+      }
+      return { ok: true, userId, email, role };
     }
   }
 
@@ -172,24 +193,28 @@ async function validateAdminToken(token: string): Promise<AdminGuardResult> {
     .filter(Boolean);
 
   if (email && fallbackEmails.includes(email.toLowerCase())) {
-    return { ok: true, userId, email };
+    return { ok: true, userId, email, role: "admin" };
   }
 
   if (allowAnyAuthenticated) {
-    return { ok: true, userId, email };
+    return { ok: true, userId, email, role: "admin" };
   }
 
   return { ok: false, status: 403, error: "Nao autorizado" };
 }
 
-export async function requireAdmin(req: NextRequest): Promise<AdminGuardResult> {
+export async function requireAdmin(
+  req: NextRequest,
+  options?: AdminGuardOptions,
+): Promise<AdminGuardResult> {
   const token = extractBearerToken(req) || extractTokenFromSupabaseCookies(req);
-  return validateAdminToken(token ?? "");
+  return validateAdminToken(token ?? "", options);
 }
 
 export async function requireAdminFromCookies(
   entries: Array<{ name: string; value: string }>,
+  options?: AdminGuardOptions,
 ): Promise<AdminGuardResult> {
   const token = extractTokenFromCookieEntries(entries);
-  return validateAdminToken(token ?? "");
+  return validateAdminToken(token ?? "", options);
 }

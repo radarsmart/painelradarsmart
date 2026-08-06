@@ -2,6 +2,7 @@
 
 import StoryGeneratorButton from "@/components/admin/StoryGeneratorButton";
 import TikTokShopCreativeButton from "@/components/admin/TikTokShopCreativeButton";
+import { useIsRestrictedCollaborator } from "@/lib/admin-role-context";
 import { useEffect, useMemo, useState } from "react";
 import {
   CheckCircle2,
@@ -593,6 +594,7 @@ function getPriceScore(price: number, oldPrice: number) {
 export default function AdminNovaOfertaPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const isCollaborator = useIsRestrictedCollaborator();
   const editingOfferId = toCleanText(searchParams.get("id"));
   const isEditing = Boolean(editingOfferId);
   const [marketplace, setMarketplace] = useState<Marketplace>("mercadolivre");
@@ -1738,6 +1740,75 @@ export default function AdminNovaOfertaPage() {
     }
   };
 
+  const handleSaveForReview = async () => {
+    const url = sourceUrl.trim();
+    const manualAffiliate =
+      affiliateUrl.trim() || (marketplace === "awin" ? buildManualAwinAffiliateUrl(url) : "");
+
+    if (!preview) {
+      setFeedback({
+        type: "error",
+        text: "Extraia ou monte um preview antes de salvar.",
+      });
+      return;
+    }
+
+    if (!url || !manualAffiliate) {
+      setFeedback({
+        type: "error",
+        text: "URL e Link de Afiliado sao obrigatorios para salvar.",
+      });
+      return;
+    }
+
+    setPublishing("selected");
+    setFeedback(null);
+
+    try {
+      const accessToken = await getAccessToken();
+      const response = await fetch("/api/admin/extrator/dispatch", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          title: preview.title,
+          price: toNumber(preview.price),
+          old_price: toNumber(preview.original_price ?? preview.old_price ?? 0),
+          image_url: toCleanText(imageUrl) || preview.image_url || "",
+          product_url: preview.product_url || url,
+          affiliate_url: manualAffiliate,
+          marketplace,
+          slot_type: selectedSlot,
+          copy_text: copyText,
+          // Colaborador so monta a oferta — o servidor tambem forca isso,
+          // mas ja mandamos os valores certos pra UI nao prometer algo que
+          // nao vai acontecer.
+          channels: [],
+          publish_to_site: false,
+        }),
+      });
+
+      const data = await parseApiResponse<PublishResponse>(response);
+      if (!response.ok) {
+        throw new Error(data.error ?? "Erro ao salvar oferta.");
+      }
+
+      setFeedback({
+        type: "success",
+        text: "Oferta salva para aprovacao. Um admin vai revisar e publicar.",
+      });
+    } catch (error) {
+      setFeedback({
+        type: "error",
+        text: error instanceof Error ? error.message : "Erro ao salvar oferta.",
+      });
+    } finally {
+      setPublishing(null);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div>
@@ -2218,8 +2289,9 @@ export default function AdminNovaOfertaPage() {
                 Onde essa oferta vai aparecer no Radar Smart?
               </h3>
               <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-                Selecione os destinos abaixo. Agora voce pode enviar a mesma oferta para
-                Site, Telegram e WhatsApp em uma unica acao.
+                {isCollaborator
+                  ? "Escolha a categoria da oferta abaixo. Um admin revisa e publica no site/grupos depois."
+                  : "Selecione os destinos abaixo. Agora voce pode enviar a mesma oferta para Site, Telegram e WhatsApp em uma unica acao."}
               </p>
 
               <div className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-4">
@@ -2244,79 +2316,102 @@ export default function AdminNovaOfertaPage() {
                 ))}
               </div>
 
-              <div className="grid gap-3 md:grid-cols-3">
-                <button
-                  type="button"
-                  onClick={() => toggleDestination("site")}
-                  className={`flex items-center justify-center gap-2 rounded-lg border-2 py-4 font-bold transition-all ${
-                    selectedDestinations.site
-                      ? "border-green-600 bg-green-50 text-green-700"
-                      : "border-slate-200 bg-white text-slate-500"
-                  }`}
-                >
-                  <CheckCircle2 className="h-4 w-4" />
-                  Site
-                </button>
+              {isCollaborator ? (
+                <div className="mt-4 flex flex-wrap items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => void handleSaveForReview()}
+                    disabled={publishing !== null}
+                    className="inline-flex items-center justify-center gap-2 rounded-lg bg-navy px-5 py-3 text-sm font-bold text-white shadow-lg transition-all hover:bg-slate-800 disabled:opacity-60"
+                  >
+                    {publishing === "selected" ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <CheckCircle2 className="h-4 w-4" />
+                    )}
+                    {publishing === "selected" ? "Salvando..." : "Salvar oferta para aprovacao"}
+                  </button>
+                  <span className="text-sm text-slate-500">
+                    Nao publica no site nem envia pros grupos — so fica pronta pra revisao.
+                  </span>
+                </div>
+              ) : (
+                <>
+                  <div className="grid gap-3 md:grid-cols-3">
+                    <button
+                      type="button"
+                      onClick={() => toggleDestination("site")}
+                      className={`flex items-center justify-center gap-2 rounded-lg border-2 py-4 font-bold transition-all ${
+                        selectedDestinations.site
+                          ? "border-green-600 bg-green-50 text-green-700"
+                          : "border-slate-200 bg-white text-slate-500"
+                      }`}
+                    >
+                      <CheckCircle2 className="h-4 w-4" />
+                      Site
+                    </button>
 
-                <button
-                  type="button"
-                  onClick={() => toggleDestination("telegram")}
-                  className={`flex items-center justify-center gap-2 rounded-lg border-2 py-4 font-bold transition-all ${
-                    selectedDestinations.telegram
-                      ? "border-sky-500 bg-sky-50 text-sky-700"
-                      : "border-slate-200 bg-white text-slate-500"
-                  }`}
-                >
-                  <Send className="h-4 w-4" />
-                  Telegram
-                </button>
+                    <button
+                      type="button"
+                      onClick={() => toggleDestination("telegram")}
+                      className={`flex items-center justify-center gap-2 rounded-lg border-2 py-4 font-bold transition-all ${
+                        selectedDestinations.telegram
+                          ? "border-sky-500 bg-sky-50 text-sky-700"
+                          : "border-slate-200 bg-white text-slate-500"
+                      }`}
+                    >
+                      <Send className="h-4 w-4" />
+                      Telegram
+                    </button>
 
-                <button
-                  type="button"
-                  onClick={() => toggleDestination("whatsapp")}
-                  className={`flex items-center justify-center gap-2 rounded-lg border-2 py-4 font-bold transition-all ${
-                    selectedDestinations.whatsapp
-                      ? "border-emerald-500 bg-emerald-50 text-emerald-700"
-                      : "border-slate-200 bg-white text-slate-500"
-                  }`}
-                >
-                  <MessageSquare className="h-4 w-4" />
-                  WhatsApp
-                </button>
-              </div>
+                    <button
+                      type="button"
+                      onClick={() => toggleDestination("whatsapp")}
+                      className={`flex items-center justify-center gap-2 rounded-lg border-2 py-4 font-bold transition-all ${
+                        selectedDestinations.whatsapp
+                          ? "border-emerald-500 bg-emerald-50 text-emerald-700"
+                          : "border-slate-200 bg-white text-slate-500"
+                      }`}
+                    >
+                      <MessageSquare className="h-4 w-4" />
+                      WhatsApp
+                    </button>
+                  </div>
 
-              <label className="mt-4 flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700">
-                <input
-                  type="checkbox"
-                  checked={sendImmediately}
-                  onChange={(event) => setSendImmediately(event.target.checked)}
-                  className="h-4 w-4"
-                />
-                Envio imediato (pula a fila espacada de 20 em 20 minutos)
-              </label>
-              <p className="mb-1 text-xs text-slate-500">
-                Padrao e enviar pela fila espacada. Marque isso so quando precisar postar
-                agora mesmo (ex: cliente esperando), sem esperar o proximo horario.
-              </p>
+                  <label className="mt-4 flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={sendImmediately}
+                      onChange={(event) => setSendImmediately(event.target.checked)}
+                      className="h-4 w-4"
+                    />
+                    Envio imediato (pula a fila espacada de 20 em 20 minutos)
+                  </label>
+                  <p className="mb-1 text-xs text-slate-500">
+                    Padrao e enviar pela fila espacada. Marque isso so quando precisar postar
+                    agora mesmo (ex: cliente esperando), sem esperar o proximo horario.
+                  </p>
 
-              <div className="mt-4 flex flex-wrap items-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => void handlePublishSelected()}
-                  disabled={publishing !== null}
-                  className="inline-flex items-center justify-center gap-2 rounded-lg bg-navy px-5 py-3 text-sm font-bold text-white shadow-lg transition-all hover:bg-slate-800 disabled:opacity-60"
-                >
-                  {publishing === "selected" ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <CheckCircle2 className="h-4 w-4" />
-                  )}
-                  {publishing === "selected" ? "Publicando..." : "Publicar selecionados"}
-                </button>
-                <span className="text-sm text-slate-500">
-                  Destinos atuais: {buildDestinationSummary() || "nenhum"}
-                </span>
-              </div>
+                  <div className="mt-4 flex flex-wrap items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => void handlePublishSelected()}
+                      disabled={publishing !== null}
+                      className="inline-flex items-center justify-center gap-2 rounded-lg bg-navy px-5 py-3 text-sm font-bold text-white shadow-lg transition-all hover:bg-slate-800 disabled:opacity-60"
+                    >
+                      {publishing === "selected" ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <CheckCircle2 className="h-4 w-4" />
+                      )}
+                      {publishing === "selected" ? "Publicando..." : "Publicar selecionados"}
+                    </button>
+                    <span className="text-sm text-slate-500">
+                      Destinos atuais: {buildDestinationSummary() || "nenhum"}
+                    </span>
+                  </div>
+                </>
+              )}
 
               {marketplace === "tiktokshop" ? (
                 <TikTokShopCreativeButton

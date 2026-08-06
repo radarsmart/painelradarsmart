@@ -12,7 +12,7 @@ function toText(value: unknown): string {
 }
 
 export async function POST(req: NextRequest) {
-  const adminGuard = await requireAdmin(req);
+  const adminGuard = await requireAdmin(req, { allowRoles: ["admin", "central_oferta"] });
   if (!adminGuard.ok) {
     return NextResponse.json({ error: adminGuard.error }, { status: adminGuard.status });
   }

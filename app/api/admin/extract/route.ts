@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 
+import { requireAdmin } from "@/lib/admin-auth";
 import { extractProduct } from "@/lib/scraper/waterfall-extractor";
 import { extractWithZyteProduct, type ZyteProductExtraction } from "@/lib/scraping/zyte-product";
 import { POST as scraperPOST } from "../scraper/route";
@@ -126,13 +127,22 @@ async function tryZyteProduct(input: {
 }
 
 export async function POST(req: NextRequest) {
+  const adminGuard = await requireAdmin(req, { allowRoles: ["admin", "central_oferta"] });
+  if (!adminGuard.ok) {
+    return NextResponse.json({ error: adminGuard.error }, { status: adminGuard.status });
+  }
+
   const body = (await req.json().catch(() => ({}))) as {
     url?: unknown;
     affiliate_url?: unknown;
     persist?: unknown;
   };
 
-  const persist = Boolean(body.persist);
+  // persist=true salva a oferta direto (podendo ate auto-aprovar) via
+  // /api/admin/scraper — central_oferta so pode extrair preview, nunca
+  // persistir/aprovar nada sozinho, entao esse caminho fica bloqueado
+  // mesmo que o corpo da requisicao peca persist=true.
+  const persist = adminGuard.role === "admin" && Boolean(body.persist);
   if (persist) {
     return scraperPOST(req);
   }

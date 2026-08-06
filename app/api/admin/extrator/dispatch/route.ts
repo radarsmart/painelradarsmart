@@ -75,10 +75,15 @@ function getMissingColumnFromError(message: string): string | null {
 }
 
 export async function POST(req: NextRequest) {
-  const adminGuard = await requireAdmin(req);
+  const adminGuard = await requireAdmin(req, { allowRoles: ["admin", "central_oferta"] });
   if (!adminGuard.ok) {
     return NextResponse.json({ error: adminGuard.error }, { status: adminGuard.status });
   }
+  // Colaborador (central_oferta) so monta ofertas — nunca publica no site
+  // nem dispara pros grupos, mesmo que a requisicao peca isso. A oferta
+  // sempre entra como rascunho (status inactive / curations_status
+  // channel_ready), disponivel pra um admin revisar e publicar depois.
+  const isCollaborator = adminGuard.role === "central_oferta";
 
   try {
     const body = (await req.json()) as {
@@ -115,13 +120,13 @@ export async function POST(req: NextRequest) {
             { fallbackUrl: productUrl },
           );
     const imageUrl = toText(body.image_url);
-    const requestedChannels = normalizeChannels(body.channels);
+    const requestedChannels = isCollaborator ? [] : normalizeChannels(body.channels);
     const copyText = toText(body.copy_text);
     const slotType = toText(body.slot_type);
     const hubOfferId = toText(body.hub_offer_id);
-    const publishToSite = Boolean(body.publish_to_site);
+    const publishToSite = isCollaborator ? false : Boolean(body.publish_to_site);
     const isSiteApproval = publishToSite;
-    const scheduleNow = Boolean(body.schedule_now);
+    const scheduleNow = isCollaborator ? false : Boolean(body.schedule_now);
 
     if (!marketplace) {
       return NextResponse.json(

@@ -1131,9 +1131,13 @@ export default function AdminNovaOfertaPage() {
           let realOldPrice = 0;
           let extractLayer = "";
           try {
+            const extractAccessToken = await getAccessToken();
             const extractResponse = await fetch("/api/admin/extract", {
               method: "POST",
-              headers: { "Content-Type": "application/json" },
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${extractAccessToken}`,
+              },
               body: JSON.stringify({ url: normalizedUrl, affiliate_url: affiliate }),
             });
             const extractData = (await extractResponse.json().catch(() => ({}))) as ExtractResponse;
@@ -1375,10 +1379,12 @@ export default function AdminNovaOfertaPage() {
 
     try {
       setMarketplace(detectedMarketplace);
+      const extractAccessToken = await getAccessToken();
       const response = await fetch("/api/admin/extract", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          Authorization: `Bearer ${extractAccessToken}`,
         },
         body: JSON.stringify({
           url,

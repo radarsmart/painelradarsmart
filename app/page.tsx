@@ -447,30 +447,6 @@ export default function HomePage() {
                   Ver Ofertas
                 </Link>
               </div>
-
-              <div className="mx-auto mt-8 grid max-w-md grid-cols-3 gap-2 sm:mt-10 sm:max-w-lg sm:gap-4">
-                <div className="rounded-2xl border border-white/10 bg-white/10 p-3 text-center">
-                  <p className="text-[10px] uppercase text-slate-200 sm:text-xs">Ofertas monitoradas</p>
-                  <p className="mt-1 text-lg font-bold sm:text-2xl">{offers.length || 0}</p>
-                </div>
-                <div className="rounded-2xl border border-white/10 bg-white/10 p-3 text-center">
-                  <p className="text-[10px] uppercase text-slate-200 sm:text-xs">Marketplaces</p>
-                  <p className="mt-1 text-lg font-bold sm:text-2xl">
-                    {new Set(offers.map((offer) => offer.marketplace)).size || 0}
-                  </p>
-                </div>
-                <div className="rounded-2xl border border-white/10 bg-white/10 p-3 text-center">
-                  <p className="text-[10px] uppercase text-slate-200 sm:text-xs">Economia média</p>
-                  <p className="mt-1 text-lg font-bold sm:text-2xl">
-                    {offers.length
-                      ? `${Math.round(
-                          offers.reduce((acc, offer) => acc + offer.discount, 0) /
-                            offers.length,
-                        )}%`
-                      : "0%"}
-                  </p>
-                </div>
-              </div>
             </div>
           </div>
         </motion.section>

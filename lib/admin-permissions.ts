@@ -40,7 +40,7 @@ export function getEffectiveAdminRole(params: {
 }): string {
   const email = String(params.email ?? "").trim().toLowerCase();
   const offerOperatorEmails = (
-    process.env.OFFER_OPERATOR_EMAILS ?? "fagner.radarsmart@gmail.com"
+    process.env.OFFER_OPERATOR_EMAILS ?? "fagner@radarsmart.com.br"
   )
     .split(",")
     .map((item) => item.trim().toLowerCase())

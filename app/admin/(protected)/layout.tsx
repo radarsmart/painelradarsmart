@@ -47,18 +47,22 @@ export default function AdminProtectedLayout({
     }
 
     const validate = async () => {
-      const { data, error } = await supabase.auth.getSession();
-      if (!active) return;
-
-      if (error || !data.session) {
-        router.replace("/admin/login");
-        return;
-      }
-
       try {
+        const { data, error } = await supabase.auth.getSession();
+        if (!active) return;
+
+        if (error || !data.session) {
+          router.replace("/admin/login");
+          return;
+        }
+
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000);
+
         const response = await fetch("/api/admin/me", {
           headers: { Authorization: `Bearer ${data.session.access_token}` },
-        });
+          signal: controller.signal,
+        }).finally(() => clearTimeout(timeoutId));
         if (!active) return;
 
         if (!response.ok) {
@@ -71,13 +75,11 @@ export default function AdminProtectedLayout({
           role?: string;
         };
         setIdentity({ email: me.email ?? null, role: me.role ?? "admin" });
+        setIsReady(true);
       } catch {
         if (!active) return;
         router.replace("/admin/login");
-        return;
       }
-
-      setIsReady(true);
     };
 
     validate();

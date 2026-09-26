@@ -1,0 +1,34 @@
+{
+  "product": "Kokeshi Creme Gel Gota de Colágeno Facial – Óleo de Copaíba – 45g",
+  "references": [
+    {
+      "file": "kokeshi-hand-interaction.jpeg",
+      "roles": [
+        "HAND_INTERACTION_REFERENCE",
+        "SKINCARE_CONTEXT_REFERENCE",
+        "PRODUCT_SCALE_REFERENCE"
+      ],
+      "notes": "Produto real nas mãos; serve para interação/contexto, não como prova de textura ou aplicação."
+    },
+    {
+      "file": "kokeshi-packshot.webp",
+      "roles": [
+        "PACKSHOT_REFERENCE",
+        "PACKAGE_FIDELITY_REFERENCE",
+        "LABEL_FIDELITY_REFERENCE"
+      ],
+      "notes": "Fonte principal para embalagem, proporções, marca, cores e rótulo."
+    },
+    {
+      "file": "kokeshi-benefit-context.webp",
+      "roles": [
+        "BENEFIT_CONTEXT_REFERENCE"
+      ],
+      "notes": "Arte de contexto de ingredientes/benefícios; não é referência de textura/aplicação."
+    }
+  ],
+  "do_not_infer": [
+    "TEXTURE_REFERENCE_READY",
+    "APPLICATION_REFERENCE_READY"
+  ]
+}

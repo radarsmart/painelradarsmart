@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { requireAdmin } from "@/lib/admin-auth";
+import { OFFER_WORKFLOW_ROLES } from "@/lib/admin-permissions";
 import { extractProduct } from "@/lib/scraper/waterfall-extractor";
 import { extractWithZyteProduct, type ZyteProductExtraction } from "@/lib/scraping/zyte-product";
 import { generateShopeeAffiliateShortLink } from "@/lib/shopee/client";
@@ -193,7 +194,7 @@ async function handleExtractRequest(
   req: NextRequest,
   body: { url?: unknown; affiliate_url?: unknown; persist?: unknown },
 ) {
-  const adminGuard = await requireAdmin(req, { allowRoles: ["admin", "central_oferta"] });
+  const adminGuard = await requireAdmin(req, { allowRoles: OFFER_WORKFLOW_ROLES });
   if (!adminGuard.ok) {
     return NextResponse.json({ error: adminGuard.error }, { status: adminGuard.status });
   }

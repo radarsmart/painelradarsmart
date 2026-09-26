@@ -4,7 +4,27 @@ import {
   calculateQualityScore,
   type OfferQualityData,
 } from "@/lib/offers/quality-score";
+import { normalizePaymentTerms } from "@/lib/offers/pricing";
 import { getHistoricalPriceAvg } from "@/lib/offers/price-history";
+import { supabase } from "@/lib/supabase-browser";
+
+export { supabase };
+
+// Import dinamico proposital: o Opportunity Engine (matching, providers de
+// mercado/demanda) tem dependencias Node-only (undici, node:crypto) que
+// quebram o bundle do cliente se viesse como import estatico aqui — este
+// arquivo tambem exporta o client `supabase` (anon key) usado por Client
+// Components como app/page.tsx, entao qualquer import estatico no topo
+// arrasta essa cadeia inteira pro bundle do navegador.
+async function enqueueOpportunityEvaluationLazy(
+  client: SupabaseClient,
+  input: { offerId: string; reason?: string },
+) {
+  const { enqueueOpportunityEvaluation } = await import(
+    "@/lib/opportunity-engine/evaluation-queue"
+  );
+  return enqueueOpportunityEvaluation(client, input);
+}
 
 checkEnvVars();
 
@@ -12,14 +32,9 @@ const supabaseUrl =
   cleanEnv(process.env.SUPABASE_URL) ||
   cleanEnv(process.env.NEXT_PUBLIC_SUPABASE_URL) ||
   "";
-const supabaseAnon =
-  cleanEnv(process.env.SUPABASE_ANON_KEY) ||
-  cleanEnv(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) ||
-  "";
 const supabaseService = cleanEnv(process.env.SUPABASE_SERVICE_ROLE_KEY) || "";
 
 type GlobalWithSupabase = typeof globalThis & {
-  __radar_supabase_public__?: SupabaseClient;
   __radar_supabase_admin__?: SupabaseClient;
 };
 
@@ -45,33 +60,6 @@ function noStoreFetch(input: RequestInfo | URL, init?: RequestInit) {
   return fetch(input, { ...init, cache: "no-store" });
 }
 
-function createPublicClient() {
-  if (!supabaseUrl) {
-    warnMissingEnv("SUPABASE_URL ou NEXT_PUBLIC_SUPABASE_URL");
-  }
-  if (!supabaseAnon) {
-    warnMissingEnv("SUPABASE_ANON_KEY ou NEXT_PUBLIC_SUPABASE_ANON_KEY");
-  }
-
-  return createClient(supabaseUrl || "", supabaseAnon || "", {
-    auth: {
-      autoRefreshToken: true,
-      persistSession: true,
-      detectSessionInUrl: true,
-    },
-    global: {
-      fetch: noStoreFetch,
-    },
-  });
-}
-
-function getPublicSingleton() {
-  if (!globalWithSupabase.__radar_supabase_public__) {
-    globalWithSupabase.__radar_supabase_public__ = createPublicClient();
-  }
-  return globalWithSupabase.__radar_supabase_public__;
-}
-
 function createAdminClient() {
   if (!supabaseUrl) {
     warnMissingEnv("SUPABASE_URL ou NEXT_PUBLIC_SUPABASE_URL");
@@ -95,7 +83,7 @@ function createAdminClient() {
 function getAdminSingleton() {
   if (typeof window !== "undefined") {
     // Evita criar um segundo GoTrueClient no browser.
-    return getPublicSingleton();
+    return supabase;
   }
 
   if (!globalWithSupabase.__radar_supabase_admin__) {
@@ -104,7 +92,6 @@ function getAdminSingleton() {
   return globalWithSupabase.__radar_supabase_admin__;
 }
 
-export const supabase = getPublicSingleton();
 export const supabaseAdmin = getAdminSingleton();
 
 type MercadoLivreTokenResponse = {
@@ -369,24 +356,68 @@ export const salvarOferta = async (oferta: Record<string, unknown>) => {
   const { quality_score, is_priority } = calculateQualityScore(
     toOfferQualityData(ofertaWithHistory),
   );
+  const payment = normalizePaymentTerms({
+    price: oferta.price,
+    regular_price: oferta.regular_price ?? oferta.price,
+    cash_price: oferta.cash_price,
+    pix_price: oferta.pix_price,
+    card_price: oferta.card_price,
+    installment_total_price: oferta.installment_total_price,
+    installment_count: oferta.installment_count,
+    installment_amount: oferta.installment_amount,
+    installment_interest_free: oferta.installment_interest_free,
+    shipping_cost: oferta.shipping_cost,
+    coupon_discount: oferta.coupon_discount,
+    automatic_discount: oferta.automatic_discount,
+    cashback: oferta.cashback,
+    currency: oferta.currency,
+    payment_information_original: oferta.payment_information_original,
+  });
 
   const basePayload: Record<string, unknown> = {
     ...oferta,
+    regular_price: payment.regular_price,
+    cash_price: payment.cash_price,
+    pix_price: payment.pix_price,
+    card_price: payment.card_price,
+    installment_total_price: payment.installment_total_price,
+    installment_count: payment.installments,
+    installment_amount: payment.installment_value,
+    installment_interest_free: payment.interest_free,
+    shipping_cost: payment.shipping_cost,
+    coupon_discount: payment.coupon_discount,
+    automatic_discount: payment.automatic_discount,
+    cashback: payment.cashback,
+    effective_price: payment.effective_price,
+    unit_price: payment.unit_price,
+    unit_price_basis: payment.unit_price_basis,
+    payment_information_original: payment.payment_information_original,
     quality_score,
     is_priority,
     updated_at: now,
   };
 
   if (id) {
-    return supabaseAdmin
+    const result = await supabaseAdmin
       .from("offers")
       .update(basePayload)
       .eq("id", id)
       .select()
       .single();
+
+    if (result.data?.id) {
+      await enqueueOpportunityEvaluationLazy(supabaseAdmin, {
+        offerId: String(result.data.id),
+        reason: "offer_updated",
+      }).catch((error) => {
+        console.warn("[OpportunityEvaluation] enqueue after update failed", error);
+      });
+    }
+
+    return result;
   }
 
-  return supabaseAdmin
+  const result = await supabaseAdmin
     .from("offers")
     .insert({
       status: "active",
@@ -395,6 +426,17 @@ export const salvarOferta = async (oferta: Record<string, unknown>) => {
     })
     .select()
     .single();
+
+  if (result.data?.id) {
+    await enqueueOpportunityEvaluationLazy(supabaseAdmin, {
+      offerId: String(result.data.id),
+      reason: "offer_created",
+    }).catch((error) => {
+      console.warn("[OpportunityEvaluation] enqueue after insert failed", error);
+    });
+  }
+
+  return result;
 };
 
 export const toggleOferta = async (id: string, ativo: boolean) =>

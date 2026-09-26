@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { requireAdmin } from "@/lib/admin-auth";
+import { OFFER_OPERATOR_ROLES } from "@/lib/admin-permissions";
 import {
   getDistributionFlags,
   updateDistributionFlags,
@@ -10,7 +11,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
-  const adminGuard = await requireAdmin(req);
+  const adminGuard = await requireAdmin(req, { allowRoles: OFFER_OPERATOR_ROLES });
   if (!adminGuard.ok) {
     return NextResponse.json(
       { error: adminGuard.error },
@@ -35,7 +36,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
-  const adminGuard = await requireAdmin(req);
+  const adminGuard = await requireAdmin(req, { allowRoles: OFFER_OPERATOR_ROLES });
   if (!adminGuard.ok) {
     return NextResponse.json(
       { error: adminGuard.error },

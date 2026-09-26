@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Download, ImageDown, Sparkles, X } from "lucide-react";
 import { formatBRL } from "@/lib/formatters";
-import { supabase } from "@/lib/supabase";
+import { supabase } from "@/lib/supabase-browser";
 
 type StoryGeneratorButtonProps = {
   title: string;

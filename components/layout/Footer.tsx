@@ -17,7 +17,7 @@ const INSTAGRAM_URL =
   process.env.NEXT_PUBLIC_INSTAGRAM_URL ?? "https://www.instagram.com/radarsmart.oficial/";
 const FACEBOOK_URL =
   process.env.NEXT_PUBLIC_FACEBOOK_URL ??
-  "https://www.facebook.com/profile.php?id=61585280878080";
+  "https://www.facebook.com/profile.php?id=61588275939782";
 const TIKTOK_URL =
   process.env.NEXT_PUBLIC_TIKTOK_URL ?? "https://www.tiktok.com/@radarsmart.oferta";
 // Ainda sem perfil no X — quando tiver, so preencher NEXT_PUBLIC_X_URL.

@@ -3,12 +3,14 @@
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import AdminSidebar from "@/components/admin/AdminSidebar";
+import {
+  getDefaultAdminPathForRole,
+  isPathAllowedForRole,
+} from "@/lib/admin-permissions";
 import { AdminRoleProvider, type AdminIdentity } from "@/lib/admin-role-context";
-import { supabase } from "@/lib/supabase";
+import { supabase } from "@/lib/supabase-browser";
 
 export const dynamic = "force-dynamic";
-
-const COLLABORATOR_ALLOWED_PATHS = ["/admin/ofertas/nova", "/admin/extrator"];
 
 function shouldBypassAdminAuth(): boolean {
   if (typeof window === "undefined") return false;
@@ -28,7 +30,7 @@ export default function AdminProtectedLayout({
 }) {
   const router = useRouter();
   const pathname = usePathname();
-  const [isReady, setIsReady] = useState(shouldBypassAdminAuth);
+  const [isReady, setIsReady] = useState(false);
   const [identity, setIdentity] = useState<AdminIdentity>({
     email: null,
     role: "admin",
@@ -98,10 +100,9 @@ export default function AdminProtectedLayout({
 
   useEffect(() => {
     if (!isReady) return;
-    if (identity.role !== "central_oferta") return;
-    if (COLLABORATOR_ALLOWED_PATHS.includes(pathname)) return;
+    if (isPathAllowedForRole(identity.role, pathname)) return;
 
-    router.replace("/admin/ofertas/nova");
+    router.replace(getDefaultAdminPathForRole(identity.role));
   }, [isReady, identity.role, pathname, router]);
 
   if (!isReady) {

@@ -95,6 +95,14 @@ export async function GET(
       type: "product_click",
       source,
     }),
+    supabaseAdmin.from("analytics_events").insert({
+      offer_id: offerId,
+      event_type: "affiliate_click",
+      source,
+      channel: source,
+      user_agent: toText(request.headers.get("user-agent")),
+      referrer: toText(request.headers.get("referer")),
+    }),
     supabaseAdmin
       .from("offers")
       .update({ click_count: nextClickCount })

@@ -735,7 +735,7 @@ export async function GET(req: NextRequest) {
   const amazonTag =
     toText(process.env.AMAZON_TRACKING_ID) ||
     toText(process.env.AMAZON_AFFILIATE_TAG) ||
-    "radarsmart202-20";
+    "radarsmartOf-20";
 
   try {
     let syncInfo: { count: number; syncedAt: string; source: "amazon_snapshot" | "apify_task" } | null = null;

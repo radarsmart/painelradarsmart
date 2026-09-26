@@ -13,6 +13,7 @@ import Header from "@/components/layout/Header";
 import Footer from "@/components/layout/Footer";
 import BotaoAfiliado from "@/components/ui/BotaoAfiliado";
 import { formatBRL } from "@/lib/formatters";
+import { buildOfferPresentation } from "@/lib/offers/pricing";
 import { isOfferVisibleOnSite } from "@/lib/offers/site-visibility";
 import { formatMonthYearPtBr, toAbsoluteSiteUrl } from "@/lib/site";
 import { supabaseAdmin } from "@/lib/supabase";
@@ -32,6 +33,15 @@ type OfferRow = {
   brand: string | null;
   seller_name: string | null;
   price: number | string | null;
+  pix_price: number | string | null;
+  cash_price: number | string | null;
+  card_price: number | string | null;
+  shipping_cost: number | string | null;
+  installment_count: number | string | null;
+  installment_amount: number | string | null;
+  installment_interest_free: boolean | null;
+  coupon_code?: string | null;
+  coupon_description?: string | null;
   old_price: number | string | null;
   original_price: number | string | null;
   price_old: number | string | null;
@@ -58,6 +68,15 @@ type OfferSummary = {
   imageUrl: string | null;
   affiliateUrl: string;
   price: number;
+  pixPrice: number | null;
+  cashPrice: number | null;
+  cardPrice: number | null;
+  shippingCost: number | null;
+  installmentCount: number | null;
+  installmentAmount: number | null;
+  installmentInterestFree: boolean | null;
+  couponCode: string | null;
+  couponDescription: string | null;
   oldPrice: number | null;
   discountPct: number;
   marketplace: string;
@@ -143,10 +162,33 @@ function toSummary(row: OfferRow): OfferSummary | null {
     imageUrl: row.image_url,
     affiliateUrl,
     price,
+    pixPrice: toNumber(row.pix_price),
+    cashPrice: toNumber(row.cash_price),
+    cardPrice: toNumber(row.card_price),
+    shippingCost: toNumber(row.shipping_cost),
+    installmentCount: toNumber(row.installment_count),
+    installmentAmount: toNumber(row.installment_amount),
+    installmentInterestFree: row.installment_interest_free,
+    couponCode: row.coupon_code?.trim() || null,
+    couponDescription: row.coupon_description?.trim() || null,
     oldPrice,
     discountPct,
     marketplace: row.marketplace?.trim() || "Marketplace",
   };
+}
+
+function buildSummaryPresentation(summary: OfferSummary) {
+  return buildOfferPresentation({
+    regular_price: summary.price,
+    price: summary.price,
+    pix_price: summary.pixPrice,
+    cash_price: summary.cashPrice,
+    card_price: summary.cardPrice,
+    shipping_cost: summary.shippingCost,
+    installment_count: summary.installmentCount,
+    installment_amount: summary.installmentAmount,
+    installment_interest_free: summary.installmentInterestFree,
+  });
 }
 
 function buildAiAnalysis(summary: OfferSummary, row: OfferRow): string {
@@ -251,6 +293,15 @@ async function getOfferById(id: string): Promise<OfferRow | null> {
         "brand",
         "seller_name",
         "price",
+        "pix_price",
+        "cash_price",
+        "card_price",
+        "shipping_cost",
+        "installment_count",
+        "installment_amount",
+        "installment_interest_free",
+        "coupon_code",
+        "coupon_description",
         "old_price",
         "original_price",
         "price_old",
@@ -282,7 +333,7 @@ async function getRelatedOffers(source: OfferRow): Promise<OfferSummary[]> {
   let query = supabaseAdmin
     .from("offers")
     .select(
-      "id,title,image_url,affiliate_url,product_url,price,old_price,original_price,price_old,discount_pct,discount_percent,marketplace,status,curations_status,expires_at,published_at,updated_at,created_at,slot_type,manual_copy",
+      "id,title,image_url,affiliate_url,product_url,price,pix_price,cash_price,card_price,shipping_cost,installment_count,installment_amount,installment_interest_free,coupon_code,coupon_description,old_price,original_price,price_old,discount_pct,discount_percent,marketplace,status,curations_status,expires_at,published_at,updated_at,created_at,slot_type,manual_copy",
     )
     .eq("status", "active")
     .neq("id", source.id)
@@ -308,7 +359,7 @@ async function getCrossStoreMatches(source: OfferRow): Promise<OfferSummary[]> {
   const { data } = await supabaseAdmin
     .from("offers")
     .select(
-      "id,title,image_url,affiliate_url,product_url,price,old_price,original_price,price_old,discount_pct,discount_percent,marketplace,status,curations_status,expires_at,published_at,updated_at,created_at,slot_type,manual_copy",
+      "id,title,image_url,affiliate_url,product_url,price,pix_price,cash_price,card_price,shipping_cost,installment_count,installment_amount,installment_interest_free,coupon_code,coupon_description,old_price,original_price,price_old,discount_pct,discount_percent,marketplace,status,curations_status,expires_at,published_at,updated_at,created_at,slot_type,manual_copy",
     )
     .eq("status", "active")
     .eq("product_group_id", source.product_group_id)
@@ -450,6 +501,7 @@ async function OfferDetailContent({ id }: { id: string }) {
   const specs = extractSpecs(offer);
   const aiAnalysis = buildAiAnalysis(summary, offer);
   const structuredData = buildStructuredData(summary, offer);
+  const presentation = buildSummaryPresentation(summary);
   const savings = summary.oldPrice ? summary.oldPrice - summary.price : 0;
   const whatsappHref = buildSupportWhatsAppUrl(
     `Olá! Tenho uma dúvida sobre esta oferta: ${summary.title}`,
@@ -506,8 +558,13 @@ async function OfferDetailContent({ id }: { id: string }) {
               </p>
             ) : null}
             <p className="font-mono text-4xl font-extrabold text-[#22223B]">
-              {formatBRL(summary.price)}
+              {presentation.headline_price ?? formatBRL(summary.price)}
             </p>
+            {presentation.secondary_price ? (
+              <p className="mt-1 text-sm font-semibold text-slate-600">
+                {presentation.secondary_price}
+              </p>
+            ) : null}
             {savings > 0 ? (
               <p className="mt-1 text-sm font-semibold text-emerald-700">
                 Você economiza {formatBRL(savings)} ({summary.discountPct}% OFF)
@@ -557,8 +614,13 @@ async function OfferDetailContent({ id }: { id: string }) {
                 {summary.marketplace} (esta oferta)
               </p>
               <p className="mt-1 font-mono text-xl font-extrabold text-[#22223B]">
-                {formatBRL(summary.price)}
+                {presentation.headline_price ?? formatBRL(summary.price)}
               </p>
+              {presentation.secondary_price ? (
+                <p className="mt-1 text-xs font-semibold text-slate-600">
+                  {presentation.secondary_price}
+                </p>
+              ) : null}
             </div>
             {crossStoreMatches.map((match) => (
               <div key={match.id} className="rounded-xl border border-slate-200 p-4">
@@ -566,8 +628,13 @@ async function OfferDetailContent({ id }: { id: string }) {
                   {match.marketplace}
                 </p>
                 <p className="mt-1 font-mono text-xl font-extrabold text-[#22223B]">
-                  {formatBRL(match.price)}
+                  {buildSummaryPresentation(match).headline_price ?? formatBRL(match.price)}
                 </p>
+                {buildSummaryPresentation(match).secondary_price ? (
+                  <p className="mt-1 text-xs font-semibold text-slate-600">
+                    {buildSummaryPresentation(match).secondary_price}
+                  </p>
+                ) : null}
                 <BotaoAfiliado
                   offerId={match.id}
                   href={match.affiliateUrl}
@@ -648,8 +715,13 @@ async function OfferDetailContent({ id }: { id: string }) {
                   {item.title}
                 </h3>
                 <p className="mt-2 font-mono text-xl font-bold text-[#22223B]">
-                  {formatBRL(item.price)}
+                  {buildSummaryPresentation(item).headline_price ?? formatBRL(item.price)}
                 </p>
+                {buildSummaryPresentation(item).secondary_price ? (
+                  <p className="mt-0.5 text-xs text-slate-500">
+                    {buildSummaryPresentation(item).secondary_price}
+                  </p>
+                ) : null}
                 {item.oldPrice ? (
                   <p className="text-xs text-slate-400 line-through">
                     {formatBRL(item.oldPrice)}
@@ -701,7 +773,14 @@ async function OfferDetailContent({ id }: { id: string }) {
         <div className="mx-auto flex max-w-7xl items-center gap-3">
           <div className="min-w-0 flex-1">
             <p className="line-clamp-1 text-[11px] font-bold text-slate-800">{summary.title}</p>
-            <p className="text-sm font-black text-green-600">{formatBRL(summary.price)}</p>
+            <p className="text-sm font-black text-green-600">
+              {presentation.headline_price ?? formatBRL(summary.price)}
+            </p>
+            {presentation.secondary_price ? (
+              <p className="line-clamp-1 text-[10px] font-semibold text-slate-500">
+                {presentation.secondary_price}
+              </p>
+            ) : null}
           </div>
           <BotaoAfiliado
             offerId={summary.id}

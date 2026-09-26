@@ -19,7 +19,7 @@ import {
   Trash2,
 } from "lucide-react";
 
-import { supabase } from "@/lib/supabase";
+import { supabase } from "@/lib/supabase-browser";
 
 type LandingPageStatus = "draft" | "published" | "archived";
 

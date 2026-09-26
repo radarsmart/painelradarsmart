@@ -3,6 +3,9 @@ export interface OfferCopyInput {
   price: number;
   original_price?: number;
   discount_pct?: number;
+  pix_price?: number;
+  cash_price?: number;
+  card_price?: number;
   coupon_code?: string;
   coupon_discount?: number;
   coupon_description?: string;
@@ -66,6 +69,12 @@ function formatNumber(value: number): string {
 
 function formatPercent(value: number): string {
   return `${Math.round(value)}%`;
+}
+
+function safePaymentPrice(value: unknown, referencePrice: number): number | null {
+  const parsed = toNumber(value);
+  if (parsed === null || parsed <= 0) return null;
+  return parsed <= referencePrice + 0.01 ? parsed : null;
 }
 
 function inferProductContext(offer: OfferCopyInput): ProductContext {
@@ -199,6 +208,15 @@ type CopyFields = {
 
 const CTA_LINK_PHRASE = "Não perca essa oportunidade! Clique aqui:";
 
+function copyAlreadyMentionsPayment(value: string): boolean {
+  const normalized = value.toLowerCase();
+  return (
+    normalized.includes("pix") ||
+    normalized.includes("sem juros") ||
+    /\b\d{1,2}\s*[x×]\s*(?:de\s*)?r?\$?\s*\d/i.test(normalized)
+  );
+}
+
 function buildPriceBlock(
   price: number,
   originalPrice: number | null,
@@ -206,6 +224,11 @@ function buildPriceBlock(
   offer: OfferCopyInput,
 ): string {
   const lines: string[] = [];
+  const pixPrice = safePaymentPrice(offer.pix_price ?? null, price);
+  const cashPrice = safePaymentPrice(offer.cash_price ?? null, price);
+  const cardPrice = toNumber(offer.card_price ?? null);
+  const headlinePrice = pixPrice ?? cashPrice ?? price;
+  const headlineSuffix = pixPrice ? " no PIX" : cashPrice ? " a vista" : " no PIX";
 
   if (originalPrice && originalPrice > price) {
     const pct = discountPct ?? Math.round(((originalPrice - price) / originalPrice) * 100);
@@ -218,13 +241,34 @@ function buildPriceBlock(
     lines.push(`✅ Por: *${formatMoney(price)}*`);
   }
 
+  if (headlineSuffix) {
+    const priceLineIndex = lines.findIndex((line) => line.includes("Por:"));
+    if (priceLineIndex >= 0 && !copyAlreadyMentionsPayment(lines[priceLineIndex])) {
+      lines[priceLineIndex] = `${lines[priceLineIndex]}${headlineSuffix}`;
+    }
+  }
+
+  if (cardPrice && !offer.installment_count && cardPrice !== headlinePrice) {
+    lines.push(`No cartao: ${formatMoney(cardPrice)}`);
+  }
+
   if (offer.installment_count && offer.installment_amount) {
     const suffix = offer.installment_interest_free ? " sem juros" : "";
-    lines.push(`💳 ou ${offer.installment_count}x de ${formatMoney(offer.installment_amount)}${suffix}`);
+    lines.push(
+      `ou ${offer.installment_count}× de ${formatMoney(offer.installment_amount)} no cartão de crédito${suffix}`,
+    );
   }
 
   if (offer.coupon_code) {
     lines.push(`🏷️ Cupom: *${offer.coupon_code}*`);
+    // A restricao de elegibilidade (so 1a compra, so pelo app etc.) precisa
+    // aparecer junto com o codigo — sem isso, quem nao se qualifica ve
+    // propaganda enganosa. coupon_description e onde a captura guarda essa
+    // restricao (nao a instrucao generica de "insira o codigo").
+    const restriction = toText(offer.coupon_description);
+    if (restriction) {
+      lines.push(`⚠️ ${restriction}`);
+    }
   }
 
   return lines.join("\n");
@@ -457,7 +501,11 @@ function normalizeCopyOutput(
 
   const originalPrice = computeOriginalPrice(offer);
   const discountPct = computeDiscountPct(offer, originalPrice);
-  const priceBlock = buildPriceBlock(offer.price, originalPrice, discountPct, offer);
+  const paymentHeadlinePrice =
+    safePaymentPrice(offer.pix_price ?? null, offer.price) ??
+    safePaymentPrice(offer.cash_price ?? null, offer.price) ??
+    offer.price;
+  const priceBlock = buildPriceBlock(paymentHeadlinePrice, originalPrice, discountPct, offer);
   const ctaLinkBlock = buildCtaLinkBlock(offer.affiliate_url);
 
   const hook = fields.headline;
@@ -493,6 +541,9 @@ export async function generateWhatsAppCopy(
     price,
     original_price: toNumber(offer.original_price ?? null) ?? undefined,
     discount_pct: toNumber(offer.discount_pct ?? null) ?? undefined,
+    pix_price: toNumber(offer.pix_price ?? null) ?? undefined,
+    cash_price: toNumber(offer.cash_price ?? null) ?? undefined,
+    card_price: toNumber(offer.card_price ?? null) ?? undefined,
     coupon_discount: toNumber(offer.coupon_discount ?? null) ?? undefined,
     rating: toNumber(offer.rating ?? null) ?? undefined,
     reviews_count: toNumber(offer.reviews_count ?? null) ?? undefined,
@@ -502,6 +553,7 @@ export async function generateWhatsAppCopy(
     category: normalizeWhitespace(offer.category ?? ""),
     image_url: normalizeWhitespace(offer.image_url ?? ""),
     coupon_code: normalizeWhitespace(offer.coupon_code ?? ""),
+    coupon_description: normalizeWhitespace(offer.coupon_description ?? ""),
   };
 
   const systemPrompt = buildSystemPrompt();

@@ -11,7 +11,7 @@ import {
   TestTube2,
 } from "lucide-react";
 
-import { supabase } from "@/lib/supabase";
+import { supabase } from "@/lib/supabase-browser";
 
 type SortType = "best_deals" | "top_selling";
 type SlotType = "flash" | "best" | "comparator";

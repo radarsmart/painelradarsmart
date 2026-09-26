@@ -56,6 +56,10 @@ type OfferRow = {
   installment_interest_free: boolean | null;
   coupon_code: string | null;
   coupon_description: string | null;
+  pix_price: number | string | null;
+  cash_price: number | string | null;
+  card_price: number | string | null;
+  shipping_cost: number | string | null;
   published_at?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
@@ -109,6 +113,9 @@ function normalizeMarketplaceLabel(row: OfferRow): string {
   if (rawMarketplace.includes("shopee") || sourceUrl.includes("shopee.")) {
     return "Shopee";
   }
+  if (rawMarketplace.includes("tiktok") || sourceUrl.includes("tiktok.")) {
+    return "TikTok Shop";
+  }
 
   return "Marketplace";
 }
@@ -130,6 +137,10 @@ function normalizeOffer(row: OfferRow): OfertaCard {
     title: decodeEntities(row.title?.trim() || "Oferta sem título"),
     marketplace: normalizeMarketplaceLabel(row),
     price,
+    pix_price: toNumber(row.pix_price) || null,
+    cash_price: toNumber(row.cash_price) || null,
+    card_price: toNumber(row.card_price) || null,
+    shipping_cost: row.shipping_cost === 0 || row.shipping_cost === "0" ? 0 : toNumber(row.shipping_cost) || null,
     old_price: oldPrice,
     discount_pct: discountPct,
     image_url: row.image_url || undefined,
@@ -158,7 +169,7 @@ export default async function OfertasPage({
     const { data } = await supabaseAdmin
       .from("offers")
       .select(
-        "id,title,marketplace,price,old_price,original_price,discount_pct,discount_percent,image_url,affiliate_url,product_url,slot_type,category,expires_at,status,curations_status,updated_at,created_at,published_at,manual_copy,installment_count,installment_amount,installment_interest_free,coupon_code,coupon_description",
+        "id,title,marketplace,price,old_price,original_price,discount_pct,discount_percent,image_url,affiliate_url,product_url,slot_type,category,expires_at,status,curations_status,updated_at,created_at,published_at,manual_copy,installment_count,installment_amount,installment_interest_free,coupon_code,coupon_description,pix_price,cash_price,card_price,shipping_cost",
       )
       .eq("status", "active")
       .in("slot_type", ["flash", "best", "comparator"])

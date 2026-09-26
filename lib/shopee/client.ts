@@ -10,6 +10,8 @@ export type ShopeeProductNode = {
   imageUrl?: string | null;
   productLink?: string | null;
   offerLink?: string | null;
+  sales?: string | number | null;
+  ratingStar?: string | number | null;
 };
 
 function requiredEnv(name: "SHOPEE_APP_ID" | "SHOPEE_SECRET_KEY"): string {
@@ -24,7 +26,7 @@ export function buildShopeeAffiliatePayload(limit = 10, keyword?: string, page =
   const safeLimit = Math.max(1, Math.min(limit, 50));
   const safePage = Math.max(1, Math.min(page, 50));
   const keywordArg = keyword?.trim() ? `keyword: ${JSON.stringify(keyword.trim())}, ` : "";
-  const query = `{ productOfferV2(${keywordArg}sortType: 2, page: ${safePage}, limit: ${safeLimit}) { nodes { productName commissionRate price priceMax itemId shopName imageUrl productLink offerLink } } }`;
+  const query = `{ productOfferV2(${keywordArg}sortType: 2, page: ${safePage}, limit: ${safeLimit}) { nodes { productName commissionRate price priceMax itemId shopName imageUrl productLink offerLink sales ratingStar } } }`;
 
   return JSON.stringify({ query });
 }
@@ -101,7 +103,7 @@ export async function fetchShopeeProductByIds(
   shopId: string,
   itemId: string,
 ): Promise<ShopeeProductNode | null> {
-  const query = `{ productOfferV2(shopId: ${Number(shopId)}, itemId: ${Number(itemId)}) { nodes { productName commissionRate price priceMax itemId shopId shopName imageUrl productLink offerLink } } }`;
+  const query = `{ productOfferV2(shopId: ${Number(shopId)}, itemId: ${Number(itemId)}) { nodes { productName commissionRate price priceMax itemId shopId shopName imageUrl productLink offerLink sales ratingStar } } }`;
   const payload = JSON.stringify({ query });
   const { authorization } = buildShopeeAffiliateAuthHeader(payload);
 

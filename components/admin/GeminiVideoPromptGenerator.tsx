@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Image from "next/image";
 import { Check, Copy, Download, Loader2, Sparkles } from "lucide-react";
 
-import { supabase } from "@/lib/supabase";
+import { supabase } from "@/lib/supabase-browser";
 
 type CandidateOffer = {
   id: string;

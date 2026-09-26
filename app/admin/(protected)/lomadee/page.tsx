@@ -14,7 +14,7 @@ import {
   X
 } from "lucide-react";
 
-import { supabase } from "@/lib/supabase";
+import { supabase } from "@/lib/supabase-browser";
 
 type LomadeeProduct = {
   id: string;

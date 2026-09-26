@@ -1,27 +1,27 @@
 "use client";
 
 import StoryGeneratorButton from "@/components/admin/StoryGeneratorButton";
-import { supabase } from "@/lib/supabase";
+import { supabase } from "@/lib/supabase-browser";
 import {
   CheckCircle2,
   Loader2,
-  MessageSquare,
   RefreshCw,
   Search,
-  Send,
   Store,
   TrendingUp,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
-type DispatchAction = "telegram" | "whatsapp" | "site";
-type SlotType = "flash" | "best" | "comparator";
+type DispatchAction = "curation";
 type ClassificationFilter = "" | "Melhor Comissão" | "Oferta do Dia" | "Destaque";
 
 type ShopeeHubProduct = {
   id?: string;
   title: string;
   price: number;
+  old_price?: number | null;
+  original_price?: number | null;
+  discount_pct?: number | null;
   commission_rate: number;
   image: string;
   link: string;
@@ -62,6 +62,41 @@ function formatBRL(value: number) {
   }).format(value || 0);
 }
 
+// Chave de agrupamento simples por titulo normalizado — funcao local (sem
+// import) de proposito: este arquivo e um Client Component, e puxar
+// qualquer coisa de lib/opportunity-engine/* aqui arrastaria o bundle
+// inteiro do motor pro navegador (mesmo problema que ja quebrou o build
+// hoje). Revendedores diferentes anunciam o mesmo produto com o titulo
+// praticamente identico, entao normalizar (minusculo, sem acento/pontuacao,
+// espacos colapsados) e comparar string ja pega a maioria dos casos reais.
+function normalizeTitleKey(title: string): string {
+  return title
+    .normalize("NFD")
+    .replace(/[^\x00-\x7F]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function groupByProduct(products: ShopeeHubProduct[]): Array<{
+  key: string;
+  best: ShopeeHubProduct;
+  hiddenCount: number;
+}> {
+  const groups = new Map<string, ShopeeHubProduct[]>();
+  for (const product of products) {
+    const key = normalizeTitleKey(product.title) || `untitled:${product.link}`;
+    const bucket = groups.get(key);
+    if (bucket) bucket.push(product);
+    else groups.set(key, [product]);
+  }
+
+  return Array.from(groups.entries()).map(([key, items]) => {
+    const best = items.reduce((cheapest, item) => (item.price < cheapest.price ? item : cheapest));
+    return { key, best, hiddenCount: items.length - 1 };
+  });
+}
+
 function formatSyncTime(value?: string | null) {
   if (!value) return "Nunca";
   const parsed = new Date(value);
@@ -85,7 +120,6 @@ export default function ShopeeHubPage() {
   const [error, setError] = useState("");
   const [feedback, setFeedback] = useState("");
   const [dispatching, setDispatching] = useState<string | null>(null);
-  const [siteModalProduct, setSiteModalProduct] = useState<ShopeeHubProduct | null>(null);
   const [stats, setStats] = useState<ShopeeHubResponse["stats"]>();
   const [syncedAt, setSyncedAt] = useState<string | null>(null);
   const [source, setSource] = useState("");
@@ -216,11 +250,7 @@ export default function ShopeeHubPage() {
     }
   }
 
-  async function handleDispatch(
-    product: ShopeeHubProduct,
-    action: DispatchAction,
-    slotType?: SlotType,
-  ) {
+  async function handleDispatch(product: ShopeeHubProduct, action: DispatchAction) {
     setDispatching(`${action}:${product.link}`);
     setFeedback("");
     setError("");
@@ -237,19 +267,19 @@ export default function ShopeeHubPage() {
         body: JSON.stringify({
           title: product.title,
           price: product.price,
-          old_price: null,
+          old_price: product.old_price ?? product.original_price ?? null,
+          original_price: product.original_price ?? product.old_price ?? null,
+          discount_pct: product.discount_pct ?? null,
           image_url: product.image,
           product_url: product.link,
           affiliate_url: affiliateUrl,
           hub_offer_id: product.hub_offer_id,
           marketplace: "shopee",
-          slot_type: slotType,
-          channels:
-            action === "site"
-              ? []
-              : action === "telegram"
-                ? ["telegram"]
-                : ["whatsapp"],
+          // Sem channels e sem publish_to_site: /api/admin/extrator/dispatch
+          // ja sabe so salvar a oferta (status inactive) sem disparar nada —
+          // salvarOferta() enfileira a avaliacao do Opportunity Engine
+          // sozinha, entao ela aparece pontuada no Radar de Oportunidades.
+          channels: [],
         }),
       });
 
@@ -259,27 +289,22 @@ export default function ShopeeHubPage() {
         error?: string;
       };
       if (!response.ok || !payload.success) {
-        throw new Error(payload.error || payload.message || "Falha ao despachar oferta da Shopee.");
+        throw new Error(payload.error || payload.message || "Falha ao enviar oferta para curadoria.");
       }
 
-      const slotLabels: Record<SlotType, string> = {
-        flash: "Ofertas Relâmpago",
-        best: "Melhores Ofertas",
-        comparator: "Comparador",
-      };
-
-      setFeedback(
-        action === "site" && slotType
-          ? `Enviado para: ${slotLabels[slotType]} ✅`
-          : payload.message || "Oferta processada com sucesso.",
-      );
+      setFeedback("Enviada para curadoria — acompanhe em Radar de Oportunidades. ✅");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Falha ao executar a ação.");
     } finally {
       setDispatching(null);
-      setSiteModalProduct(null);
     }
   }
+
+  const groupedProducts = useMemo(() => groupByProduct(products), [products]);
+  const hiddenDuplicatesCount = useMemo(
+    () => groupedProducts.reduce((sum, group) => sum + group.hiddenCount, 0),
+    [groupedProducts],
+  );
 
   const statsView = useMemo(
     () => ({
@@ -413,6 +438,12 @@ export default function ShopeeHubPage() {
         </div>
       ) : null}
 
+      {!loading && hiddenDuplicatesCount > 0 ? (
+        <div className="rounded-3xl border border-slate-200 bg-slate-50 px-5 py-3 text-sm text-slate-600">
+          {hiddenDuplicatesCount} anúncio(s) do mesmo produto (outro vendedor/preço) foram agrupados — mostrando só o mais barato de cada.
+        </div>
+      ) : null}
+
       {loading ? (
         <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
           {Array.from({ length: 6 }).map((_, index) => (
@@ -424,11 +455,11 @@ export default function ShopeeHubPage() {
             </div>
           ))}
         </div>
-      ) : products.length > 0 ? (
+      ) : groupedProducts.length > 0 ? (
         <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
-          {products.map((product, index) => (
+          {groupedProducts.map(({ key, best: product, hiddenCount }) => (
             <article
-              key={`${product.link}-${index}`}
+              key={key}
               className="overflow-hidden rounded-3xl bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg"
             >
               <div className="flex items-start gap-4">
@@ -461,6 +492,16 @@ export default function ShopeeHubPage() {
 
                   <div className="mt-3 flex items-end gap-2">
                     <span className="text-2xl font-black text-[#111827]">{formatBRL(product.price)}</span>
+                    {(product.old_price ?? product.original_price ?? 0) > product.price ? (
+                      <span className="pb-1 text-xs text-gray-400 line-through">
+                        {formatBRL(product.old_price ?? product.original_price ?? 0)}
+                      </span>
+                    ) : null}
+                    {(product.discount_pct ?? 0) > 0 ? (
+                      <span className="rounded-full bg-red-50 px-2 py-1 text-[10px] font-black text-red-700">
+                        {Math.round(product.discount_pct ?? 0)}% OFF
+                      </span>
+                    ) : null}
                   </div>
 
                   <div className="mt-3 flex items-center justify-between gap-3">
@@ -470,6 +511,11 @@ export default function ShopeeHubPage() {
                     </div>
                     <span className="text-xs text-gray-500">{product.shop_name || "Loja Shopee"}</span>
                   </div>
+                  {hiddenCount > 0 ? (
+                    <p className="mt-1 text-[11px] font-semibold text-slate-400">
+                      + {hiddenCount} outro(s) vendedor(es) com o mesmo produto (mais caro)
+                    </p>
+                  ) : null}
                   <div className="mt-2 flex items-center justify-between gap-3 text-xs text-gray-500">
                     <span>{product.is_saved ? "Salva no hub" : "Fallback local"}</span>
                     <span>{product.synced_at ? `Sincronizada em ${formatSyncTime(product.synced_at)}` : ""}</span>
@@ -521,41 +567,19 @@ export default function ShopeeHubPage() {
                     </a>
                   </div>
 
-                  <div className="mt-4 grid grid-cols-2 gap-2">
+                  <div className="mt-4">
                     <button
                       type="button"
-                      onClick={() => void handleDispatch(product, "telegram")}
+                      onClick={() => void handleDispatch(product, "curation")}
                       disabled={dispatching !== null}
-                      className="inline-flex items-center justify-center gap-2 rounded-xl bg-sky-500 px-3 py-2 text-xs font-bold text-white transition hover:bg-sky-600 disabled:opacity-60"
+                      className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#1A1A1A] px-3 py-2 text-xs font-bold text-white transition hover:bg-black disabled:opacity-60"
                     >
-                      {dispatching === `telegram:${product.link}` ? (
+                      {dispatching === `curation:${product.link}` ? (
                         <Loader2 className="h-4 w-4 animate-spin" />
                       ) : (
-                        <Send className="h-4 w-4" />
+                        <CheckCircle2 className="h-4 w-4" />
                       )}
-                      Telegram
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void handleDispatch(product, "whatsapp")}
-                      disabled={dispatching !== null}
-                      className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-500 px-3 py-2 text-xs font-bold text-white transition hover:bg-emerald-600 disabled:opacity-60"
-                    >
-                      {dispatching === `whatsapp:${product.link}` ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <MessageSquare className="h-4 w-4" />
-                      )}
-                      WhatsApp
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setSiteModalProduct(product)}
-                      disabled={dispatching !== null}
-                      className="col-span-2 inline-flex items-center justify-center gap-2 rounded-xl bg-[#1A1A1A] px-3 py-2 text-xs font-bold text-white transition hover:bg-black disabled:opacity-60"
-                    >
-                      <CheckCircle2 className="h-4 w-4" />
-                      Aprovar no Radar (Site)
+                      Enviar para curadoria
                     </button>
                   </div>
 
@@ -563,7 +587,7 @@ export default function ShopeeHubPage() {
                     title={product.title}
                     imageUrl={product.image || null}
                     price={product.price}
-                    oldPrice={null}
+                    oldPrice={product.old_price ?? product.original_price ?? null}
                   />
                 </div>
               </div>
@@ -582,42 +606,6 @@ export default function ShopeeHubPage() {
         </div>
       )}
 
-      {siteModalProduct ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-xl">
-            <h3 className="mb-4 text-lg font-bold text-gray-900">Escolha o bloco de destino</h3>
-            <div className="space-y-3">
-              {[
-                { slot: "flash", emoji: "🔥", label: "Ofertas Relâmpago", tone: "bg-orange-100 text-orange-900" },
-                { slot: "best", emoji: "⭐", label: "Melhores Ofertas", tone: "bg-blue-100 text-blue-900" },
-                { slot: "comparator", emoji: "📊", label: "Comparador", tone: "bg-green-100 text-green-900" },
-              ].map((item) => (
-                <button
-                  key={item.slot}
-                  type="button"
-                  onClick={() =>
-                    void handleDispatch(siteModalProduct, "site", item.slot as SlotType)
-                  }
-                  className={`flex w-full items-center gap-3 rounded-2xl p-4 text-left hover:brightness-95 ${item.tone}`}
-                >
-                  <span className="text-2xl">{item.emoji}</span>
-                  <div>
-                    <p className="font-semibold">{item.label}</p>
-                    <p className="text-sm opacity-70">{item.slot}</p>
-                  </div>
-                </button>
-              ))}
-            </div>
-            <button
-              type="button"
-              onClick={() => setSiteModalProduct(null)}
-              className="mt-4 w-full rounded-2xl bg-gray-100 py-3 font-semibold text-gray-700 hover:bg-gray-200"
-            >
-              Cancelar
-            </button>
-          </div>
-        </div>
-      ) : null}
     </div>
   );
 }

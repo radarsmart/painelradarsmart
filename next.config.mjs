@@ -1,3 +1,5 @@
+const isProduction = process.env.NODE_ENV === "production";
+
 const contentSecurityPolicy = [
   "default-src 'self'",
   "base-uri 'self'",
@@ -8,7 +10,7 @@ const contentSecurityPolicy = [
   "media-src 'self' data: blob: http: https:",
   "font-src 'self' data: https:",
   "style-src 'self' 'unsafe-inline' https:",
-  "script-src 'self' 'unsafe-inline' https:",
+  `script-src 'self' 'unsafe-inline'${isProduction ? "" : " 'unsafe-eval'"} https:`,
   "connect-src 'self' http: https: ws: wss:",
   "frame-src 'self' https:",
   "worker-src 'self' blob:",

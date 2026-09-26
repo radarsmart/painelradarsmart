@@ -1,9 +1,5 @@
 > Leia AGENTS.md antes de usar esta skill.
 
-Substitua completamente o conteúdo do arquivo 
-.agent/skills/criativos/SKILL.md pelo conteúdo abaixo.
-NÃO altere nada — copie exatamente como está:
-
 ---
 name: criativos
 description: Usar ao criar qualquer criativo, script, 
@@ -265,7 +261,3 @@ Cores:
 Logo: canto inferior direito, discreto
 Formato: sempre 9:16 vertical 1080x1920
 Qualidade: mínimo 1080p
-
-Após salvar o arquivo faça commit:
-"feat(skills): atualiza skill criativos com 
-metodologia completa de alta conversao"

@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 import LandingPageView from "@/components/landing/LandingPageView";
-import { supabase } from "@/lib/supabase";
+import { supabase } from "@/lib/supabase-browser";
 import type { LandingPageBundle } from "@/lib/landing-pages";
 
 type PreviewResponse = {

@@ -2,6 +2,7 @@ import { revalidatePath } from "next/cache";
 import { NextRequest, NextResponse } from "next/server";
 
 import { requireAdmin } from "@/lib/admin-auth";
+import { CENTRAL_OFERTA_ROLE, OFFER_WORKFLOW_ROLES } from "@/lib/admin-permissions";
 import { sanitizeMarketplaceUrl } from "@/lib/amazon";
 import {
   dispatchLegacyOffer,
@@ -10,16 +11,16 @@ import {
 import { buildSiteManualCopyOverride } from "@/lib/offers/site-visibility";
 import {
   classifyOfferCategory,
-  computeDiscountPct,
   computeProfitPotential,
 } from "@/lib/radar-sniper";
+import { normalizePaymentTerms, resolveOfferPricing } from "@/lib/offers/pricing";
 import { salvarOferta, supabaseAdmin } from "@/lib/supabase";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-type Marketplace = "amazon" | "mercadolivre" | "shopee" | "lomadee" | "awin" | "tiktokshop";
+type Marketplace = "amazon" | "mercadolivre" | "shopee" | "lomadee" | "awin" | "tiktokshop" | "aliexpress";
 const DEFAULT_OFFER_TTL_HOURS = 48;
 
 function toText(value: unknown): string {
@@ -39,7 +40,8 @@ function normalizeMarketplace(value: unknown): Marketplace | null {
     normalized === "shopee" ||
     normalized === "lomadee" ||
     normalized === "awin" ||
-    normalized === "tiktokshop"
+    normalized === "tiktokshop" ||
+    normalized === "aliexpress"
   ) {
     return normalized;
   }
@@ -75,7 +77,7 @@ function getMissingColumnFromError(message: string): string | null {
 }
 
 export async function POST(req: NextRequest) {
-  const adminGuard = await requireAdmin(req, { allowRoles: ["admin", "central_oferta"] });
+  const adminGuard = await requireAdmin(req, { allowRoles: OFFER_WORKFLOW_ROLES });
   if (!adminGuard.ok) {
     return NextResponse.json({ error: adminGuard.error }, { status: adminGuard.status });
   }
@@ -83,13 +85,16 @@ export async function POST(req: NextRequest) {
   // nem dispara pros grupos, mesmo que a requisicao peca isso. A oferta
   // sempre entra como rascunho (status inactive / curations_status
   // channel_ready), disponivel pra um admin revisar e publicar depois.
-  const isCollaborator = adminGuard.role === "central_oferta";
+  const isCollaborator = adminGuard.role === CENTRAL_OFERTA_ROLE;
 
   try {
     const body = (await req.json()) as {
       title?: unknown;
       price?: unknown;
       old_price?: unknown;
+      original_price?: unknown;
+      discount_pct?: unknown;
+      discount_percent?: unknown;
       image_url?: unknown;
       product_url?: unknown;
       affiliate_url?: unknown;
@@ -102,11 +107,31 @@ export async function POST(req: NextRequest) {
       hub_offer_id?: unknown;
       publish_to_site?: unknown;
       schedule_now?: unknown;
+      pix_price?: unknown;
+      cash_price?: unknown;
+      card_price?: unknown;
+      shipping_cost?: unknown;
+      installment_count?: unknown;
+      installment_amount?: unknown;
+      installment_interest_free?: unknown;
+      payment_information_original?: unknown;
+      coupon_code?: unknown;
+      coupon_description?: unknown;
     };
+    const bodyRecord = body as Record<string, unknown>;
+    const hasBodyField = (key: string) =>
+      Object.prototype.hasOwnProperty.call(bodyRecord, key);
 
     const title = toText(body.title);
-    const price = toNumber(body.price);
-    const oldPrice = toNumber(body.old_price);
+    const pricing = resolveOfferPricing({
+      price: body.price,
+      old_price: body.old_price,
+      original_price: body.original_price,
+      discount_pct: body.discount_pct,
+      discount_percent: body.discount_percent,
+    });
+    const price = pricing.price;
+    const oldPrice = pricing.oldPrice ?? 0;
     const marketplace = normalizeMarketplace(body.marketplace);
     const productUrl = toText(body.product_url);
     const manualAffiliateUrl = toText(body.affiliate_url);
@@ -130,7 +155,7 @@ export async function POST(req: NextRequest) {
 
     if (!marketplace) {
       return NextResponse.json(
-        { error: "marketplace invalido. Use amazon, mercadolivre, shopee, lomadee, awin ou tiktokshop." },
+        { error: "marketplace invalido. Use amazon, mercadolivre, shopee, lomadee, awin, tiktokshop ou aliexpress." },
         { status: 400 },
       );
     }
@@ -150,7 +175,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const discountPct = computeDiscountPct(price, oldPrice, null);
+    const discountPct = pricing.discountPct;
     const score =
       toNumber(body.score) ||
       computeProfitPotential({
@@ -169,13 +194,49 @@ export async function POST(req: NextRequest) {
     const externalOfferId = `${marketplace}:${productUrl}`;
     const existingOffer = await supabaseAdmin
       .from("offers")
-      .select("id,manual_copy,status,curations_status,slot_type,published_at")
+      .select("id,manual_copy,status,curations_status,slot_type,published_at,pix_price,cash_price,card_price,shipping_cost,installment_count,installment_amount,installment_interest_free,payment_information_original,coupon_code,coupon_description")
       .eq("external_offer_id", externalOfferId)
       .maybeSingle();
 
     if (existingOffer.error) {
       return NextResponse.json({ error: existingOffer.error.message }, { status: 500 });
     }
+
+    const existingOfferData = (existingOffer.data ?? {}) as Record<string, unknown>;
+    const preserveNumberField = (key: string) =>
+      hasBodyField(key) ? toNumber(bodyRecord[key]) || null : existingOfferData[key] ?? null;
+    const preserveShippingCost = () =>
+      hasBodyField("shipping_cost")
+        ? body.shipping_cost === 0 || body.shipping_cost === "0"
+          ? 0
+          : toNumber(body.shipping_cost) || null
+        : existingOfferData.shipping_cost ?? null;
+    const preserveBooleanField = (key: string) =>
+      hasBodyField(key)
+        ? typeof bodyRecord[key] === "boolean"
+          ? bodyRecord[key]
+          : null
+        : existingOfferData[key] ?? null;
+    const preserveTextField = (key: string) =>
+      hasBodyField(key) ? toText(bodyRecord[key]) || null : existingOfferData[key] ?? null;
+    const preservedPaymentFields = {
+      pix_price: preserveNumberField("pix_price"),
+      cash_price: preserveNumberField("cash_price"),
+      card_price: preserveNumberField("card_price"),
+      shipping_cost: preserveShippingCost(),
+      installment_count: preserveNumberField("installment_count"),
+      installment_amount: preserveNumberField("installment_amount"),
+      installment_interest_free: preserveBooleanField("installment_interest_free"),
+      payment_information_original: preserveTextField("payment_information_original"),
+    };
+    const payment = normalizePaymentTerms({
+      price,
+      regular_price: price,
+      ...preservedPaymentFields,
+    });
+    const hasCardInfo =
+      preservedPaymentFields.card_price !== null ||
+      Boolean(payment.installments && payment.installment_value);
 
     const rawData =
       body.raw_data && typeof body.raw_data === "object" ? body.raw_data : {};
@@ -223,6 +284,17 @@ export async function POST(req: NextRequest) {
       category_name: category,
       category_slug: categorySlug,
       price,
+      regular_price: price,
+      pix_price: payment.pix_price,
+      cash_price: payment.cash_price,
+      card_price: hasCardInfo ? payment.card_price : null,
+      shipping_cost: payment.shipping_cost,
+      installment_count: payment.installments,
+      installment_amount: payment.installment_value,
+      installment_interest_free: payment.interest_free,
+      payment_information_original: payment.payment_information_original,
+      coupon_code: preserveTextField("coupon_code"),
+      coupon_description: preserveTextField("coupon_description"),
       old_price: oldPrice || null,
       original_price: oldPrice || null,
       discount_pct: discountPct,

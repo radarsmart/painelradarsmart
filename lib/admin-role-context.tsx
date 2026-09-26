@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useContext } from "react";
+import { isRestrictedCentralOferta } from "@/lib/admin-permissions";
 
 export type AdminIdentity = {
   email: string | null;
@@ -16,5 +17,5 @@ export function useAdminIdentity(): AdminIdentity {
 }
 
 export function useIsRestrictedCollaborator(): boolean {
-  return useAdminIdentity().role === "central_oferta";
+  return isRestrictedCentralOferta(useAdminIdentity().role);
 }

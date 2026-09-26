@@ -3,14 +3,22 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
+import {
+  CENTRAL_OFERTA_ROLE,
+  getRoleLabel,
+  OFFER_OPERATOR_ROLE,
+} from "@/lib/admin-permissions";
 import type { LucideIcon } from "lucide-react";
 import {
   BarChart3,
   Bot,
+  Brain,
   Clapperboard,
+  Compass,
   FileText,
   FilePlus2,
   Flame,
+  Image as ImageIcon,
   LayoutDashboard,
   Menu,
   MessageSquareMore,
@@ -21,6 +29,9 @@ import {
   ShoppingBag,
   Sparkles,
   Store,
+  TrendingUp,
+  UserRound,
+  Users,
   X,
   Zap,
 } from "lucide-react";
@@ -72,6 +83,24 @@ const MENU_ITEMS: SidebarGroup[] = [
         activePatterns: ["/admin/curadoria"],
       },
       {
+        label: "Radar de Oportunidades",
+        icon: TrendingUp,
+        href: "/admin/oportunidades",
+        activePatterns: ["/admin/oportunidades"],
+      },
+      {
+        label: "Garimpar",
+        icon: Compass,
+        href: "/admin/garimpar",
+        activePatterns: ["/admin/garimpar"],
+      },
+      {
+        label: "Decision Intelligence",
+        icon: Brain,
+        href: "/admin/decision-intelligence",
+        activePatterns: ["/admin/decision-intelligence"],
+      },
+      {
         label: "Central de Oferta",
         icon: FilePlus2,
         href: "/admin/ofertas/nova",
@@ -88,6 +117,12 @@ const MENU_ITEMS: SidebarGroup[] = [
         icon: Send,
         href: "/admin/envios",
         activePatterns: ["/admin/envios", "/admin/fila"],
+      },
+      {
+        label: "Meus Grupos",
+        icon: Users,
+        href: "/admin/grupos",
+        activePatterns: ["/admin/grupos"],
       },
       {
         label: "Landing Pages",
@@ -201,6 +236,24 @@ const MENU_ITEMS: SidebarGroup[] = [
         href: "/admin/criativos/gemini-video",
         activePatterns: ["/admin/criativos/gemini-video"],
       },
+      {
+        label: "Creative AI",
+        icon: Brain,
+        href: "/admin/creative-ai",
+        activePatterns: ["/admin/creative-ai"],
+      },
+      {
+        label: "Garota Radar",
+        icon: UserRound,
+        href: "/admin/creative-ai/brand-character",
+        activePatterns: ["/admin/creative-ai/brand-character"],
+      },
+      {
+        label: "Brand Assets",
+        icon: ImageIcon,
+        href: "/admin/creative-ai/brand-assets",
+        activePatterns: ["/admin/creative-ai/brand-assets"],
+      },
     ],
   },
   {
@@ -235,6 +288,13 @@ function isItemActive(pathname: string, item: SidebarItem) {
   ) {
     return false;
   }
+  if (
+    item.href === "/admin/creative-ai" &&
+    (pathname.startsWith("/admin/creative-ai/brand-character") ||
+      pathname.startsWith("/admin/creative-ai/brand-assets"))
+  ) {
+    return false;
+  }
 
   const patterns = item.activePatterns?.length ? item.activePatterns : [item.href];
   return patterns.some((pattern) =>
@@ -245,13 +305,23 @@ function isItemActive(pathname: string, item: SidebarItem) {
 }
 
 function filterMenuForRole(role?: string): SidebarGroup[] {
-  if (role !== "central_oferta") return MENU_ITEMS;
+  if (role !== CENTRAL_OFERTA_ROLE && role !== OFFER_OPERATOR_ROLE) return MENU_ITEMS;
 
-  const centralOferta = MENU_ITEMS.flatMap((group) => group.items).find(
-    (item) => item.href === "/admin/ofertas/nova",
-  );
+  const allowedHrefs =
+    role === CENTRAL_OFERTA_ROLE
+      ? new Set(["/admin/ofertas/nova"])
+      : new Set([
+          "/admin/garimpar",
+          "/admin/ofertas/nova",
+          "/admin/ofertas",
+          "/admin/envios",
+          "/admin/canais",
+        ]);
 
-  return centralOferta ? [{ group: "Operacao", items: [centralOferta] }] : [];
+  return MENU_ITEMS.map((group) => ({
+    ...group,
+    items: group.items.filter((item) => item.href && allowedHrefs.has(item.href)),
+  })).filter((group) => group.items.length > 0);
 }
 
 function NavList({
@@ -341,7 +411,10 @@ function getProfileLabel(user?: SidebarUser) {
 
   return {
     name: name || "Radar Smart",
-    role: user.role === "central_oferta" ? "Colaborador" : user.email,
+    role:
+      user.role === "admin" || !user.role
+        ? user.email || getRoleLabel(user.role)
+        : getRoleLabel(user.role),
     initials: initials || "RS",
   };
 }

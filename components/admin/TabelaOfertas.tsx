@@ -7,7 +7,7 @@ import {
   hasManualSiteOverride,
   isOfferVisibleOnSite,
 } from "@/lib/offers/site-visibility";
-import { supabase } from "@/lib/supabase";
+import { supabase } from "@/lib/supabase-browser";
 
 type Offer = {
   id: string;

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, ArrowRight, Bot, Loader2, Play, Save } from "lucide-react";
 
-import { supabase } from "@/lib/supabase";
+import { supabase } from "@/lib/supabase-browser";
 
 type SalesAgentSource = "awin" | "lomadee" | "shopee" | "amazon" | "mercadolivre";
 type SalesAgentTextMode = "ai" | "custom";

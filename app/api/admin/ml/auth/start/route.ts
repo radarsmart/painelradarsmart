@@ -12,6 +12,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: adminGuard.error }, { status: adminGuard.status });
   }
 
+  if (!adminGuard.userId) {
+    return NextResponse.json(
+      { error: "Este fluxo exige autenticacao real de administrador." },
+      { status: 401 },
+    );
+  }
+
   const token = createMlAuthStartToken(adminGuard.userId);
   return NextResponse.json({ url: `/api/admin/ml/auth?ott=${encodeURIComponent(token)}` });
 }

@@ -2,7 +2,7 @@
 
 import { CheckCircle2, Clapperboard, Loader2, Play, Upload } from "lucide-react";
 import { useState } from "react";
-import { supabase } from "@/lib/supabase";
+import { supabase } from "@/lib/supabase-browser";
 
 type CreateVideoJobResponse = {
   status?: string;

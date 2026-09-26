@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { salvarOferta, supabaseAdmin } from "@/lib/supabase";
 import { classifyOfferCategory } from "@/lib/radar-sniper";
 import { requireAdmin } from "@/lib/admin-auth";
+import { OFFER_OPERATOR_ROLES } from "@/lib/admin-permissions";
+import { normalizePaymentTerms } from "@/lib/offers/pricing";
 const DEFAULT_OFFER_TTL_HOURS = 48;
 
 function toNumber(value: unknown): number | null {
@@ -48,6 +50,21 @@ function normalizeOfferPayload(body: Record<string, unknown>) {
     typeof body.is_flash === "boolean" ? body.is_flash : false;
   const isFeatured =
     typeof body.is_featured === "boolean" ? body.is_featured : false;
+  const payment = normalizePaymentTerms({
+    price: price ?? 0,
+    regular_price: price ?? 0,
+    pix_price: body.pix_price,
+    cash_price: body.cash_price,
+    card_price: body.card_price,
+    shipping_cost: body.shipping_cost,
+    installment_count: body.installment_count,
+    installment_amount: body.installment_amount,
+    installment_interest_free: body.installment_interest_free,
+    payment_information_original: body.payment_information_original,
+  });
+  const hasCardInfo =
+    toNumber(body.card_price) !== null ||
+    Boolean(payment.installments && payment.installment_value);
 
   return {
     id: typeof body.id === "string" ? body.id : undefined,
@@ -79,6 +96,14 @@ function normalizeOfferPayload(body: Record<string, unknown>) {
     rating: toNumber(body.rating),
     review_count: toNumber(body.review_count),
     seller_name: String(body.seller_name ?? "").trim() || null,
+    pix_price: payment.pix_price,
+    cash_price: payment.cash_price,
+    card_price: hasCardInfo ? payment.card_price : null,
+    shipping_cost: payment.shipping_cost,
+    installment_count: payment.installments,
+    installment_amount: payment.installment_value,
+    installment_interest_free: payment.interest_free,
+    payment_information_original: payment.payment_information_original,
     raw_data:
       typeof body.raw_data === "object" && body.raw_data !== null
         ? body.raw_data
@@ -87,7 +112,7 @@ function normalizeOfferPayload(body: Record<string, unknown>) {
 }
 
 export async function POST(req: NextRequest) {
-  const adminGuard = await requireAdmin(req);
+  const adminGuard = await requireAdmin(req, { allowRoles: OFFER_OPERATOR_ROLES });
   if (!adminGuard.ok) {
     return NextResponse.json(
       { error: adminGuard.error },
@@ -114,7 +139,7 @@ export async function POST(req: NextRequest) {
 }
 
 export async function GET(req: NextRequest) {
-  const adminGuard = await requireAdmin(req);
+  const adminGuard = await requireAdmin(req, { allowRoles: OFFER_OPERATOR_ROLES });
   if (!adminGuard.ok) {
     return NextResponse.json(
       { error: adminGuard.error },
@@ -130,7 +155,7 @@ export async function GET(req: NextRequest) {
   const { data, error } = await supabaseAdmin
     .from("offers")
     .select(
-      "id,title,product_url,affiliate_url,image_url,marketplace,price,old_price,original_price,discount_pct,slot_type,status,curations_status,seller_name,rating,review_count,raw_data",
+      "id,title,product_url,affiliate_url,image_url,marketplace,price,old_price,original_price,discount_pct,slot_type,status,curations_status,seller_name,rating,review_count,raw_data,pix_price,cash_price,card_price,shipping_cost,installment_count,installment_amount,installment_interest_free,payment_information_original,coupon_code,coupon_description",
     )
     .eq("id", id)
     .maybeSingle();
@@ -147,7 +172,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
-  const adminGuard = await requireAdmin(req);
+  const adminGuard = await requireAdmin(req, { allowRoles: OFFER_OPERATOR_ROLES });
   if (!adminGuard.ok) {
     return NextResponse.json(
       { error: adminGuard.error },
@@ -178,6 +203,59 @@ export async function PATCH(req: NextRequest) {
       normalizedUpdates.published_at = nowIso;
     }
     normalizedUpdates.updated_at = nowIso;
+
+    const paymentKeys = [
+      "price",
+      "regular_price",
+      "pix_price",
+      "cash_price",
+      "card_price",
+      "shipping_cost",
+      "installment_count",
+      "installment_amount",
+      "installment_interest_free",
+      "payment_information_original",
+    ];
+    const touchesPayment = paymentKeys.some((key) =>
+      Object.prototype.hasOwnProperty.call(normalizedUpdates, key),
+    );
+    if (touchesPayment) {
+      const { data: existing, error: existingError } = await supabaseAdmin
+        .from("offers")
+        .select("price,regular_price,pix_price,cash_price,card_price,shipping_cost,installment_count,installment_amount,installment_interest_free,payment_information_original")
+        .eq("id", id)
+        .maybeSingle();
+
+      if (existingError) {
+        return NextResponse.json({ error: existingError.message }, { status: 500 });
+      }
+
+      const mergedPayment = {
+        ...(existing ?? {}),
+        ...normalizedUpdates,
+      };
+      const referencePrice =
+        toNumber(mergedPayment.price) ?? toNumber(mergedPayment.regular_price);
+      if (referencePrice !== null && referencePrice > 0) {
+        const normalizedPayment = normalizePaymentTerms({
+          ...mergedPayment,
+          price: referencePrice,
+          regular_price: referencePrice,
+        });
+        const hasUpdatedCardInfo =
+          toNumber(mergedPayment.card_price) !== null ||
+          Boolean(normalizedPayment.installments && normalizedPayment.installment_value);
+
+        normalizedUpdates.pix_price = normalizedPayment.pix_price;
+        normalizedUpdates.cash_price = normalizedPayment.cash_price;
+        normalizedUpdates.card_price = hasUpdatedCardInfo ? normalizedPayment.card_price : null;
+        normalizedUpdates.shipping_cost = normalizedPayment.shipping_cost;
+        normalizedUpdates.installment_count = normalizedPayment.installments;
+        normalizedUpdates.installment_amount = normalizedPayment.installment_value;
+        normalizedUpdates.installment_interest_free = normalizedPayment.interest_free;
+        normalizedUpdates.payment_information_original = normalizedPayment.payment_information_original;
+      }
+    }
 
     let { data, error } = await supabaseAdmin
       .from("offers")
@@ -214,7 +292,7 @@ export async function PATCH(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  const adminGuard = await requireAdmin(req);
+  const adminGuard = await requireAdmin(req, { allowRoles: OFFER_OPERATOR_ROLES });
   if (!adminGuard.ok) {
     return NextResponse.json(
       { error: adminGuard.error },

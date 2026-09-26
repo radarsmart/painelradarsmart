@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { requireAdmin } from "@/lib/admin-auth";
+import { buildOfferPresentation } from "@/lib/offers/pricing";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -27,10 +28,17 @@ type OfferRow = {
   manual_copy: unknown;
   status: string | null;
   curations_status: string | null;
+  pix_price?: number | null;
+  cash_price?: number | null;
+  card_price?: number | null;
+  shipping_cost?: number | null;
+  installment_count?: number | null;
+  installment_amount?: number | null;
+  installment_interest_free?: boolean | null;
 };
 
 const SELECT_OFFER_FIELDS =
-  "id,title,marketplace,image_url,price,old_price,discount_pct,discount_percent,category,category_name,product_url,affiliate_url,raw_data,manual_copy,status,curations_status";
+  "id,title,marketplace,image_url,price,old_price,discount_pct,discount_percent,category,category_name,product_url,affiliate_url,raw_data,manual_copy,status,curations_status,pix_price,cash_price,card_price,shipping_cost,installment_count,installment_amount,installment_interest_free";
 
 function toNumber(value: unknown): number | null {
   const parsed = Number(value);
@@ -132,7 +140,7 @@ function resolveOfficialAffiliateUrl(offer: OfferRow): string {
       process.env.FRANETO_AMAZON_AFFILIATE_TAG?.trim() ||
       process.env.AMAZON_AFFILIATE_TAG?.trim() ||
       process.env.AMAZON_STORE_ID?.trim() ||
-      "radarsmart202-20";
+      "radarsmartOf-20";
     const base = productUrl || currentAffiliate;
     if (!tag) return base;
 
@@ -220,12 +228,26 @@ function buildAidaCopy(offer: OfferRow, affiliateUrl: string): string {
     (price && oldPrice && oldPrice > price
       ? Math.round(((oldPrice - price) / oldPrice) * 100)
       : 0);
+  const presentation = buildOfferPresentation({
+    regular_price: price,
+    price,
+    pix_price: offer.pix_price,
+    cash_price: offer.cash_price,
+    card_price: offer.card_price,
+    shipping_cost: offer.shipping_cost,
+    installment_count: offer.installment_count,
+    installment_amount: offer.installment_amount,
+    installment_interest_free: offer.installment_interest_free,
+  });
+  const priceLines = presentation.payment_summary
+    ? presentation.payment_summary.split("\n")
+    : [`Por apenas: ${formatBRL(price)}`];
 
   const lines = [
     "ALERTA DE OFERTA IMPERDIVEL!",
     title,
     oldPrice && price && oldPrice > price ? `De: ${formatBRL(oldPrice)}` : "",
-    `Por apenas: ${formatBRL(price)}`,
+    ...priceLines,
     discount > 0 ? `Desconto: ${discount}% OFF` : "",
     "Essa e uma oportunidade com alto potencial de giro e pode acabar rapido.",
     `Garanta agora: ${affiliateUrl}`,

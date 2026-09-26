@@ -22,7 +22,8 @@ export interface DistributionFlags {
   scheduling: {
     delay_between_posts_minutes: number;
     max_posts_per_day: number;
-    best_hours: number[];
+    send_window_start: string;
+    send_window_end: string;
     timezone: string;
   };
 }
@@ -38,7 +39,8 @@ const DEFAULT_FLAGS: DistributionFlags = {
   scheduling: {
     delay_between_posts_minutes: 15,
     max_posts_per_day: 60,
-    best_hours: [8, 22],
+    send_window_start: "07:30",
+    send_window_end: "22:30",
     timezone: "America/Sao_Paulo",
   },
 };
@@ -58,18 +60,9 @@ function toStringList(value: unknown): string[] {
     .filter((entry) => entry.length > 0);
 }
 
-function sanitizeBestHours(value: unknown): number[] {
-  if (!Array.isArray(value)) return DEFAULT_FLAGS.scheduling.best_hours;
-
-  const unique = Array.from(
-    new Set(
-      value
-        .map((entry) => Number(entry))
-        .filter((entry) => Number.isInteger(entry) && entry >= 0 && entry <= 23),
-    ),
-  ).sort((a, b) => a - b);
-
-  return unique.length > 0 ? unique : DEFAULT_FLAGS.scheduling.best_hours;
+function sanitizeTimeString(value: unknown, fallback: string): string {
+  const text = String(value ?? "").trim();
+  return /^([01]\d|2[0-3]):([0-5]\d)$/.test(text) ? text : fallback;
 }
 
 function sanitizeFlags(input: Partial<DistributionFlags>): DistributionFlags {
@@ -99,7 +92,14 @@ function sanitizeFlags(input: Partial<DistributionFlags>): DistributionFlags {
         Number.isFinite(delay) && delay >= 1 ? Math.round(delay) : 15,
       max_posts_per_day:
         Number.isFinite(maxPosts) && maxPosts >= 1 ? Math.round(maxPosts) : 60,
-      best_hours: sanitizeBestHours(merged.scheduling.best_hours),
+      send_window_start: sanitizeTimeString(
+        merged.scheduling.send_window_start,
+        DEFAULT_FLAGS.scheduling.send_window_start,
+      ),
+      send_window_end: sanitizeTimeString(
+        merged.scheduling.send_window_end,
+        DEFAULT_FLAGS.scheduling.send_window_end,
+      ),
       timezone:
         String(merged.scheduling.timezone ?? "").trim() ||
         DEFAULT_FLAGS.scheduling.timezone,

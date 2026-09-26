@@ -1,12 +1,13 @@
 import { NextRequest } from "next/server";
+import { getEffectiveAdminRole } from "@/lib/admin-permissions";
 import { supabaseAdmin } from "@/lib/supabase";
 
 type AdminGuardResult =
-  | { ok: true; userId: string; email: string | null; role: string }
+  | { ok: true; userId: string | null; email: string | null; role: string }
   | { ok: false; status: 401 | 403; error: string };
 
 type AdminGuardOptions = {
-  allowRoles?: string[];
+  allowRoles?: readonly string[];
 };
 
 function shouldBypassAdminLookupError(error: unknown): boolean {
@@ -124,10 +125,12 @@ async function validateAdminToken(
   if (!token) {
     const isDevelopment = process.env.NODE_ENV === "development";
     if (isDevelopment) {
-      // Otimista: em dev local, permitimos bypass se nao houver token
+      // Otimista: em dev local, permitimos bypass se nao houver token.
+      // userId fica null (nao e um UUID valido) para nao quebrar colunas
+      // "created_by_user_id uuid" quando esse bypass grava dados.
       return {
         ok: true,
-        userId: "dev-master",
+        userId: null,
         email: "contato@radarsmart.com.br",
         role: "admin",
       };
@@ -155,7 +158,10 @@ async function validateAdminToken(
   }
 
   if (byUserId.data?.id) {
-    const role = String(byUserId.data.role ?? "admin");
+    const role = getEffectiveAdminRole({
+      email,
+      role: String(byUserId.data.role ?? "admin"),
+    });
     if (!allowRoles.includes(role)) {
       return { ok: false, status: 403, error: "Nao autorizado" };
     }
@@ -175,7 +181,10 @@ async function validateAdminToken(
     }
 
     if (byEmail.data?.id) {
-      const role = String(byEmail.data.role ?? "admin");
+      const role = getEffectiveAdminRole({
+        email,
+        role: String(byEmail.data.role ?? "admin"),
+      });
       if (!allowRoles.includes(role)) {
         return { ok: false, status: 403, error: "Nao autorizado" };
       }

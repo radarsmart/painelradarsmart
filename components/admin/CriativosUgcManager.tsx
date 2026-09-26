@@ -31,7 +31,7 @@ import type {
   UGCVoiceDirection,
 } from "@/lib/ugc/types";
 import { UGC_VOICES, type VoiceKey } from "@/lib/ugc/voices";
-import { supabase } from "@/lib/supabase";
+import { supabase } from "@/lib/supabase-browser";
 
 type OfferRow = {
   id: string;

@@ -3,6 +3,9 @@ import {
   getDistributionFlags,
   type DistributionFlags,
 } from "@/lib/distribution/feature-flags";
+import { shouldEnforceOpportunityGate } from "@/lib/opportunity-engine/feature-flags";
+import { evaluatePublishingGate } from "@/lib/opportunity-engine/publishing-gate-service";
+import { buildOfferPresentation, resolveOfferPricing } from "@/lib/offers/pricing";
 import { ensureOfferShortCode } from "@/lib/offers/short-link";
 
 function resolveSiteBaseUrl(): string {
@@ -63,11 +66,23 @@ export type LegacyDispatchResult = {
 
 const DEFAULT_CHANNELS: DistributionChannel[] = ["telegram", "whatsapp"];
 const DIRECT_QUEUE_OFFER_SELECT =
-  "id,title,brand,category,marketplace,seller_name,price,original_price,discount_pct,currency,image_url,best_image_url,affiliate_url,product_url,manual_copy,raw,coupon_code,coupon_description";
-const DEFAULT_SEND_WINDOW_START_HOUR = 8;
-const DEFAULT_SEND_WINDOW_END_HOUR = 23;
+  "id,title,brand,category,marketplace,seller_name,price,regular_price,old_price,original_price,price_old,discount_pct,discount_percent,currency,image_url,best_image_url,affiliate_url,product_url,manual_copy,raw,coupon_code,coupon_description,pix_price,cash_price,card_price,shipping_cost,installment_count,installment_amount,installment_interest_free,payment_information_original";
+const PUBLISHING_GATE_OFFER_SELECT =
+  "id,title,status,price,affiliate_url,product_url,expires_at,pix_price,cash_price,card_price,shipping_cost,installment_count,installment_amount,installment_interest_free";
+const DEFAULT_SEND_WINDOW_START_MINUTES = 7 * 60 + 30; // 07:30
+const DEFAULT_SEND_WINDOW_END_MINUTES = 22 * 60 + 30; // 22:30
 const DEFAULT_SEND_INTERVAL_MINUTES = 15;
 const DEFAULT_SEND_TIMEZONE = "America/Sao_Paulo";
+
+// Aceita "HH:MM" (ex.: "07:30"); qualquer coisa invalida cai no default.
+function parseTimeToMinutes(value: string | undefined, fallback: number): number {
+  const match = String(value ?? "").trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return fallback;
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return fallback;
+  return hour * 60 + minute;
+}
 
 function normalizeChannels(
   channels: DistributionChannel[] | undefined,
@@ -170,21 +185,111 @@ function toText(value: unknown): string | null {
   return text ? text : null;
 }
 
-function toPositiveNumber(value: unknown): number | null {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+function buildChannelPaymentBlock(offer: Record<string, unknown>): string | null {
+  const presentation = buildOfferPresentation({
+    price: offer.price,
+    regular_price: offer.regular_price ?? offer.price,
+    pix_price: offer.pix_price,
+    cash_price: offer.cash_price,
+    card_price: offer.card_price,
+    shipping_cost: offer.shipping_cost,
+    installment_count: offer.installment_count,
+    installment_amount: offer.installment_amount,
+    installment_interest_free: offer.installment_interest_free,
+    payment_information_original: offer.payment_information_original,
+    currency: offer.currency,
+  });
+
+  const hasSpecificPaymentInfo =
+    Boolean(offer.pix_price) ||
+    Boolean(offer.cash_price) ||
+    Boolean(offer.card_price) ||
+    Boolean(offer.installment_count && offer.installment_amount) ||
+    /pix|\d+\s*[x×]\s*(?:de\s*)?(?:r\$\s*)?\d/i.test(
+      String(offer.payment_information_original ?? "").toLowerCase(),
+    );
+
+  const shouldBuildPaymentBlock = hasSpecificPaymentInfo || Boolean(presentation.payment_summary);
+  if (!shouldBuildPaymentBlock || !presentation.payment_summary) return null;
+
+  const lines = presentation.payment_summary
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (!lines.length) return null;
+
+  return lines.join("\n");
+}
+
+function copyAlreadyHasPaymentDetails(copy: string): boolean {
+  const normalized = copy.toLowerCase();
+  return (
+    normalized.includes(" no pix") ||
+    normalized.includes("pix") ||
+    /\b\d{1,2}\s*[x×]\s*(?:de\s*)?(?:r\$\s*)?\d/i.test(normalized) ||
+    normalized.includes("sem juros") ||
+    normalized.includes("cartao") ||
+    normalized.includes("cartão")
+  );
+}
+
+function buildChannelCouponBlock(offer: Record<string, unknown>): string | null {
+  const code = toText(offer.coupon_code);
+  if (!code) return null;
+
+  const description = toText(offer.coupon_description);
+  return [`Cupom: ${code}`, description].filter(Boolean).join("\n");
+}
+
+function copyAlreadyHasCoupon(copy: string, offer: Record<string, unknown>): boolean {
+  const normalized = copy.toLowerCase();
+  const code = toText(offer.coupon_code)?.toLowerCase();
+  return normalized.includes("cupom") || Boolean(code && normalized.includes(code));
+}
+
+function appendDetailsBlockBeforeLink(copy: string, detailsBlock: string): string {
+  const trimmed = copy.trim();
+  const urlMatches = Array.from(trimmed.matchAll(/https?:\/\/\S+/g));
+  if (!urlMatches.length) {
+    return `${trimmed}\n\n${detailsBlock}`.trim();
+  }
+
+  const last = urlMatches[urlMatches.length - 1];
+  const index = last.index ?? -1;
+  if (index < 0) return `${trimmed}\n\n${detailsBlock}`.trim();
+
+  const before = trimmed.slice(0, index).trimEnd();
+  const after = trimmed.slice(index).trimStart();
+  return `${before}\n\n${detailsBlock}\n\n${after}`.trim();
+}
+
+function enrichCopyWithPaymentDetails(
+  copy: string,
+  offer: Record<string, unknown>,
+): string {
+  const paymentBlock = buildChannelPaymentBlock(offer);
+  const couponBlock = buildChannelCouponBlock(offer);
+  const details = [
+    paymentBlock && !copyAlreadyHasPaymentDetails(copy) ? paymentBlock : null,
+    couponBlock && !copyAlreadyHasCoupon(copy, offer) ? couponBlock : null,
+  ].filter(Boolean);
+
+  if (!details.length) return copy;
+  return appendDetailsBlockBeforeLink(copy, details.join("\n"));
 }
 
 function buildFallbackAdText(offer: Record<string, unknown>, channel: DistributionChannel): string {
   const title = toText(offer.title) ?? "Oferta do dia";
-  const price = toPositiveNumber(offer.price);
-  const originalPrice = toPositiveNumber(offer.original_price);
-  const discountPct = toPositiveNumber(offer.discount_pct);
+  const { price, oldPrice, discountPct } = resolveOfferPricing(offer);
+  const paymentSummary = buildChannelPaymentBlock(offer);
 
   const priceLine =
-    price !== null
-      ? originalPrice !== null && originalPrice > price && discountPct !== null
-        ? `De R$ ${formatBRL(originalPrice)} por R$ ${formatBRL(price)} (${Math.round(discountPct)}% OFF)`
+    paymentSummary
+      ? paymentSummary
+      : price > 0
+      ? oldPrice !== null && oldPrice > price && discountPct > 0
+        ? `De R$ ${formatBRL(oldPrice)} por R$ ${formatBRL(price)} (${Math.round(discountPct)}% OFF)`
         : `Hoje por R$ ${formatBRL(price)}`
       : "Condicao especial por tempo limitado";
 
@@ -301,7 +406,7 @@ function dateFromTimeZoneParts(
 function nextWindowStart(
   date: Date,
   timeZone = DEFAULT_SEND_TIMEZONE,
-  startHour = DEFAULT_SEND_WINDOW_START_HOUR,
+  startMinutes = DEFAULT_SEND_WINDOW_START_MINUTES,
 ): Date {
   const local = getTimeZoneParts(date, timeZone);
   const midday = dateFromTimeZoneParts(
@@ -323,38 +428,42 @@ function nextWindowStart(
       year: tomorrow.year,
       month: tomorrow.month,
       day: tomorrow.day,
-      hour: startHour,
-      minute: 0,
+      hour: Math.floor(startMinutes / 60),
+      minute: startMinutes % 60,
       second: 0,
     },
     timeZone,
   );
 }
 
+// Ofertas cujo horario calculado passaria do fim da janela (ex.: 22:30) sao
+// automaticamente empurradas pro inicio da proxima janela (ex.: 07:30 do dia
+// seguinte), seguindo a fila — nunca mandadas fora do horario permitido.
 function clampToSendWindow(
   date: Date,
   timeZone = DEFAULT_SEND_TIMEZONE,
-  startHour = DEFAULT_SEND_WINDOW_START_HOUR,
-  endHour = DEFAULT_SEND_WINDOW_END_HOUR,
+  startMinutes = DEFAULT_SEND_WINDOW_START_MINUTES,
+  endMinutes = DEFAULT_SEND_WINDOW_END_MINUTES,
 ): Date {
   const local = getTimeZoneParts(date, timeZone);
+  const localMinutes = local.hour * 60 + local.minute;
 
-  if (local.hour < startHour) {
+  if (localMinutes < startMinutes) {
     return dateFromTimeZoneParts(
       {
         year: local.year,
         month: local.month,
         day: local.day,
-        hour: startHour,
-        minute: 0,
+        hour: Math.floor(startMinutes / 60),
+        minute: startMinutes % 60,
         second: 0,
       },
       timeZone,
     );
   }
 
-  if (local.hour >= endHour) {
-    return nextWindowStart(date, timeZone, startHour);
+  if (localMinutes >= endMinutes) {
+    return nextWindowStart(date, timeZone, startMinutes);
   }
 
   return date;
@@ -395,14 +504,14 @@ export async function getNextScheduledAt(
   const timezone = flags?.scheduling.timezone || DEFAULT_SEND_TIMEZONE;
   const intervalMinutes =
     flags?.scheduling.delay_between_posts_minutes || DEFAULT_SEND_INTERVAL_MINUTES;
-  const preferredHours =
-    flags?.scheduling.best_hours?.length ? flags.scheduling.best_hours : [9, 12, 15, 18, 21];
-  const startHour =
-    Math.min(...preferredHours.filter((hour) => hour >= 0 && hour <= 23)) ||
-    DEFAULT_SEND_WINDOW_START_HOUR;
-  const endHour =
-    Math.max(...preferredHours.filter((hour) => hour >= 0 && hour <= 23)) + 1 ||
-    DEFAULT_SEND_WINDOW_END_HOUR;
+  const startMinutes = parseTimeToMinutes(
+    flags?.scheduling.send_window_start,
+    DEFAULT_SEND_WINDOW_START_MINUTES,
+  );
+  const endMinutes = parseTimeToMinutes(
+    flags?.scheduling.send_window_end,
+    DEFAULT_SEND_WINDOW_END_MINUTES,
+  );
 
   const now = new Date();
   const { data, error } = await supabaseAdmin.rpc("get_last_scheduled_at", {
@@ -415,7 +524,7 @@ export async function getNextScheduledAt(
 
   const lastScheduled = data ? new Date(String(data)) : now;
   const base = lastScheduled.getTime() > now.getTime() ? lastScheduled : now;
-  const windowBase = clampToSendWindow(base, timezone, startHour, endHour);
+  const windowBase = clampToSendWindow(base, timezone, startMinutes, endMinutes);
   const aligned = alignToNextInterval(windowBase, timezone, intervalMinutes);
 
   return aligned.toISOString();
@@ -440,6 +549,32 @@ async function buildChannelSchedule(
   );
 
   return Object.fromEntries(scheduleEntries) as Partial<Record<DistributionChannel, string>>;
+}
+
+async function assertOpportunityGateApproved(offerId: string): Promise<void> {
+  if (!shouldEnforceOpportunityGate()) return;
+
+  const { data, error } = await supabaseAdmin
+    .from("offers")
+    .select(PUBLISHING_GATE_OFFER_SELECT)
+    .eq("id", offerId)
+    .single();
+
+  if (error || !data) {
+    throw new Error(`Falha ao carregar oferta para Publishing Gate: ${error?.message ?? "nao encontrada"}`);
+  }
+
+  const gate = evaluatePublishingGate(data as Record<string, unknown>);
+  console.info("[OpportunityEngine] publishing_gate", {
+    offer_id: offerId,
+    status: gate.status,
+    reasons: gate.reasons,
+    warnings: gate.warnings,
+  });
+
+  if (gate.status !== "APPROVED") {
+    throw new Error(`Publishing Gate bloqueou a oferta: ${[...gate.reasons, ...gate.warnings].join(" | ")}`);
+  }
 }
 
 async function queueDirectlyOnPostQueue(input: {
@@ -501,6 +636,7 @@ async function queueDirectlyOnPostQueue(input: {
     toText(offer.product_url) ??
     "";
   const link = await buildTrackedLink(input.offerId, rawLink);
+  const pricing = resolveOfferPricing(offer as Record<string, unknown>);
 
   for (const target of activeTargets) {
     const channel = target.channel as DistributionChannel;
@@ -538,10 +674,13 @@ async function queueDirectlyOnPostQueue(input: {
       }
     }
 
-    const ad_text = replaceLinkInCopy(
-      resolveChannelCopy(offer as Record<string, unknown>, channel, input.copyByChannel),
-      rawLink,
-      link,
+    const ad_text = enrichCopyWithPaymentDetails(
+      replaceLinkInCopy(
+        resolveChannelCopy(offer as Record<string, unknown>, channel, input.copyByChannel),
+        rawLink,
+        link,
+      ),
+      offer as Record<string, unknown>,
     );
 
     const payload = {
@@ -553,9 +692,19 @@ async function queueDirectlyOnPostQueue(input: {
         category: offer.category ?? null,
         marketplace: offer.marketplace ?? null,
         seller_name: offer.seller_name ?? null,
-        price: offer.price ?? null,
-        original_price: offer.original_price ?? null,
-        discount_pct: offer.discount_pct ?? null,
+        price: pricing.price > 0 ? pricing.price : offer.price ?? null,
+        pix_price: offer.pix_price ?? null,
+        cash_price: offer.cash_price ?? null,
+        card_price: offer.card_price ?? null,
+        shipping_cost: offer.shipping_cost ?? null,
+        installment_count: offer.installment_count ?? null,
+        installment_amount: offer.installment_amount ?? null,
+        installment_interest_free: offer.installment_interest_free ?? null,
+        original_price: pricing.oldPrice ?? offer.original_price ?? offer.old_price ?? null,
+        discount_pct:
+          pricing.discountPct > 0
+            ? pricing.discountPct
+            : offer.discount_pct ?? offer.discount_percent ?? null,
         currency: offer.currency ?? "BRL",
         image_url: offer.best_image_url ?? offer.image_url ?? null,
         video_url: null,
@@ -712,6 +861,8 @@ export async function dispatchToSpecificTargets(
     throw new Error("Nenhum destino informado para o despacho do agente.");
   }
 
+  await assertOpportunityGateApproved(input.offerId);
+
   const { data: offer, error: offerError } = await supabaseAdmin
     .from("offers")
     .select(DIRECT_QUEUE_OFFER_SELECT)
@@ -742,6 +893,7 @@ export async function dispatchToSpecificTargets(
   const rawLink =
     toText(input.affiliateUrl) ?? toText(offer.affiliate_url) ?? toText(offer.product_url) ?? "";
   const link = await buildTrackedLink(input.offerId, rawLink);
+  const pricing = resolveOfferPricing(offer as Record<string, unknown>);
   const dedupeBucket = todayLocalDate();
   const nowIso = new Date().toISOString();
 
@@ -789,7 +941,10 @@ export async function dispatchToSpecificTargets(
     }
 
     const payload = {
-      ad_text: adText,
+      ad_text: enrichCopyWithPaymentDetails(
+        replaceLinkInCopy(adText, rawLink, link),
+        offer as Record<string, unknown>,
+      ),
       offer: {
         id: offer.id,
         title: offer.title ?? null,
@@ -797,9 +952,19 @@ export async function dispatchToSpecificTargets(
         category: offer.category ?? null,
         marketplace: offer.marketplace ?? null,
         seller_name: offer.seller_name ?? null,
-        price: offer.price ?? null,
-        original_price: offer.original_price ?? null,
-        discount_pct: offer.discount_pct ?? null,
+        price: pricing.price > 0 ? pricing.price : offer.price ?? null,
+        pix_price: offer.pix_price ?? null,
+        cash_price: offer.cash_price ?? null,
+        card_price: offer.card_price ?? null,
+        shipping_cost: offer.shipping_cost ?? null,
+        installment_count: offer.installment_count ?? null,
+        installment_amount: offer.installment_amount ?? null,
+        installment_interest_free: offer.installment_interest_free ?? null,
+        original_price: pricing.oldPrice ?? offer.original_price ?? offer.old_price ?? null,
+        discount_pct:
+          pricing.discountPct > 0
+            ? pricing.discountPct
+            : offer.discount_pct ?? offer.discount_percent ?? null,
         currency: offer.currency ?? "BRL",
         image_url: offer.best_image_url ?? offer.image_url ?? null,
         video_url: null,
@@ -893,7 +1058,30 @@ export async function dispatchLegacyOffer(
     }
   }
 
-  const copyByChannel = normalizeCopyByChannel(input.copyByChannel);
+  await assertOpportunityGateApproved(offerId);
+
+  let copyByChannel = normalizeCopyByChannel(input.copyByChannel);
+  if (Object.keys(copyByChannel).length > 0) {
+    const { data: offerForCopy, error: offerForCopyError } = await supabaseAdmin
+      .from("offers")
+      .select(DIRECT_QUEUE_OFFER_SELECT)
+      .eq("id", offerId)
+      .maybeSingle();
+
+    if (offerForCopyError) {
+      console.warn("[distribution] failed to enrich channel copy with payment details", {
+        offerId,
+        error: offerForCopyError.message,
+      });
+    } else if (offerForCopy) {
+      copyByChannel = Object.fromEntries(
+        Object.entries(copyByChannel).map(([channel, copy]) => [
+          channel,
+          enrichCopyWithPaymentDetails(copy, offerForCopy as Record<string, unknown>),
+        ]),
+      ) as Partial<Record<DistributionChannel, string>>;
+    }
+  }
   const allowRequeueSameDay = input.allowRequeueSameDay ?? true;
   const scheduleNow = input.scheduleNow === true;
   const scheduleByChannel = await buildChannelSchedule(channels, flags, scheduleNow);

@@ -87,7 +87,7 @@ export function isOfferVisibleOnSite(
   },
 ) {
   const validSlots = options?.validSlots ?? DEFAULT_VISIBLE_SLOTS;
-  const publicWindowMs = options?.publicWindowMs ?? DEFAULT_PUBLIC_OFFER_WINDOW_MS;
+  const publicWindowMs = options?.publicWindowMs;
 
   if (toText(row.status).toLowerCase() !== "active") return false;
   if (!toText(row.affiliate_url)) return false;
@@ -100,20 +100,27 @@ export function isOfferVisibleOnSite(
     hasManualSiteOverride(row);
   if (!hasApprovedCuration) return false;
 
-  const publishedReference = toText(
-    row.published_at ?? row.updated_at ?? row.created_at,
-  );
-  if (!publishedReference) return false;
+  if (typeof publicWindowMs === "number" && publicWindowMs > 0) {
+    const publishedReference = toText(
+      row.published_at ?? row.updated_at ?? row.created_at,
+    );
+    if (!publishedReference) return false;
 
-  const publishedAt = Date.parse(publishedReference);
-  if (Number.isNaN(publishedAt)) return false;
-  if (Date.now() - publishedAt > publicWindowMs) return false;
+    const publishedAt = Date.parse(publishedReference);
+    if (Number.isNaN(publishedAt)) return false;
+    if (Date.now() - publishedAt > publicWindowMs) return false;
+  }
 
   const expiresAt = toText(row.expires_at);
   if (!expiresAt) return true;
 
   const parsedExpiresAt = Date.parse(expiresAt);
-  return !Number.isNaN(parsedExpiresAt) && parsedExpiresAt > Date.now();
+  if (Number.isNaN(parsedExpiresAt)) return true;
+  if (parsedExpiresAt > Date.now()) return true;
+
+  // Flash continua publica ate ser substituida. O cron renova a janela e o
+  // contador no card tambem trabalha em ciclos, evitando buraco na vitrine.
+  return slotType === "flash";
 }
 
 export function buildSiteManualCopyOverride(

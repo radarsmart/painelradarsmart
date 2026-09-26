@@ -13,7 +13,7 @@ type HubOfferRow = {
   classification: string | null;
 };
 
-const DEFAULT_AMAZON_TAG = "radarsmart202-20";
+const DEFAULT_AMAZON_TAG = "radarsmartOf-20";
 
 export async function discoverAmazon(agent: SalesAgent): Promise<DiscoveryCandidate[]> {
   let query = supabaseAdmin

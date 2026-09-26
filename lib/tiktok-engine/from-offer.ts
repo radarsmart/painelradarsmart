@@ -69,6 +69,7 @@ type OfferRow = {
   original_price: number | string | null;
   old_price: number | string | null;
   discount_pct: number | string | null;
+  discount_percent?: number | string | null;
   category: string | null;
   image_url: string | null;
   marketplace: string | null;
@@ -77,7 +78,7 @@ type OfferRow = {
 async function loadOffer(offerId: string): Promise<OfferRow> {
   const { data, error } = await supabaseAdmin
     .from("offers")
-    .select("id,title,price,original_price,old_price,discount_pct,category,image_url,marketplace")
+    .select("id,title,price,original_price,old_price,discount_pct,discount_percent,category,image_url,marketplace")
     .eq("id", offerId)
     .maybeSingle();
 
@@ -172,7 +173,11 @@ export async function buildBriefingFromOffer(
 
   const price = Number(offer.price) || 0;
   const rawOldPrice = Number(offer.original_price ?? offer.old_price ?? 0) || 0;
-  const rawDiscountPct = Number(offer.discount_pct) || 0;
+  const rawDiscountPct =
+    Number(offer.discount_pct ?? offer.discount_percent) ||
+    (rawOldPrice > price && price > 0
+      ? Math.round(((rawOldPrice - price) / rawOldPrice) * 100)
+      : 0);
 
   // Mesma checagem de sanidade do run-agent.ts: desconto/preco anterior
   // implausivel (>80%) quase sempre e erro de extracao, nao promocao real —

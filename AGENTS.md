@@ -26,4 +26,4 @@ Cores: fundo #0A0F1E, dourado #C9973A
 4. Sempre calcular quality_score ao salvar oferta
 5. CTA sempre direcionar para Radar Smart
 6. Nunca mencionar marketplace no script UGC
-7. Nunca usar libx264 no FFmpeg — usar mpeg4
+7. MP4 final publicável: H.264/avc1 + AAC. No Windows usar encoder `h264_mf`. `libx264` é proibido. `mpeg4/mp4v` não é permitido no MP4 final publicável; pode existir apenas em artefatos intermediários locais quando estritamente necessário. Se `h264_mf` não estiver disponível, bloquear antes de qualquer provider pago.

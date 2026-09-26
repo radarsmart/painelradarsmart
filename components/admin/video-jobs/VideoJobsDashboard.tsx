@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Clapperboard, Loader2, RefreshCw } from "lucide-react";
-import { supabase } from "@/lib/supabase";
+import { supabase } from "@/lib/supabase-browser";
 import VideoJobCreatePanel from "./VideoJobCreatePanel";
 import VideoJobDrawer from "./VideoJobDrawer";
 import VideoJobFilters from "./VideoJobFilters";

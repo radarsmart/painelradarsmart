@@ -28,7 +28,7 @@ async function ensureBucket(bucket: string): Promise<void> {
 
   const created = await supabaseAdmin.storage.createBucket(bucket, {
     public: true,
-    allowedMimeTypes: ['video/mp4'],
+    allowedMimeTypes: ['video/mp4', 'audio/mpeg', 'audio/mp3', 'audio/wav'],
   });
 
   if (created.error) {
@@ -55,8 +55,9 @@ async function readInput(input: PublishInput): Promise<Buffer> {
 function buildStoragePath(input: PublishInput): string {
   const date = new Date().toISOString().slice(0, 10);
   const rawName = input.fileName || (input.localFilePath ? path.basename(input.localFilePath) : 'radar-smart-video.mp4');
-  const baseName = sanitizePathPart(rawName.replace(/\.mp4$/i, ''));
-  return `${date}/${baseName}-${randomUUID()}.mp4`;
+  const ext = path.extname(rawName) || '.mp4';
+  const baseName = sanitizePathPart(rawName.slice(0, -ext.length));
+  return `${date}/${baseName}-${randomUUID()}${ext.toLowerCase()}`;
 }
 
 export async function publishVideoToSupabase(input: PublishInput): Promise<PublishOutput> {

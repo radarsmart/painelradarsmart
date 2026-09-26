@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import {
@@ -10,16 +10,14 @@ import {
   ChevronRight,
   Filter,
   Loader2,
-  MessageSquare,
   PackagePlus,
   Search,
-  Send,
   Sparkles,
   Truck,
   X,
 } from "lucide-react";
 
-import { supabase } from "@/lib/supabase";
+import { supabase } from "@/lib/supabase-browser";
 
 type AwinProduct = {
   id: string;
@@ -54,7 +52,6 @@ type FeedResponse = {
   error?: string;
 };
 
-type SlotType = "flash" | "best" | "comparator";
 type SortType = "" | "best_deals" | "top_selling" | "price_asc" | "price_desc";
 
 function formatMoney(value: number, currency: string) {
@@ -66,6 +63,40 @@ function formatMoney(value: number, currency: string) {
 
 function getProductKey(product: AwinProduct) {
   return `${product.id}:${product.merchantProductId}`;
+}
+
+// Mesmo agrupamento do Shopee Hub (app/admin/(protected)/shopee/page.tsx):
+// funcao local, sem import de lib/opportunity-engine/* — este e um Client
+// Component e puxar aquela arvore de novo arrastaria o bundle do motor pro
+// navegador. Feeds AWIN repetem a mesma variante/SKU do mesmo anunciante
+// varias vezes com o titulo identico; normalizar e comparar string ja
+// resolve a maioria dos casos reais.
+function normalizeTitleKey(title: string): string {
+  return title
+    .normalize("NFD")
+    .replace(/[^\x00-\x7F]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function groupAwinByProduct(products: AwinProduct[]): Array<{
+  key: string;
+  best: AwinProduct;
+  hiddenCount: number;
+}> {
+  const groups = new Map<string, AwinProduct[]>();
+  for (const product of products) {
+    const key = normalizeTitleKey(product.productName) || `untitled:${getProductKey(product)}`;
+    const bucket = groups.get(key);
+    if (bucket) bucket.push(product);
+    else groups.set(key, [product]);
+  }
+
+  return Array.from(groups.entries()).map(([key, items]) => {
+    const best = items.reduce((cheapest, item) => (item.searchPrice < cheapest.searchPrice ? item : cheapest));
+    return { key, best, hiddenCount: items.length - 1 };
+  });
 }
 
 export default function HubAwinProductsPage() {
@@ -88,8 +119,7 @@ export default function HubAwinProductsPage() {
   const [error, setError] = useState("");
   const [feedback, setFeedback] = useState("");
   const [dispatching, setDispatching] = useState<string | null>(null);
-  
-  const [siteModalProduct, setSiteModalProduct] = useState<AwinProduct | null>(null);
+
   const [aiModalProduct, setAiModalProduct] = useState<AwinProduct | null>(null);
   const [tempCopy, setTempCopy] = useState("");
   
@@ -245,9 +275,9 @@ export default function HubAwinProductsPage() {
     }
   }
 
-  async function handleDispatch(product: AwinProduct, action: "telegram" | "whatsapp" | "site", slotType?: SlotType, overrideCopy?: string) {
+  async function handleSendToCuration(product: AwinProduct, overrideCopy?: string) {
     const productKey = getProductKey(product);
-    const dispatchKey = `${action}:${productKey}`;
+    const dispatchKey = `curation:${productKey}`;
     setDispatching(dispatchKey);
     setFeedback("");
     setError("");
@@ -270,30 +300,27 @@ export default function HubAwinProductsPage() {
           product_url: product.awDeepLink,
           affiliate_url: product.awDeepLink,
           marketplace: "awin",
-          slot_type: slotType || "best",
           copy_text: copy,
-          channels: action === "site" ? [] : [action],
+          // Sem channels e sem publish_to_site: /api/admin/extrator/dispatch
+          // ja sabe so salvar a oferta (status inactive) sem disparar nada —
+          // salvarOferta() enfileira a avaliacao do Opportunity Engine
+          // sozinha, entao ela aparece pontuada no Radar de Oportunidades.
+          channels: [],
         }),
       });
 
       const payload = (await response.json()) as { success?: boolean; message?: string; error?: string };
       if (!response.ok || !payload.success) {
-        throw new Error(payload.error || payload.message || "Falha no despacho.");
+        throw new Error(payload.error || payload.message || "Falha ao enviar para curadoria.");
       }
 
-      if (action === "site") {
-        setAddedProducts((current) => ({ ...current, [productKey]: true }));
-      }
-      
-      const successMsg = `Sucesso: ${payload.message || "Oferta processada"}`;
-      setFeedback(successMsg);
-      // Opcional: alert(successMsg); 
+      setAddedProducts((current) => ({ ...current, [productKey]: true }));
+      setFeedback("Enviada para curadoria — acompanhe em Radar de Oportunidades. ✅");
     } catch (err) {
       console.error("Dispatch Error:", err);
-      setError(err instanceof Error ? err.message : "Falha no despacho.");
+      setError(err instanceof Error ? err.message : "Falha ao enviar para curadoria.");
     } finally {
       setDispatching(null);
-      setSiteModalProduct(null);
       setAiModalProduct(null);
     }
   }
@@ -309,6 +336,12 @@ export default function HubAwinProductsPage() {
     void loadProducts();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [advertiserId, search, category, sort, priceMin, priceMax, freeShipping, brazilOnly, page]);
+
+  const groupedProducts = useMemo(() => groupAwinByProduct(products), [products]);
+  const hiddenDuplicatesCount = useMemo(
+    () => groupedProducts.reduce((sum, group) => sum + group.hiddenCount, 0),
+    [groupedProducts],
+  );
 
   return (
     <div className="min-h-screen flex-1 space-y-8 bg-[#F5F1ED] p-8 pt-6">
@@ -477,6 +510,12 @@ export default function HubAwinProductsPage() {
         </div>
       ) : null}
 
+      {!loading && hiddenDuplicatesCount > 0 ? (
+        <div className="rounded-3xl border border-slate-200 bg-slate-50 px-5 py-3 text-sm text-slate-600">
+          {hiddenDuplicatesCount} anúncio(s) do mesmo produto (outra variante/preço) foram agrupados — mostrando só o mais barato de cada.
+        </div>
+      ) : null}
+
       {loading ? (
         <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
           {Array.from({ length: 6 }).map((_, index) => (
@@ -491,9 +530,9 @@ export default function HubAwinProductsPage() {
             </div>
           ))}
         </div>
-      ) : products.length > 0 ? (
+      ) : groupedProducts.length > 0 ? (
         <section className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
-          {products.map((product) => {
+          {groupedProducts.map(({ best: product, hiddenCount }) => {
             const productKey = getProductKey(product);
             const isAdded = Boolean(addedProducts[productKey]);
             const isAiBusy = aiLoading === productKey;
@@ -544,6 +583,11 @@ export default function HubAwinProductsPage() {
                   </span>
                 ) : null}
               </div>
+              {hiddenCount > 0 ? (
+                <p className="mt-1 text-[11px] font-semibold text-slate-400">
+                  + {hiddenCount} outra(s) variante/anúncio do mesmo produto (mais caro)
+                </p>
+              ) : null}
 
               <h2 className="mt-3 line-clamp-2 text-sm font-bold leading-6 text-[#1A1A1A]">
                 {product.productName}
@@ -589,30 +633,9 @@ export default function HubAwinProductsPage() {
                   {currentCopy ? "Revisar/Regerar Copy" : "Gerar Copy IA"}
                 </button>
 
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => void handleDispatch(product, "telegram")}
-                    disabled={!!dispatching}
-                    className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-[#0088CC] text-xs font-bold text-white transition hover:brightness-95 disabled:opacity-50"
-                  >
-                    {dispatching === `telegram:${productKey}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                    Telegram
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void handleDispatch(product, "whatsapp")}
-                    disabled={!!dispatching}
-                    className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-[#25D366] text-xs font-bold text-white transition hover:brightness-95 disabled:opacity-50"
-                  >
-                    {dispatching === `whatsapp:${productKey}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <MessageSquare className="h-4 w-4" />}
-                    WhatsApp
-                  </button>
-                </div>
-
                 <button
                   type="button"
-                  onClick={() => setSiteModalProduct(product)}
+                  onClick={() => void handleSendToCuration(product)}
                   disabled={isAdded || !!dispatching}
                   className={`inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl px-4 text-sm font-bold transition disabled:cursor-not-allowed ${
                     isAdded
@@ -620,14 +643,14 @@ export default function HubAwinProductsPage() {
                       : "bg-slate-900 text-white hover:bg-black disabled:bg-slate-100 disabled:text-slate-500"
                   }`}
                 >
-                  {dispatching === `site:${productKey}` ? (
+                  {dispatching === `curation:${productKey}` ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
                   ) : isAdded ? (
                     <CheckCircle2 className="h-4 w-4" />
                   ) : (
                     <PackagePlus className="h-4 w-4" />
                   )}
-                  {isAdded ? "Adicionado" : "Aprovar no Site"}
+                  {isAdded ? "Enviada para curadoria" : "Enviar para curadoria"}
                 </button>
               </div>
             </article>
@@ -714,66 +737,18 @@ export default function HubAwinProductsPage() {
             </div>
 
             <div className="mt-4 pt-4 border-t border-slate-100">
-              <p className="text-xs text-slate-400 mb-3 uppercase font-black">Enviar Direto:</p>
-              <div className="grid grid-cols-2 gap-3">
-                <button
-                  onClick={() => void handleDispatch(aiModalProduct, "telegram", undefined, tempCopy)}
-                  disabled={!!dispatching}
-                  className="flex items-center justify-center gap-2 rounded-2xl bg-[#0088CC] py-4 font-bold text-white hover:brightness-95"
-                >
-                  {dispatching?.startsWith("telegram") ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                  Enviar Telegram
-                </button>
-                <button
-                  onClick={() => void handleDispatch(aiModalProduct, "whatsapp", undefined, tempCopy)}
-                  disabled={!!dispatching}
-                  className="flex items-center justify-center gap-2 rounded-2xl bg-[#25D366] py-4 font-bold text-white hover:brightness-95"
-                >
-                  {dispatching?.startsWith("whatsapp") ? <Loader2 className="h-4 w-4 animate-spin" /> : <MessageSquare className="h-4 w-4" />}
-                  Enviar WhatsApp
-                </button>
-              </div>
+              <button
+                onClick={() => void handleSendToCuration(aiModalProduct, tempCopy)}
+                disabled={!!dispatching}
+                className="flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-900 py-4 font-bold text-white hover:bg-black disabled:opacity-50"
+              >
+                {dispatching?.startsWith("curation") ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                Enviar para curadoria
+              </button>
             </div>
           </div>
         </div>
       )}
-
-      {siteModalProduct ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-xl">
-            <h3 className="mb-4 text-lg font-bold text-gray-900">Escolha o bloco de destino</h3>
-            <div className="space-y-3">
-              {[
-                { slot: "flash", label: "Ofertas Relâmpago", tone: "bg-orange-100 text-orange-900" },
-                { slot: "best", label: "Melhores Ofertas", tone: "bg-blue-100 text-blue-900" },
-                { slot: "comparator", label: "Comparador", tone: "bg-green-100 text-green-900" },
-              ].map((item) => (
-                <button
-                  key={item.slot}
-                  type="button"
-                  onClick={() => handleDispatch(siteModalProduct, "site", item.slot as SlotType)}
-                  disabled={!!dispatching}
-                  className={`flex w-full items-center gap-3 rounded-2xl p-4 text-left hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60 ${item.tone}`}
-                >
-                  <CheckCircle2 className="h-5 w-5" />
-                  <div>
-                    <p className="font-semibold">{item.label}</p>
-                    <p className="text-sm opacity-70">{item.slot}</p>
-                  </div>
-                </button>
-              ))}
-            </div>
-            <button
-              type="button"
-              onClick={() => setSiteModalProduct(null)}
-              disabled={!!dispatching}
-              className="mt-4 w-full rounded-2xl bg-gray-100 py-3 font-semibold text-gray-700 hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              Cancelar
-            </button>
-          </div>
-        </div>
-      ) : null}
     </div>
   );
 }

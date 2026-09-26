@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/admin-auth";
+import { OFFER_OPERATOR_ROLES } from "@/lib/admin-permissions";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -93,7 +94,7 @@ async function callEdgeFunction(body: Record<string, unknown>) {
 }
 
 export async function GET(req: NextRequest) {
-  const adminGuard = await requireAdmin(req);
+  const adminGuard = await requireAdmin(req, { allowRoles: OFFER_OPERATOR_ROLES });
   if (!adminGuard.ok) {
     return NextResponse.json({ error: adminGuard.error }, { status: adminGuard.status });
   }
@@ -102,7 +103,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const adminGuard = await requireAdmin(req);
+  const adminGuard = await requireAdmin(req, { allowRoles: OFFER_OPERATOR_ROLES });
   if (!adminGuard.ok) {
     return NextResponse.json({ error: adminGuard.error }, { status: adminGuard.status });
   }

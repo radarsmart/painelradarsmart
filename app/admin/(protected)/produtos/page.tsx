@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 
 import DashboardRefreshButton from "@/components/admin/DashboardRefreshButton";
-import { supabase } from "@/lib/supabase";
+import { supabase } from "@/lib/supabase-browser";
 
 type SEOCardProps = {
   title: string;

@@ -4,6 +4,7 @@ import path from "node:path";
 import { NextRequest, NextResponse } from "next/server";
 
 import { requireAdmin } from "@/lib/admin-auth";
+import { OFFER_WORKFLOW_ROLES } from "@/lib/admin-permissions";
 import { supabaseAdmin } from "@/lib/supabase";
 import { isValidRemoteImageUrl } from "@/lib/story-image-allowlist";
 
@@ -173,7 +174,7 @@ async function fetchProductImageBuffer(
 }
 
 export async function POST(req: NextRequest) {
-  const adminGuard = await requireAdmin(req, { allowRoles: ["admin", "central_oferta"] });
+  const adminGuard = await requireAdmin(req, { allowRoles: OFFER_WORKFLOW_ROLES });
   if (!adminGuard.ok) {
     return NextResponse.json({ error: adminGuard.error }, { status: adminGuard.status });
   }

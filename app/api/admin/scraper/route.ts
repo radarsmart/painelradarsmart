@@ -16,6 +16,7 @@ import { extractMercadoLivreWithZenscrape } from "@/lib/scraping/mercadolivre-ze
 import { extractAmazonWithRainforest } from "@/lib/scraping/amazon-rainforest";
 import { extractShopeeOffer } from "@/lib/scraping/shopee-extractor";
 import { extractBrandModel } from "@/lib/scraper/brand-model-extractor";
+import { normalizePaymentTerms } from "@/lib/offers/pricing";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -74,6 +75,14 @@ type ExtractPreviewPayload = {
   old_price: number;
   original_price: number;
   final_price?: number;
+  pix_price?: number | null;
+  cash_price?: number | null;
+  card_price?: number | null;
+  shipping_cost?: number | null;
+  installment_count?: number | null;
+  installment_amount?: number | null;
+  installment_interest_free?: boolean | null;
+  payment_information_original?: string | null;
   image_url: string;
   product_url: string;
   affiliate_url: string;
@@ -101,6 +110,14 @@ type SuccessResponse = {
   product_url: string;
   affiliate_url: string;
   final_price?: number;
+  pix_price?: number | null;
+  cash_price?: number | null;
+  card_price?: number | null;
+  shipping_cost?: number | null;
+  installment_count?: number | null;
+  installment_amount?: number | null;
+  installment_interest_free?: boolean | null;
+  payment_information_original?: string | null;
   coupon_code?: string | null;
   coupon_discount_pct?: number | null;
   momentum_score?: number;
@@ -145,6 +162,129 @@ function paidScraperFallbacksEnabled(): boolean {
 function toNumber(value: unknown): number | null {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function toRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function toBooleanOrNull(value: unknown): boolean | null {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["true", "1", "sim", "yes"].includes(normalized)) return true;
+    if (["false", "0", "nao", "não", "no"].includes(normalized)) return false;
+  }
+  return null;
+}
+
+function buildPaymentPayload(rawData: Record<string, unknown>, referencePrice?: unknown) {
+  const installments = toRecord(
+    rawData.installments ??
+      rawData.installment ??
+      rawData.payment_installments ??
+      rawData.payment,
+  );
+  const installmentCount =
+    toNumber(rawData.installment_count) ??
+    toNumber(rawData.installments_count) ??
+    toNumber(rawData.installments) ??
+    toNumber(installments.quantity) ??
+    toNumber(installments.count);
+  const installmentAmount =
+    toNumber(rawData.installment_amount) ??
+    toNumber(rawData.installment_value) ??
+    toNumber(installments.amount) ??
+    toNumber(installments.value);
+  const installmentInterestFree =
+    toBooleanOrNull(rawData.installment_interest_free) ??
+    toBooleanOrNull(rawData.interest_free) ??
+    toBooleanOrNull(installments.interest_free) ??
+    (toNumber(installments.rate) === 0 ? true : null);
+
+  const pixPrice =
+    toNumber(rawData.pix_price) ??
+    toNumber(rawData.cash_price) ??
+    toNumber(rawData.price_pix);
+
+  const rawPayment = {
+    pix_price: pixPrice,
+    cash_price: toNumber(rawData.cash_price) ?? pixPrice,
+    card_price:
+      toNumber(rawData.card_price) ??
+      (installmentCount && installmentAmount
+        ? roundCurrency(installmentCount * installmentAmount)
+        : null),
+    shipping_cost: toNumber(rawData.shipping_cost) ?? toNumber(rawData.shipping),
+    installment_count: installmentCount,
+    installment_amount: installmentAmount,
+    installment_interest_free: installmentInterestFree,
+    payment_information_original:
+      toText(rawData.payment_information_original) ||
+      toText(rawData.payment_summary) ||
+      null,
+  };
+
+  const price = toNumber(referencePrice);
+  if (price === null || price <= 0) return rawPayment;
+
+  const payment = normalizePaymentTerms({
+    price,
+    regular_price: price,
+    ...rawPayment,
+  });
+  const hasCardInfo =
+    rawPayment.card_price !== null ||
+    Boolean(payment.installments && payment.installment_value);
+
+  return {
+    pix_price: payment.pix_price,
+    cash_price: payment.cash_price,
+    card_price: hasCardInfo ? payment.card_price : null,
+    shipping_cost: payment.shipping_cost,
+    installment_count: payment.installments,
+    installment_amount: payment.installment_value,
+    installment_interest_free: payment.interest_free,
+    payment_information_original: payment.payment_information_original,
+  };
+}
+
+type PaymentPayload = ReturnType<typeof buildPaymentPayload>;
+
+const PAYMENT_PAYLOAD_KEYS = [
+  "pix_price",
+  "cash_price",
+  "card_price",
+  "shipping_cost",
+  "installment_count",
+  "installment_amount",
+  "installment_interest_free",
+  "payment_information_original",
+] as const;
+
+function mergePaymentPayloads(
+  primary: SuccessResponse,
+  fallback: SuccessResponse,
+): PaymentPayload {
+  const primaryPayment = buildPaymentPayload({
+    ...primary.preview,
+    ...primary,
+  }, primary.price);
+  const fallbackPayment = buildPaymentPayload({
+    ...fallback.preview,
+    ...fallback,
+  }, fallback.price);
+
+  return Object.fromEntries(
+    PAYMENT_PAYLOAD_KEYS.map((key) => [
+      key,
+      primaryPayment[key] !== null && primaryPayment[key] !== undefined
+        ? primaryPayment[key]
+        : fallbackPayment[key],
+    ]),
+  ) as PaymentPayload;
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -495,10 +635,12 @@ function buildFromShopeeHtml(input: {
     price: input.price ?? 0,
     old_price: input.oldPrice ?? 0,
     original_price: input.oldPrice ?? 0,
+    ...buildPaymentPayload(input.rawData, input.price),
     image_url: input.imageUrl,
     product_url: input.productUrl,
     affiliate_url: input.affiliateUrl,
   };
+  const paymentPayload = buildPaymentPayload(input.rawData, input.price);
 
   return {
     success: true,
@@ -515,6 +657,7 @@ function buildFromShopeeHtml(input: {
     image_url: input.imageUrl,
     product_url: input.productUrl,
     affiliate_url: input.affiliateUrl,
+    ...paymentPayload,
     preview,
     extracted: input.rawData,
   };
@@ -577,12 +720,14 @@ function buildFromMercadoLivreOfficial(input: {
     price: input.price,
     imageUrl: input.imageUrl,
   });
+  const paymentPayload = buildPaymentPayload(input.rawData, input.price);
 
   const preview = {
     title: input.title,
     price: input.price ?? 0,
     old_price: input.oldPrice ?? 0,
     original_price: input.oldPrice ?? 0,
+    ...paymentPayload,
     image_url: input.imageUrl,
     permalink: input.permalink,
     product_url: input.productUrl,
@@ -606,6 +751,7 @@ function buildFromMercadoLivreOfficial(input: {
     image_url: input.imageUrl,
     product_url: input.productUrl,
     affiliate_url: input.affiliateUrl,
+    ...paymentPayload,
     brand: extractBrandFromMlAttributes(input.rawData),
     preview,
     extracted: input.rawData,
@@ -764,6 +910,7 @@ function mergeMercadoLivrePayloads(
   const imageUrl = zensPayload.image_url || officialPayload.image_url;
   const productUrl = officialPayload.product_url || zensPayload.product_url;
   const affiliateUrl = officialPayload.affiliate_url || zensPayload.affiliate_url;
+  const paymentPayload = mergePaymentPayloads(officialPayload, zensPayload);
 
   const validation = buildExtractionStatus({
     title,
@@ -786,11 +933,13 @@ function mergeMercadoLivrePayloads(
     image_url: imageUrl,
     product_url: productUrl,
     affiliate_url: affiliateUrl,
+    ...paymentPayload,
     preview: {
       title,
       price: normalizedCommercial.price,
       old_price: normalizedCommercial.oldPrice,
       original_price: normalizedCommercial.oldPrice,
+      ...paymentPayload,
       image_url: imageUrl,
       permalink:
         toText((officialPayload.preview as { permalink?: unknown } | undefined)?.permalink) ||
@@ -849,12 +998,14 @@ function buildFromMercadoLivreZenscrape(input: {
     price: input.price,
     imageUrl: input.imageUrl,
   });
+  const paymentPayload = buildPaymentPayload(input.rawData, input.price);
 
   const preview = {
     title: input.title,
     price: input.price ?? 0,
     old_price: input.oldPrice ?? 0,
     original_price: input.oldPrice ?? 0,
+    ...paymentPayload,
     image_url: input.imageUrl,
     product_url: input.productUrl,
     affiliate_url: input.affiliateUrl,
@@ -875,6 +1026,7 @@ function buildFromMercadoLivreZenscrape(input: {
     image_url: input.imageUrl,
     product_url: input.productUrl,
     affiliate_url: input.affiliateUrl,
+    ...paymentPayload,
     preview,
     extracted: input.rawData,
   };
@@ -1031,6 +1183,7 @@ function buildFromAmazonRainforest(input: {
     price: input.price,
     imageUrl: input.imageUrl,
   });
+  const paymentPayload = buildPaymentPayload(input.rawData, input.price);
 
   const preview = {
     asin: input.asin,
@@ -1038,6 +1191,7 @@ function buildFromAmazonRainforest(input: {
     price: input.price ?? 0,
     old_price: input.oldPrice ?? 0,
     original_price: input.oldPrice ?? 0,
+    ...paymentPayload,
     image_url: input.imageUrl,
     product_url: input.productUrl,
     affiliate_url: input.affiliateUrl,
@@ -1058,6 +1212,7 @@ function buildFromAmazonRainforest(input: {
     image_url: input.imageUrl,
     product_url: input.productUrl,
     affiliate_url: input.affiliateUrl,
+    ...paymentPayload,
     preview,
     extracted: input.rawData,
   };
@@ -1106,6 +1261,7 @@ function mergeMercadoLivrePreviewPayloads(
     toText(previewPrimary?.status) ||
     toText(previewFallback?.status) ||
     null;
+  const paymentPayload = mergePaymentPayloads(primary, fallback);
 
   const validation = buildExtractionStatus({
     title,
@@ -1131,12 +1287,14 @@ function mergeMercadoLivrePreviewPayloads(
     image_url: imageUrl,
     product_url: productUrl,
     affiliate_url: affiliateUrl,
+    ...paymentPayload,
     preview: {
       ...primary.preview,
       title,
       price: normalizedCommercial.price,
       old_price: normalizedCommercial.oldPrice,
       original_price: normalizedCommercial.oldPrice,
+      ...paymentPayload,
       image_url: imageUrl,
       permalink,
       product_url: productUrl,
@@ -1193,6 +1351,7 @@ function mergeAmazonPayloads(
   const title = toText(primary.title) || toText(fallback.title);
   const productUrl = toText(primary.product_url) || toText(fallback.product_url);
   const affiliateUrl = toText(primary.affiliate_url) || toText(fallback.affiliate_url);
+  const paymentPayload = mergePaymentPayloads(primary, fallback);
   const validation = buildExtractionStatus({
     title,
     price,
@@ -1215,6 +1374,7 @@ function mergeAmazonPayloads(
     image_url: imageUrl,
     product_url: productUrl,
     affiliate_url: affiliateUrl,
+    ...paymentPayload,
     preview: {
       ...primary.preview,
       asin: toText(primary.preview.asin) || toText(fallback.preview.asin) || null,
@@ -1222,6 +1382,7 @@ function mergeAmazonPayloads(
       price,
       old_price: oldPriceCandidate,
       original_price: oldPriceCandidate,
+      ...paymentPayload,
       image_url: imageUrl,
       product_url: productUrl,
       affiliate_url: affiliateUrl,
@@ -1239,11 +1400,13 @@ async function buildFromContainerFallback(
   if (extractedEngine.marketplace === "mercadolivre") {
     const extracted = extractedEngine.data;
     const preview = mapToAdminProdutoML(extracted);
+    const paymentPayload = buildPaymentPayload(extracted as unknown as Record<string, unknown>, preview.price);
     const previewPayload: ExtractPreviewPayload = {
       title: preview.title,
       price: preview.price,
       old_price: preview.original_price,
       original_price: preview.original_price,
+      ...paymentPayload,
       image_url: preview.image_url,
       product_url: preview.product_url,
       affiliate_url: preview.affiliate_url,
@@ -1276,6 +1439,7 @@ async function buildFromContainerFallback(
       affiliate_url: preview.affiliate_url,
       brand: brandModel.brand,
       model: brandModel.model,
+      ...paymentPayload,
       preview: previewPayload,
       extracted: extracted as unknown as Record<string, unknown>,
     };
@@ -1283,12 +1447,14 @@ async function buildFromContainerFallback(
 
   const extracted = extractedEngine.data;
   const preview = mapToAdminProdutoAmazon(extracted);
+  const paymentPayload = buildPaymentPayload(extracted as unknown as Record<string, unknown>, preview.price);
   const previewPayload: ExtractPreviewPayload = {
     asin: extracted.asin,
     title: preview.title,
     price: preview.price,
     old_price: preview.original_price,
     original_price: preview.original_price,
+    ...paymentPayload,
     image_url: preview.image_url,
     product_url: preview.product_url,
     affiliate_url: preview.affiliate_url,
@@ -1321,6 +1487,7 @@ async function buildFromContainerFallback(
     affiliate_url: preview.affiliate_url,
     brand: brandModel.brand,
     model: brandModel.model,
+    ...paymentPayload,
     preview: previewPayload,
     extracted: extracted as unknown as Record<string, unknown>,
   };

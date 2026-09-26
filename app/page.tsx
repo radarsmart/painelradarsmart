@@ -16,9 +16,10 @@ import Header from "@/components/layout/Header";
 import Footer from "@/components/layout/Footer";
 import CountdownTimer from "@/components/vitrine/CountdownTimer";
 import { formatBRL } from "@/lib/formatters";
+import { buildOfferPresentation } from "@/lib/offers/pricing";
 import { CATEGORY_MENU } from "@/lib/offers/categories";
 import { isOfferVisibleOnSite } from "@/lib/offers/site-visibility";
-import { supabase } from "@/lib/supabase";
+import { supabase } from "@/lib/supabase-browser";
 
 type OfferRow = {
   id: string;
@@ -49,6 +50,10 @@ type OfferRow = {
   installment_interest_free: boolean | null;
   coupon_code: string | null;
   coupon_description: string | null;
+  pix_price: number | string | null;
+  cash_price: number | string | null;
+  card_price: number | string | null;
+  shipping_cost: number | string | null;
 };
 
 type BlogPostRow = {
@@ -67,6 +72,10 @@ type HomeOffer = {
   title: string;
   marketplace: string;
   price: number;
+  pixPrice: number | null;
+  cashPrice: number | null;
+  cardPrice: number | null;
+  shippingCost: number | null;
   oldPrice: number | null;
   discount: number;
   imageUrl: string | null;
@@ -197,6 +206,10 @@ function normalizeOffer(row: OfferRow): HomeOffer | null {
     title: row.title?.trim() || "Oferta sem título",
     marketplace: row.marketplace?.trim() || "Marketplace",
     price,
+    pixPrice: toNumber(row.pix_price),
+    cashPrice: toNumber(row.cash_price),
+    cardPrice: toNumber(row.card_price),
+    shippingCost: toNumber(row.shipping_cost),
     oldPrice,
     discount,
     imageUrl: row.image_url,
@@ -228,9 +241,63 @@ function formatFreshness(updatedAt: string | null): string | null {
 }
 
 function formatInstallmentText(offer: HomeOffer): string | null {
-  if (!offer.installmentCount || !offer.installmentAmount) return null;
-  const suffix = offer.installmentInterestFree ? " sem juros" : "";
-  return `ou ${offer.installmentCount}x de ${formatBRL(offer.installmentAmount)}${suffix}`;
+  return buildOfferPresentation({
+    regular_price: offer.price,
+    price: offer.price,
+    pix_price: offer.pixPrice,
+    cash_price: offer.cashPrice,
+    card_price: offer.cardPrice,
+    shipping_cost: offer.shippingCost,
+    installment_count: offer.installmentCount,
+    installment_amount: offer.installmentAmount,
+    installment_interest_free: offer.installmentInterestFree,
+  }).secondary_price;
+}
+
+function formatHeadlinePrice(offer: HomeOffer): string {
+  return (
+    buildOfferPresentation({
+      regular_price: offer.price,
+      price: offer.price,
+      pix_price: offer.pixPrice,
+      cash_price: offer.cashPrice,
+      card_price: offer.cardPrice,
+      shipping_cost: offer.shippingCost,
+      installment_count: offer.installmentCount,
+      installment_amount: offer.installmentAmount,
+      installment_interest_free: offer.installmentInterestFree,
+    }).headline_price ?? formatBRL(offer.price)
+  );
+}
+
+function splitHeadlinePrice(value: string): { price: string; suffix: string | null } {
+  const match = value.match(/^(.*?)(\s+(?:no PIX|a vista))$/i);
+  if (!match) return { price: value, suffix: null };
+  return {
+    price: match[1].trim(),
+    suffix: match[2].trim(),
+  };
+}
+
+function HeadlinePrice({
+  offer,
+  className,
+}: {
+  offer: HomeOffer;
+  className: string;
+}) {
+  const parts = splitHeadlinePrice(formatHeadlinePrice(offer));
+  return (
+    <span className={className}>
+      {parts.price}
+      {parts.suffix ? (
+        <span className="ml-1 align-baseline text-[10px] font-extrabold text-[#9e6a18] sm:text-xs">
+          {" "}
+          {parts.suffix}
+        </span>
+      ) : null}
+    </span>
+  );
 }
 
 function normalizePost(row: BlogPostRow): HomePost {
@@ -278,7 +345,7 @@ export default function HomePage() {
       if (isInitial) setLoading(true);
 
       const offerSelect =
-        "id,title,price,old_price,original_price,price_old,discount_pct,discount_percent,image_url,affiliate_url,product_url,marketplace,rating,review_count,reviews_count,slot_type,curations_status,created_at,updated_at,published_at,expires_at,manual_copy,status,installment_count,installment_amount,installment_interest_free,coupon_code,coupon_description";
+        "id,title,price,old_price,original_price,price_old,discount_pct,discount_percent,image_url,affiliate_url,product_url,marketplace,rating,review_count,reviews_count,slot_type,curations_status,created_at,updated_at,published_at,expires_at,manual_copy,status,installment_count,installment_amount,installment_interest_free,coupon_code,coupon_description,pix_price,cash_price,card_price,shipping_cost";
 
       const [
         { data: flashRows },
@@ -305,7 +372,7 @@ export default function HomePage() {
           .select(offerSelect)
           .eq("status", "active")
           .eq("slot_type", "comparator")
-          .order("click_count", { ascending: false })
+          .order("updated_at", { ascending: false })
           .limit(40),
         supabase
           .from("blog_posts")
@@ -378,14 +445,16 @@ export default function HomePage() {
   );
 
   const compareOffers = useMemo(() => {
-    const base = comparatorOffers;
+    const base = comparatorOffers.length
+      ? comparatorOffers
+      : dedupeOffers([...dayOffers, ...relampagoOffers]);
     const sorted = [...base].sort((a, b) => {
       if (compareMode === "price") return a.price - b.price;
       if (compareMode === "discount") return b.discount - a.discount;
       return (b.rating ?? 0) - (a.rating ?? 0);
     });
     return sorted.slice(0, 4);
-  }, [comparatorOffers, compareMode]);
+  }, [comparatorOffers, dayOffers, relampagoOffers, compareMode]);
 
   return (
     <div className="bg-[#F3F6F9] text-navy">
@@ -512,9 +581,10 @@ export default function HomePage() {
                 </div>
                 <p className="mt-2 line-clamp-2 text-xs font-semibold sm:mt-3 sm:text-sm md:text-[15px]">{offer.title}</p>
                 <div className="mt-2 flex flex-wrap items-center gap-1.5 sm:gap-2">
-                  <p className="font-mono text-sm font-bold text-[#22223B] sm:text-lg md:text-xl">
-                    {formatOfferPrice(offer.price)}
-                  </p>
+                  <HeadlinePrice
+                    offer={offer}
+                    className="font-mono text-sm font-bold text-[#22223B] sm:text-lg md:text-xl"
+                  />
                   {offer.oldPrice ? (
                     <span className="text-[10px] text-slate-400 line-through sm:text-xs">
                       {formatBRL(offer.oldPrice)}
@@ -601,9 +671,10 @@ export default function HomePage() {
                   ) : null}
                 </div>
                 <h3 className="mt-1 line-clamp-2 text-xs font-semibold sm:text-sm">{offer.title}</h3>
-                <p className="mt-2 font-mono text-sm font-bold text-[#22223B] sm:text-lg md:text-xl">
-                  {formatOfferPrice(offer.price)}
-                </p>
+                <HeadlinePrice
+                  offer={offer}
+                  className="mt-2 block font-mono text-sm font-bold text-[#22223B] sm:text-lg md:text-xl"
+                />
                 {formatInstallmentText(offer) ? (
                   <p className="mt-0.5 text-[10px] text-slate-500 sm:text-xs">{formatInstallmentText(offer)}</p>
                 ) : null}
@@ -693,9 +764,10 @@ export default function HomePage() {
                       <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
                         Preco
                       </p>
-                      <p className="mt-1 font-mono font-bold text-[#22223B]">
-                        {formatOfferPrice(offer.price)}
-                      </p>
+                      <HeadlinePrice
+                        offer={offer}
+                        className="mt-1 block font-mono font-bold text-[#22223B]"
+                      />
                     </div>
                     <div>
                       <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
@@ -706,6 +778,11 @@ export default function HomePage() {
                       </p>
                     </div>
                   </div>
+                  {offer.couponCode ? (
+                    <p className="mt-2 truncate text-xs font-semibold text-emerald-600" title={offer.couponDescription ?? undefined}>
+                      Cupom {offer.couponCode}
+                    </p>
+                  ) : null}
                   <a
                     href={buildTrackedOfferUrl(offer.id, "home_compare_mobile")}
                     target="_blank"
@@ -748,8 +825,18 @@ export default function HomePage() {
                     </td>
                     <td className="py-3">
                       <p className="line-clamp-1 max-w-[260px] font-medium">{offer.title}</p>
+                      {offer.couponCode ? (
+                        <p className="mt-1 truncate text-xs font-semibold text-emerald-600" title={offer.couponDescription ?? undefined}>
+                          Cupom {offer.couponCode}
+                        </p>
+                      ) : null}
                     </td>
-                    <td className="py-3 font-mono font-bold">{formatOfferPrice(offer.price)}</td>
+                    <td className="py-3">
+                      <HeadlinePrice
+                        offer={offer}
+                        className="font-mono font-bold"
+                      />
+                    </td>
                     <td className="py-3 text-[#9e6a18]">{offer.discount}%</td>
                     <td className="py-3">{offer.rating ? offer.rating.toFixed(1) : "-"}</td>
                     <td className="py-3">
@@ -843,9 +930,3 @@ export default function HomePage() {
     </div>
   );
 }
-
-function formatOfferPrice(price: number): string {
-  return price > 0 ? formatBRL(price) : "Consultar";
-}
-
-

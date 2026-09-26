@@ -7,6 +7,8 @@ import { supabaseAdmin } from "@/lib/supabase";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+const FLASH_RENEW_WINDOW_HOURS = 48;
+
 function isAuthorizedCron(req: NextRequest): boolean {
   if (String(req.headers.get("x-vercel-cron") ?? "").trim()) {
     return true;
@@ -17,6 +19,10 @@ function isAuthorizedCron(req: NextRequest): boolean {
 
   const authHeader = String(req.headers.get("authorization") ?? "").trim();
   return authHeader === `Bearer ${cronSecret}`;
+}
+
+function computeRenewedFlashExpiry(now = new Date()): string {
+  return new Date(now.getTime() + FLASH_RENEW_WINDOW_HOURS * 60 * 60 * 1000).toISOString();
 }
 
 export async function POST(req: NextRequest) {
@@ -33,7 +39,7 @@ export async function POST(req: NextRequest) {
 
     const expiredQuery = await supabaseAdmin
       .from("offers")
-      .select("id")
+      .select("id,slot_type")
       .eq("status", "active")
       .not("expires_at", "is", null)
       .lt("expires_at", nowIso);
@@ -42,11 +48,42 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: expiredQuery.error.message }, { status: 500 });
     }
 
-    const ids = (expiredQuery.data ?? []).map((row) => String((row as { id: string }).id));
+    const rows = (expiredQuery.data ?? []) as Array<{ id: string; slot_type?: string | null }>;
+    const flashIds = rows
+      .filter((row) => String(row.slot_type ?? "").trim().toLowerCase() === "flash")
+      .map((row) => String(row.id));
+    const ids = rows
+      .filter((row) => String(row.slot_type ?? "").trim().toLowerCase() !== "flash")
+      .map((row) => String(row.id));
+
+    let renewedCount = 0;
+    if (flashIds.length) {
+      const renewResult = await supabaseAdmin
+        .from("offers")
+        .update({
+          expires_at: computeRenewedFlashExpiry(new Date(nowIso)),
+          updated_at: nowIso,
+        })
+        .in("id", flashIds)
+        .select("id");
+
+      if (renewResult.error) {
+        return NextResponse.json({ error: renewResult.error.message }, { status: 500 });
+      }
+
+      renewedCount = renewResult.data?.length ?? flashIds.length;
+    }
+
     if (!ids.length) {
+      revalidatePath("/");
+      revalidatePath("/ofertas");
+      revalidatePath("/ofertas-relampago");
+      revalidatePath("/comparativo");
+
       return NextResponse.json({
         success: true,
         expired_count: 0,
+        renewed_flash_count: renewedCount,
         checked_at: nowIso,
       });
     }
@@ -78,11 +115,13 @@ export async function POST(req: NextRequest) {
 
     revalidatePath("/");
     revalidatePath("/ofertas");
+    revalidatePath("/ofertas-relampago");
     revalidatePath("/comparativo");
 
     return NextResponse.json({
       success: true,
       expired_count: updateResult.data?.length ?? ids.length,
+      renewed_flash_count: renewedCount,
       checked_at: nowIso,
     });
   } catch (error) {

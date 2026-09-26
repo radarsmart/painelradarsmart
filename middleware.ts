@@ -6,6 +6,10 @@ const CANONICAL_HOST = "radarsmart.com.br";
 
 export function middleware(request: NextRequest) {
   if (request.nextUrl.hostname !== WWW_HOST) {
+    if (request.nextUrl.pathname === "/favicon.ico") {
+      return NextResponse.rewrite(new URL("/favicon-32x32.png", request.url));
+    }
+
     return NextResponse.next();
   }
 

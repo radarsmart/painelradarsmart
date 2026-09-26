@@ -543,7 +543,7 @@ function translateAwinCategory(value: string) {
   return AWIN_CATEGORY_PT_BR[normalized] ?? formatUnmappedCategory(category);
 }
 
-function forceAliExpressBrazilLink(value: string) {
+export function forceAliExpressBrazilLink(value: string) {
   let next = toText(value);
   if (!next) return next;
 
@@ -597,7 +597,7 @@ function recursivelyDecodeUrl(value: string) {
   return next;
 }
 
-function extractAliExpressItemId(value: string) {
+export function extractAliExpressItemId(value: string) {
   const decoded = recursivelyDecodeUrl(value).toLowerCase();
   return (
     decoded.match(/\/item\/(\d{8,})/i)?.[1] ||
@@ -632,7 +632,7 @@ function getAwinDestinationUrl(value: string) {
   return rawValue;
 }
 
-function buildAwinDeepLink(params: {
+export function buildAwinDeepLink(params: {
   advertiserId: string;
   publisherId: string;
   destinationUrl: string;

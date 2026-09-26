@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { CheckCircle2, ImageDown, Sparkles, X } from "lucide-react";
 import { formatBRL } from "@/lib/formatters";
-import { supabase } from "@/lib/supabase";
+import { supabase } from "@/lib/supabase-browser";
 
 type TikTokShopCreativeButtonProps = {
   title: string;

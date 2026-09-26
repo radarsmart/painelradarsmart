@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { requireAdmin } from "@/lib/admin-auth";
+import { resolveOfferPricing } from "@/lib/offers/pricing";
 import { fetchShopeeTopProducts, type ShopeeProductNode } from "@/lib/shopee/client";
 import { supabaseAdmin } from "@/lib/supabase";
 
@@ -107,11 +108,15 @@ function normalizeHubOffer(row: HubOfferRow) {
   const commissionRate = toNumber(payload.commission_rate);
   const normalizedClassification =
     normalizeClassificationFilter(toText(row.classification)) ?? "Destaque";
+  const pricing = resolveOfferPricing(row);
 
   return {
     id: toText(row.external_offer_id) || toText(row.id),
     title: toText(row.title),
-    price: toNumber(row.price),
+    price: pricing.price,
+    old_price: pricing.oldPrice,
+    original_price: pricing.oldPrice,
+    discount_pct: pricing.discountPct || null,
     commission_rate: commissionRate,
     image: toText(row.image_url),
     link: toText(row.affiliate_url_manual) || toText(row.product_url),
@@ -253,11 +258,15 @@ async function fetchShopeeFallback(search: string, commissionMin: number, limit:
         toNumber(row.commission_rate) ||
         toNumber(raw.commission_rate) ||
         toNumber(raw.commissionRate);
+      const pricing = resolveOfferPricing(row);
 
       return {
         id: toText(row.id),
         title,
         price,
+        old_price: pricing.oldPrice,
+        original_price: pricing.oldPrice,
+        discount_pct: pricing.discountPct || null,
         commission_rate: commissionRate,
         image: toText(row.image_url),
         link: toText(row.affiliate_url) || toText(row.product_url),

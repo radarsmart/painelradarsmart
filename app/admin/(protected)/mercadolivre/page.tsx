@@ -1,7 +1,7 @@
 ﻿"use client";
 
 import StoryGeneratorButton from "@/components/admin/StoryGeneratorButton";
-import { supabase } from "@/lib/supabase";
+import { supabase } from "@/lib/supabase-browser";
 import {
   CheckCircle2,
   Loader2,

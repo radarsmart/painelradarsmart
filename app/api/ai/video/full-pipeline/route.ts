@@ -46,7 +46,7 @@ export async function POST(request: NextRequest) {
       input: body as Record<string, unknown>,
       originalJobId: body.retryOfJobId?.trim(),
       attemptNumber: body.attemptNumber,
-      createdByUserId: isUuid(adminGuard.userId) ? adminGuard.userId : null,
+      createdByUserId: isUuid(adminGuard.userId ?? "") ? adminGuard.userId : null,
       createdByEmail: adminGuard.email,
     });
     console.log(`[/api/ai/video/full-pipeline] job=${jobId} preview_generating product="${body.productName.trim()}"`);

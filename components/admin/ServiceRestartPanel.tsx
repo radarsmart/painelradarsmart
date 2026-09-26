@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Loader2, MessageCircle, RefreshCw, Search, ServerCog } from "lucide-react";
-import { supabase } from "@/lib/supabase";
+import { supabase } from "@/lib/supabase-browser";
 
 type StatusResponse = {
   ok?: boolean;

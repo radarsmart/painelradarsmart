@@ -14,7 +14,7 @@ export type AmazonProduct = {
   raw?: Record<string, unknown>;
 };
 
-const DEFAULT_AMAZON_TAG = "radarsmart202-20";
+const DEFAULT_AMAZON_TAG = "radarsmartOf-20";
 const AMAZON_IMAGE_FALLBACK = "";
 
 type AmazonApiProduct = {
@@ -107,7 +107,7 @@ export function normalizeAmazonImageUrl(raw?: string | null): string {
 
 export const normalizeAmazonProducts = (
   data: AmazonApiResponse | null | undefined,
-  tag = "radarsmart202-20",
+  tag = "radarsmartOf-20",
 ): AmazonProduct[] => {
   const items = data?.data?.products ?? [];
   return items.slice(0, 10).map((p) => {

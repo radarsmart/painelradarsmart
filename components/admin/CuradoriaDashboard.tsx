@@ -12,7 +12,7 @@ import {
   TerminalSquare,
 } from "lucide-react";
 import useProductExtractor from "@/hooks/useProductExtractor";
-import { supabase } from "@/lib/supabase";
+import { supabase } from "@/lib/supabase-browser";
 
 function isValidUrl(value: string) {
   try {

@@ -16,7 +16,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { formatBRL } from "@/lib/formatters";
-import { supabase } from "@/lib/supabase";
+import { supabase } from "@/lib/supabase-browser";
 import { useRouter, useSearchParams } from "next/navigation";
 
 type Marketplace = "mercadolivre" | "amazon" | "awin" | "tiktokshop" | "shopee";
@@ -28,6 +28,14 @@ type ExtractPreview = {
   original_price?: number;
   old_price?: number;
   discount_pct?: number;
+  pix_price?: number | null;
+  cash_price?: number | null;
+  card_price?: number | null;
+  shipping_cost?: number | null;
+  installment_count?: number | null;
+  installment_amount?: number | null;
+  installment_interest_free?: boolean | null;
+  payment_information_original?: string | null;
   image_url?: string;
   imageUrl?: string;
   rating?: number;
@@ -48,6 +56,14 @@ type ExtractResponse = {
   title?: string;
   price?: number;
   old_price?: number;
+  pix_price?: number | null;
+  cash_price?: number | null;
+  card_price?: number | null;
+  shipping_cost?: number | null;
+  installment_count?: number | null;
+  installment_amount?: number | null;
+  installment_interest_free?: boolean | null;
+  payment_information_original?: string | null;
   image?: string;
   image_url?: string;
   imageUrl?: string;
@@ -135,6 +151,14 @@ type AdminOfferRecord = {
   old_price?: number | string | null;
   original_price?: number | string | null;
   discount_pct?: number | string | null;
+  pix_price?: number | string | null;
+  cash_price?: number | string | null;
+  card_price?: number | string | null;
+  shipping_cost?: number | string | null;
+  installment_count?: number | string | null;
+  installment_amount?: number | string | null;
+  installment_interest_free?: boolean | null;
+  payment_information_original?: string | null;
   slot_type?: OfferSlot | string | null;
   status?: string | null;
   curations_status?: string | null;
@@ -417,12 +441,46 @@ function buildPreviewFromExtractResponse(
     price,
     old_price: oldPrice,
     original_price: oldPrice,
+    pix_price: toNumber(preview.pix_price ?? response.pix_price) || null,
+    cash_price: toNumber(preview.cash_price ?? response.cash_price) || null,
+    card_price: toNumber(preview.card_price ?? response.card_price) || null,
+    shipping_cost:
+      preview.shipping_cost === 0 || response.shipping_cost === 0
+        ? 0
+        : toNumber(preview.shipping_cost ?? response.shipping_cost) || null,
+    installment_count:
+      toNumber(preview.installment_count ?? response.installment_count) || null,
+    installment_amount:
+      toNumber(preview.installment_amount ?? response.installment_amount) || null,
+    installment_interest_free:
+      typeof preview.installment_interest_free === "boolean"
+        ? preview.installment_interest_free
+        : typeof response.installment_interest_free === "boolean"
+          ? response.installment_interest_free
+          : null,
+    payment_information_original:
+      toCleanText(preview.payment_information_original) ||
+      toCleanText(response.payment_information_original) ||
+      null,
     image_url:
       imageUrl === "/logo.png" || imageUrl.endsWith("/logo.png")
         ? ""
         : imageUrl,
     product_url: productUrl,
     affiliate_url: manualAffiliateUrl || extractedAffiliate || productUrl,
+  };
+}
+
+function getPreviewPaymentPayload(preview: ExtractPreview) {
+  return {
+    pix_price: preview.pix_price ?? null,
+    cash_price: preview.cash_price ?? null,
+    card_price: preview.card_price ?? null,
+    shipping_cost: preview.shipping_cost ?? null,
+    installment_count: preview.installment_count ?? null,
+    installment_amount: preview.installment_amount ?? null,
+    installment_interest_free: preview.installment_interest_free ?? null,
+    payment_information_original: preview.payment_information_original ?? null,
   };
 }
 
@@ -548,6 +606,7 @@ async function generateWhatsAppCopyFromPreview(params: {
       price: params.preview.price,
       original_price: params.preview.original_price ?? params.preview.old_price,
       discount_pct: params.preview.discount_pct,
+      ...getPreviewPaymentPayload(params.preview),
       affiliate_url: params.affiliateUrl,
       image_url: params.preview.image_url ?? params.preview.imageUrl,
       marketplace: MARKETPLACE_LABEL[params.marketplace],
@@ -760,6 +819,17 @@ export default function AdminNovaOfertaPage() {
           old_price: toNumber(offer.old_price ?? offer.original_price),
           original_price: toNumber(offer.original_price ?? offer.old_price),
           discount_pct: toNumber(offer.discount_pct),
+          pix_price: toNumber(offer.pix_price) || null,
+          cash_price: toNumber(offer.cash_price) || null,
+          card_price: toNumber(offer.card_price) || null,
+          shipping_cost:
+            offer.shipping_cost === 0 || offer.shipping_cost === "0"
+              ? 0
+              : toNumber(offer.shipping_cost) || null,
+          installment_count: toNumber(offer.installment_count) || null,
+          installment_amount: toNumber(offer.installment_amount) || null,
+          installment_interest_free: offer.installment_interest_free ?? null,
+          payment_information_original: toCleanText(offer.payment_information_original) || null,
           image_url: toCleanText(offer.image_url),
           product_url: toCleanText(offer.product_url),
           affiliate_url: toCleanText(offer.affiliate_url),
@@ -830,6 +900,7 @@ export default function AdminNovaOfertaPage() {
           price: toNumber(preview.price),
           old_price: toNumber(preview.original_price ?? preview.old_price ?? 0) || null,
           discount_pct: discountPct,
+          ...getPreviewPaymentPayload(preview),
           slot_type: selectedSlot,
           status: currentStatus || "active",
           curations_status: currentCurationsStatus || "approved",
@@ -1607,6 +1678,7 @@ export default function AdminNovaOfertaPage() {
           marketplace,
           slot_type: selectedSlot,
           copy_text: copyText,
+          ...getPreviewPaymentPayload(preview),
           publish_to_site: action === "site",
           channels:
             action === "site"
@@ -1726,6 +1798,7 @@ export default function AdminNovaOfertaPage() {
           marketplace,
           slot_type: selectedSlot,
           copy_text: copyText,
+          ...getPreviewPaymentPayload(preview),
           channels,
           publish_to_site: selectedDestinations.site,
           schedule_now: sendImmediately,
@@ -1800,6 +1873,7 @@ export default function AdminNovaOfertaPage() {
           marketplace,
           slot_type: selectedSlot,
           copy_text: copyText,
+          ...getPreviewPaymentPayload(preview),
           // Colaborador so monta a oferta — o servidor tambem forca isso,
           // mas ja mandamos os valores certos pra UI nao prometer algo que
           // nao vai acontecer.
@@ -2482,4 +2556,3 @@ export default function AdminNovaOfertaPage() {
     </div>
   );
 }
-

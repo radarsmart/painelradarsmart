@@ -38,11 +38,26 @@ export function mapOffer(row: GenericRow): OfertaCard {
     price: asNumber(row.price, 0),
     old_price: asNumber(row.old_price, 0) || undefined,
     original_price: asNumber(row.original_price, 0) || undefined,
+    pix_price: asNumber(row.pix_price, 0) || null,
+    cash_price: asNumber(row.cash_price, 0) || null,
+    card_price: asNumber(row.card_price, 0) || null,
+    shipping_cost:
+      row.shipping_cost === 0 || row.shipping_cost === "0"
+        ? 0
+        : asNumber(row.shipping_cost, 0) || null,
     discount_pct: asNumber(row.discount_pct, 0) || undefined,
     image_url: asString(row.image_url, "") || undefined,
     affiliate_url: asString(row.affiliate_url, "") || undefined,
     product_url: asString(row.product_url, "") || undefined,
     slot_type: asString(row.slot_type, "") || undefined,
+    installment_count: asNumber(row.installment_count, 0) || null,
+    installment_amount: asNumber(row.installment_amount, 0) || null,
+    installment_interest_free:
+      typeof row.installment_interest_free === "boolean"
+        ? row.installment_interest_free
+        : null,
+    coupon_code: asString(row.coupon_code, "") || null,
+    coupon_description: asString(row.coupon_description, "") || null,
   };
 }
 

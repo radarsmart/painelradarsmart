@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/admin-auth";
+import { OFFER_OPERATOR_ROLES } from "@/lib/admin-permissions";
 import { getDistributionFlags } from "@/lib/distribution/feature-flags";
 import { getNextScheduledAt } from "@/lib/distribution/legacy-dispatch";
 import { supabaseAdmin } from "@/lib/supabase";
@@ -8,7 +9,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
-  const adminGuard = await requireAdmin(req);
+  const adminGuard = await requireAdmin(req, { allowRoles: OFFER_OPERATOR_ROLES });
   if (!adminGuard.ok) {
     return NextResponse.json(
       { error: adminGuard.error },

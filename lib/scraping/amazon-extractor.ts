@@ -258,7 +258,7 @@ function buildAffiliateUrl(productUrl: string, explicitAffiliateUrl: string | nu
   const affiliateTag =
     process.env.AMAZON_AFFILIATE_TAG?.trim() ||
     process.env.AMAZON_STORE_ID?.trim() ||
-    "radarsmart202-20";
+    "radarsmartOf-20";
   if (!affiliateTag) return productUrl;
 
   try {

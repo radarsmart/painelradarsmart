@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "Radar Smart — Garimpar",
+  "version": "0.1.2",
+  "description": "Captura ofertas de Shopee, Amazon, Mercado Livre e AliExpress direto para a fila de curadoria do Radar Smart.",
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Garimpar — Radar Smart"
+  },
+  "permissions": ["activeTab", "scripting", "storage"],
+  "host_permissions": [
+    "https://radarsmart.com.br/*",
+    "https://www.radarsmart.com.br/*",
+    "https://*.vercel.app/*",
+    "http://localhost:3000/*",
+    "http://127.0.0.1:3000/*"
+  ]
+}

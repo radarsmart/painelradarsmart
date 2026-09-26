@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
       .insert({
         ...payload,
         status: "pending",
-        created_by_user_id: isUuid(adminGuard.userId) ? adminGuard.userId : null,
+        created_by_user_id: isUuid(adminGuard.userId ?? "") ? adminGuard.userId : null,
         created_by_email: adminGuard.email,
       })
       .select("id")

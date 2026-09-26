@@ -12,7 +12,7 @@ import {
   Smartphone,
 } from "lucide-react";
 import DistributionFlagsPanel from "@/components/admin/DistributionFlags";
-import { supabase } from "@/lib/supabase";
+import { supabase } from "@/lib/supabase-browser";
 
 type WhatsAppStatusResponse = {
   ok?: boolean;

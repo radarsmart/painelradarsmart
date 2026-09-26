@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { requireAdmin } from "@/lib/admin-auth";
+import { OFFER_WORKFLOW_ROLES } from "@/lib/admin-permissions";
 import { generateMlAffiliateLink } from "@/lib/scraping/ml-session-client";
 
 export const runtime = "nodejs";
@@ -11,8 +12,28 @@ function toText(value: unknown): string {
   return String(value ?? "").trim();
 }
 
+function toFriendlyAffiliateError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  const normalized = message.toLowerCase();
+
+  if (
+    normalized.includes("locator.waitfor") ||
+    normalized.includes("timeout") ||
+    normalized.includes("login/challenges") ||
+    normalized.includes("waiting for locator")
+  ) {
+    return "A sessao de afiliados do Mercado Livre nao conseguiu abrir o gerador de link. A conta pode estar deslogada, com desafio de login ou com a tela de afiliados alterada. Cole o link meli.la manualmente e tente de novo.";
+  }
+
+  if (normalized.includes("ml_affiliate_session_api_url")) {
+    return "Gerador automatico de link afiliado do Mercado Livre nao configurado.";
+  }
+
+  return "Falha ao gerar link de afiliado do Mercado Livre. Cole o link meli.la manualmente e tente de novo.";
+}
+
 export async function POST(req: NextRequest) {
-  const adminGuard = await requireAdmin(req, { allowRoles: ["admin", "central_oferta"] });
+  const adminGuard = await requireAdmin(req, { allowRoles: OFFER_WORKFLOW_ROLES });
   if (!adminGuard.ok) {
     return NextResponse.json({ error: adminGuard.error }, { status: adminGuard.status });
   }
@@ -30,8 +51,7 @@ export async function POST(req: NextRequest) {
   } catch (error) {
     return NextResponse.json(
       {
-        error:
-          error instanceof Error ? error.message : "Falha ao gerar link de afiliado do Mercado Livre.",
+        error: toFriendlyAffiliateError(error),
       },
       { status: 500 },
     );

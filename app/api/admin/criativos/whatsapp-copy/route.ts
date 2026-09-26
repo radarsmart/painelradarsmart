@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { requireAdmin } from "@/lib/admin-auth";
+import { OFFER_WORKFLOW_ROLES } from "@/lib/admin-permissions";
 import { generateWhatsAppCopy, type OfferCopyInput } from "@/lib/copy/whatsapp-generator";
 
 export const runtime = "nodejs";
@@ -15,6 +16,16 @@ function toNumber(value: unknown): number | null {
   if (value === null || value === undefined || value === "") return null;
   const parsed = Number(String(value).replace(/[^\d,.-]/g, "").replace(",", "."));
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function toBoolean(value: unknown): boolean | undefined {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["true", "1", "sim", "yes"].includes(normalized)) return true;
+    if (["false", "0", "nao", "não", "no"].includes(normalized)) return false;
+  }
+  return undefined;
 }
 
 function normalizeInput(body: Record<string, unknown>): OfferCopyInput {
@@ -44,8 +55,19 @@ function normalizeInput(body: Record<string, unknown>): OfferCopyInput {
     price,
     original_price: toNumber(body.original_price ?? body.originalPrice) ?? undefined,
     discount_pct: toNumber(body.discount_pct ?? body.discountPct) ?? undefined,
+    pix_price: toNumber(body.pix_price ?? body.pixPrice) ?? undefined,
+    cash_price: toNumber(body.cash_price ?? body.cashPrice) ?? undefined,
+    card_price: toNumber(body.card_price ?? body.cardPrice) ?? undefined,
     coupon_code: toText(body.coupon_code ?? body.couponCode) || undefined,
     coupon_discount: toNumber(body.coupon_discount ?? body.couponDiscount) ?? undefined,
+    coupon_description: toText(body.coupon_description ?? body.couponDescription) || undefined,
+    installment_count:
+      toNumber(body.installment_count ?? body.installmentCount) ?? undefined,
+    installment_amount:
+      toNumber(body.installment_amount ?? body.installmentAmount) ?? undefined,
+    installment_interest_free: toBoolean(
+      body.installment_interest_free ?? body.installmentInterestFree,
+    ),
     affiliate_url: affiliateUrl,
     image_url: toText(body.image_url ?? body.imageUrl) || undefined,
     category: toText(body.category) || undefined,
@@ -60,6 +82,29 @@ function formatCurrency(value: number): string {
     style: "currency",
     currency: "BRL",
   }).format(value);
+}
+
+function safePaymentPrice(value: unknown, referencePrice: number): number | null {
+  const parsed = toNumber(value);
+  if (parsed === null || parsed <= 0) return null;
+  return parsed <= referencePrice + 0.01 ? parsed : null;
+}
+
+function buildPaymentLine(offer: OfferCopyInput): string {
+  const pixPrice = safePaymentPrice(offer.pix_price, offer.price);
+  const cashPrice = safePaymentPrice(offer.cash_price, offer.price);
+  const displayPrice = pixPrice ?? cashPrice ?? offer.price;
+  const suffix = pixPrice ? " no PIX" : cashPrice ? " a vista" : " no PIX";
+  return `✅ Por: *${formatCurrency(displayPrice)}*${suffix}`;
+}
+
+function buildInstallmentLine(offer: OfferCopyInput): string | null {
+  const count = toNumber(offer.installment_count);
+  const amount = toNumber(offer.installment_amount);
+  if (!count || !amount) return null;
+
+  const suffix = offer.installment_interest_free ? " sem juros" : "";
+  return `ou ${count}× de ${formatCurrency(amount)}${suffix}`;
 }
 
 function buildFallbackCopy(offer: OfferCopyInput) {
@@ -79,10 +124,11 @@ function buildFallbackCopy(offer: OfferCopyInput) {
   const priceBlock = originalPrice
     ? [
         `💰 De: ~${formatCurrency(originalPrice)}~`,
-        `✅ Por: *${formatCurrency(offer.price)}*`,
+        buildPaymentLine(offer),
+        buildInstallmentLine(offer),
         `🔥 Desconto: ${discountPct}%`,
-      ].join("\n")
-    : `✅ Por: *${formatCurrency(offer.price)}*`;
+      ].filter(Boolean).join("\n")
+    : [buildPaymentLine(offer), buildInstallmentLine(offer)].filter(Boolean).join("\n");
 
   const base = [
     hook,
@@ -107,7 +153,7 @@ function buildFallbackCopy(offer: OfferCopyInput) {
 }
 
 export async function POST(req: NextRequest) {
-  const adminGuard = await requireAdmin(req, { allowRoles: ["admin", "central_oferta"] });
+  const adminGuard = await requireAdmin(req, { allowRoles: OFFER_WORKFLOW_ROLES });
   if (!adminGuard.ok) {
     return NextResponse.json({ error: adminGuard.error }, { status: adminGuard.status });
   }

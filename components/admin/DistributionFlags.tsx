@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Loader2, Save } from "lucide-react";
 
-import { supabase } from "@/lib/supabase";
+import { supabase } from "@/lib/supabase-browser";
 
 type DistributionFlags = {
   distribution_enabled: boolean;
@@ -16,7 +16,8 @@ type DistributionFlags = {
   scheduling: {
     delay_between_posts_minutes: number;
     max_posts_per_day: number;
-    best_hours: number[];
+    send_window_start: string;
+    send_window_end: string;
     timezone: string;
   };
 };
@@ -375,6 +376,61 @@ export default function DistributionFlagsPanel() {
               } as Partial<DistributionFlags>)
             }
           />
+        </label>
+      </div>
+
+      <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <label className="rounded-2xl border border-slate-200 p-4 text-sm text-slate-700">
+          Envio a partir de
+          <input
+            type="time"
+            className="mt-2 h-10 w-full rounded-xl border border-slate-200 px-3"
+            value={flags.scheduling.send_window_start}
+            disabled={disabled}
+            onChange={(event) =>
+              setFlags((prev) =>
+                prev
+                  ? {
+                      ...prev,
+                      scheduling: { ...prev.scheduling, send_window_start: event.target.value },
+                    }
+                  : prev,
+              )
+            }
+            onBlur={() =>
+              void savePartial({
+                scheduling: { send_window_start: flags.scheduling.send_window_start },
+              } as Partial<DistributionFlags>)
+            }
+          />
+        </label>
+        <label className="rounded-2xl border border-slate-200 p-4 text-sm text-slate-700">
+          Envio ate
+          <input
+            type="time"
+            className="mt-2 h-10 w-full rounded-xl border border-slate-200 px-3"
+            value={flags.scheduling.send_window_end}
+            disabled={disabled}
+            onChange={(event) =>
+              setFlags((prev) =>
+                prev
+                  ? {
+                      ...prev,
+                      scheduling: { ...prev.scheduling, send_window_end: event.target.value },
+                    }
+                  : prev,
+              )
+            }
+            onBlur={() =>
+              void savePartial({
+                scheduling: { send_window_end: flags.scheduling.send_window_end },
+              } as Partial<DistributionFlags>)
+            }
+          />
+          <span className="mt-1 block text-xs font-normal text-slate-500">
+            Ofertas que ultrapassarem esse horario vao automaticamente pro proximo horario
+            disponivel (inicio da janela do dia seguinte).
+          </span>
         </label>
       </div>
     </section>

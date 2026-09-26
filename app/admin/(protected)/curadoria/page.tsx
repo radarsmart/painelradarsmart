@@ -299,6 +299,21 @@ async function toggleOfferStatus(formData: FormData) {
   revalidatePath("/admin/curadoria");
 }
 
+async function archiveStalePending(formData: FormData) {
+  "use server";
+
+  const days = Math.max(1, Math.round(Number(formData.get("days")) || 30));
+  const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+
+  await supabaseAdmin
+    .from("offers")
+    .update({ status: "inactive", curations_status: "archived" })
+    .lt("updated_at", cutoff)
+    .or("curations_status.eq.inbox,curations_status.is.null");
+
+  revalidatePath("/admin/curadoria");
+}
+
 async function rotateOfferSlot(formData: FormData) {
   "use server";
 
@@ -523,6 +538,29 @@ export default async function CuradoriaGeralPage({
           )}
         </span>
       </div>
+
+      <form
+        action={archiveStalePending}
+        className="mb-6 flex flex-wrap items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+      >
+        <span className="text-sm font-semibold text-slate-700">
+          Arquivar pendências paradas há mais de
+        </span>
+        <input
+          type="number"
+          name="days"
+          defaultValue={30}
+          min={1}
+          className="h-9 w-20 rounded-lg border border-slate-200 px-2 text-sm"
+        />
+        <span className="text-sm font-semibold text-slate-700">dias sem revisão</span>
+        <button
+          type="submit"
+          className="ml-auto rounded-lg bg-slate-900 px-4 py-2 text-xs font-bold text-white transition-colors hover:bg-slate-700"
+        >
+          ARQUIVAR PENDÊNCIAS ANTIGAS
+        </button>
+      </form>
 
       <HealthDashboard stats={stats} />
 

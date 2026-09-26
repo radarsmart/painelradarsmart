@@ -426,9 +426,9 @@ function Wordmark() {
       <Image
         src="/logo-radar-smart.png"
         alt="Radar Smart"
-        width={32}
-        height={32}
-        className="h-8 w-8"
+        width={48}
+        height={48}
+        className="h-12 w-12"
         priority
       />
       <span className="text-xl font-bold tracking-tighter">

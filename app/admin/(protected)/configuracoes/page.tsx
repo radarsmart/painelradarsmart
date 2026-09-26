@@ -1,5 +1,6 @@
 import { supabaseAdmin } from "@/lib/supabase";
 import ServiceRestartPanel from "@/components/admin/ServiceRestartPanel";
+import AdminUsersPanel from "@/components/admin/AdminUsersPanel";
 
 export const dynamic = "force-dynamic";
 
@@ -25,6 +26,8 @@ export default async function AdminConfiguracoesPage() {
       </h1>
 
       <ServiceRestartPanel />
+
+      <AdminUsersPanel />
 
       <h2 className="font-display text-xl font-bold text-navy">
         Configuracoes de Afiliado

@@ -250,8 +250,8 @@ export default function AwinAnalyticsPage() {
           <section className="grid gap-6 xl:grid-cols-[1.5fr_1fr]">
             <div className="rounded-3xl bg-white p-6 shadow-sm">
               <h2 className="text-xl font-black text-[#1A1A1A]">Ofertas AWIN mais clicadas</h2>
-              <div className="mt-5 overflow-hidden rounded-2xl border border-slate-100">
-                <table className="w-full text-left text-sm">
+              <div className="mt-5 overflow-x-auto rounded-2xl border border-slate-100">
+                <table className="w-full min-w-[560px] text-left text-sm">
                   <thead className="bg-slate-50 text-[10px] font-black uppercase tracking-widest text-slate-500">
                     <tr>
                       <th className="px-4 py-3">Oferta</th>

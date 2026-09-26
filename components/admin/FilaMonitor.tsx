@@ -18,7 +18,8 @@ export default function FilaMonitor({ items }: { items: QueueItem[] }) {
 
   return (
     <div className="overflow-hidden rounded-xl border border-rs-border bg-white">
-      <table className="w-full text-left text-sm">
+      <div className="overflow-x-auto">
+      <table className="w-full min-w-[640px] text-left text-sm">
         <thead className="bg-slate-100">
           <tr>
             <th className="px-4 py-3">ID</th>
@@ -46,6 +47,7 @@ export default function FilaMonitor({ items }: { items: QueueItem[] }) {
           ))}
         </tbody>
       </table>
+      </div>
     </div>
   );
 }

@@ -33,7 +33,8 @@ export default async function AdminConfiguracoesPage() {
         Configuracoes de Afiliado
       </h2>
       <div className="overflow-hidden rounded-xl border border-rs-border bg-white">
-        <table className="w-full text-left text-sm">
+        <div className="overflow-x-auto">
+        <table className="w-full min-w-[420px] text-left text-sm">
           <thead className="bg-slate-100">
             <tr>
               <th className="px-4 py-3">Marketplace</th>
@@ -58,6 +59,7 @@ export default async function AdminConfiguracoesPage() {
             ) : null}
           </tbody>
         </table>
+        </div>
       </div>
     </div>
   );

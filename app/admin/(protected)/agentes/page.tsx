@@ -188,7 +188,8 @@ export default function AdminAgentesPage() {
             Nenhum agente criado ainda. Clique em &quot;Criar Agente&quot; para comecar.
           </div>
         ) : (
-          <table className="w-full text-left text-sm">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[720px] text-left text-sm">
             <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
               <tr>
                 <th className="px-4 py-3">Nome</th>
@@ -254,6 +255,7 @@ export default function AdminAgentesPage() {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </section>
     </div>

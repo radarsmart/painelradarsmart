@@ -113,7 +113,8 @@ export default function AdminUsersPanel() {
         </div>
       ) : (
         <div className="overflow-hidden rounded-xl border border-slate-200">
-          <table className="w-full text-left text-sm">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[520px] text-left text-sm">
             <thead className="bg-slate-100">
               <tr>
                 <th className="px-4 py-3">E-mail</th>
@@ -180,6 +181,7 @@ export default function AdminUsersPanel() {
               ) : null}
             </tbody>
           </table>
+          </div>
         </div>
       )}
     </div>

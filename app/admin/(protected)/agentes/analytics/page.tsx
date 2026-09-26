@@ -191,7 +191,8 @@ export default function AgentesAnalyticsPage() {
           <section className="rounded-3xl bg-white p-6 shadow-sm">
             <h2 className="text-xl font-black text-[#1A1A1A]">Performance por Agente</h2>
             <div className="mt-5 overflow-hidden rounded-2xl border border-slate-100">
-              <table className="w-full text-left text-sm">
+              <div className="overflow-x-auto">
+              <table className="w-full min-w-[640px] text-left text-sm">
                 <thead className="bg-slate-50 text-[10px] font-black uppercase tracking-widest text-slate-500">
                   <tr>
                     <th className="px-4 py-3">Agente</th>
@@ -251,6 +252,7 @@ export default function AgentesAnalyticsPage() {
                   )}
                 </tbody>
               </table>
+              </div>
             </div>
           </section>
 
@@ -261,7 +263,8 @@ export default function AgentesAnalyticsPage() {
               pra essa visao ficar completa.
             </p>
             <div className="mt-5 overflow-hidden rounded-2xl border border-slate-100">
-              <table className="w-full text-left text-sm">
+              <div className="overflow-x-auto">
+              <table className="w-full min-w-[640px] text-left text-sm">
                 <thead className="bg-slate-50 text-[10px] font-black uppercase tracking-widest text-slate-500">
                   <tr>
                     <th className="px-4 py-3">Nicho</th>
@@ -298,13 +301,15 @@ export default function AgentesAnalyticsPage() {
                   )}
                 </tbody>
               </table>
+              </div>
             </div>
           </section>
 
           <section className="rounded-3xl bg-white p-6 shadow-sm">
             <h2 className="text-xl font-black text-[#1A1A1A]">Ofertas mais clicadas (dos Agentes)</h2>
             <div className="mt-5 overflow-hidden rounded-2xl border border-slate-100">
-              <table className="w-full text-left text-sm">
+              <div className="overflow-x-auto">
+              <table className="w-full min-w-[640px] text-left text-sm">
                 <thead className="bg-slate-50 text-[10px] font-black uppercase tracking-widest text-slate-500">
                   <tr>
                     <th className="px-4 py-3">Oferta</th>
@@ -340,6 +345,7 @@ export default function AgentesAnalyticsPage() {
                   )}
                 </tbody>
               </table>
+              </div>
             </div>
           </section>
         </>

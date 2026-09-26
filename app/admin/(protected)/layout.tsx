@@ -46,6 +46,19 @@ export default function AdminProtectedLayout({
       };
     }
 
+    const fetchMe = async (accessToken: string, timeoutMs: number) => {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        return await fetch("/api/admin/me", {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timeoutId);
+      }
+    };
+
     const validate = async () => {
       try {
         const { data, error } = await supabase.auth.getSession();
@@ -56,13 +69,22 @@ export default function AdminProtectedLayout({
           return;
         }
 
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 10000);
-
-        const response = await fetch("/api/admin/me", {
-          headers: { Authorization: `Bearer ${data.session.access_token}` },
-          signal: controller.signal,
-        }).finally(() => clearTimeout(timeoutId));
+        // Funcoes serverless na Vercel podem ter cold start de 10-15s logo
+        // apos um deploy. Damos 15s na primeira tentativa e, se estourar
+        // por timeout (lambda ainda esquentando), tentamos mais uma vez em
+        // vez de já jogar pro login — evita ficar "quicando" entre
+        // /admin e /admin/login enquanto a funcao aquece.
+        let response: Response;
+        try {
+          response = await fetchMe(data.session.access_token, 15000);
+        } catch (err) {
+          if (!active) return;
+          if (err instanceof DOMException && err.name === "AbortError") {
+            response = await fetchMe(data.session.access_token, 15000);
+          } else {
+            throw err;
+          }
+        }
         if (!active) return;
 
         if (!response.ok) {

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import {
@@ -422,9 +423,14 @@ function getProfileLabel(user?: SidebarUser) {
 function Wordmark() {
   return (
     <div className="flex items-center gap-2">
-      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#FFC300]">
-        <Zap className="h-5 w-5 fill-black text-black" />
-      </div>
+      <Image
+        src="/logo-radar-smart.png"
+        alt="Radar Smart"
+        width={32}
+        height={32}
+        className="h-8 w-8"
+        priority
+      />
       <span className="text-xl font-bold tracking-tighter">
         RADAR <span className="text-[#FFC300]">SMART</span>
       </span>

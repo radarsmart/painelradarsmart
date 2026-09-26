@@ -3,12 +3,13 @@
 import Link from "next/link";
 import Image from "next/image";
 import { useEffect, useState } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   CENTRAL_OFERTA_ROLE,
   getRoleLabel,
   OFFER_OPERATOR_ROLE,
 } from "@/lib/admin-permissions";
+import { supabase } from "@/lib/supabase-browser";
 import type { LucideIcon } from "lucide-react";
 import {
   BarChart3,
@@ -21,6 +22,7 @@ import {
   Flame,
   Image as ImageIcon,
   LayoutDashboard,
+  LogOut,
   Menu,
   MessageSquareMore,
   Package,
@@ -440,6 +442,7 @@ function Wordmark() {
 
 export default function AdminSidebar({ user }: { user?: SidebarUser }) {
   const pathname = usePathname();
+  const router = useRouter();
   const profile = getProfileLabel(user);
   const groups = filterMenuForRole(user?.role);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
@@ -447,6 +450,12 @@ export default function AdminSidebar({ user }: { user?: SidebarUser }) {
   useEffect(() => {
     setIsDrawerOpen(false);
   }, [pathname]);
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    router.replace("/admin/login");
+    router.refresh();
+  };
 
   return (
     <>
@@ -489,10 +498,19 @@ export default function AdminSidebar({ user }: { user?: SidebarUser }) {
                 <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#FFC300] text-xs font-bold text-black">
                   {profile.initials}
                 </div>
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <p className="truncate text-xs font-bold">{profile.name}</p>
                   <p className="truncate text-[10px] text-gray-500">{profile.role}</p>
                 </div>
+                <button
+                  type="button"
+                  onClick={handleLogout}
+                  className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 text-gray-400 transition hover:border-red-500/40 hover:text-red-400"
+                  aria-label="Sair"
+                  title="Sair"
+                >
+                  <LogOut size={16} />
+                </button>
               </div>
             </div>
           </div>
@@ -513,10 +531,19 @@ export default function AdminSidebar({ user }: { user?: SidebarUser }) {
             <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#FFC300] text-xs font-bold text-black">
               {profile.initials}
             </div>
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <p className="truncate text-xs font-bold">{profile.name}</p>
               <p className="truncate text-[10px] text-gray-500">{profile.role}</p>
             </div>
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 text-gray-400 transition hover:border-red-500/40 hover:text-red-400"
+              aria-label="Sair"
+              title="Sair"
+            >
+              <LogOut size={16} />
+            </button>
           </div>
         </div>
       </aside>
